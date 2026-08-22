@@ -1,101 +1,42 @@
 import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
 
-enum StatusType {
-  available,
-  approved,
-  pending,
-  rejected,
-  lowStock,
-  inUse,
-  neutral,
-}
+enum BadgeTone { green, blue, orange, red }
 
 class StatusBadge extends StatelessWidget {
   final String label;
-  final StatusType? type;
+  final BadgeTone tone;
 
-  const StatusBadge({
-    super.key,
-    required this.label,
-    this.type,
-  });
+  const StatusBadge({super.key, required this.label, required this.tone});
 
-  StatusType get resolvedType {
-    if (type != null) {
-      return type!;
-    }
-
-    switch (label.toLowerCase()) {
-      case 'available':
-      case 'returned':
-      case 'approved':
-        return StatusType.approved;
-
-      case 'pending':
-        return StatusType.pending;
-
-      case 'rejected':
-        return StatusType.rejected;
-
-      case 'low stock':
-        return StatusType.lowStock;
-
-      case 'in use':
-      case 'checked out':
-        return StatusType.inUse;
-
-      default:
-        return StatusType.neutral;
+  ({Color bg, Color fg}) get _colors {
+    switch (tone) {
+      case BadgeTone.green:
+        return (bg: AppColors.greenBg, fg: AppColors.green);
+      case BadgeTone.blue:
+        return (bg: AppColors.blueBg, fg: AppColors.blue);
+      case BadgeTone.orange:
+        return (bg: AppColors.orangeBg, fg: AppColors.orange);
+      case BadgeTone.red:
+        return (bg: AppColors.redBg, fg: AppColors.red);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    late Color background;
-    late Color foreground;
-
-    switch (resolvedType) {
-      case StatusType.available:
-      case StatusType.approved:
-        background = const Color(0xFFE6F3D8);
-        foreground = const Color(0xFF3D6825);
-
-      case StatusType.pending:
-        background = const Color(0xFFFFE8C7);
-        foreground = const Color(0xFF81531A);
-
-      case StatusType.rejected:
-        background = const Color(0xFFF7DADA);
-        foreground = const Color(0xFF8C2929);
-
-      case StatusType.lowStock:
-        background = const Color(0xFFFFE5E1);
-        foreground = const Color(0xFF98382E);
-
-      case StatusType.inUse:
-        background = const Color(0xFFDCEAF8);
-        foreground = const Color(0xFF285B88);
-
-      case StatusType.neutral:
-        background = const Color(0xFFE2E2DF);
-        foreground = const Color(0xFF454542);
-    }
-
+    final c = _colors;
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 9,
-        vertical: 4,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: background,
+        color: c.bg,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
         label,
         style: TextStyle(
-          color: foreground,
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
+          color: c.fg,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );

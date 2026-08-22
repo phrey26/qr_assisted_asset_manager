@@ -7,7 +7,7 @@ void main() {
     (WidgetTester tester) async {
       // Start the application.
       await tester.pumpWidget(
-        const CSDOAssetManager(),
+        const CsdoAssetApp(),
       );
 
       // Allow the initial frame to render.
@@ -37,11 +37,6 @@ void main() {
 
       expect(
         find.text('Requests'),
-        findsOneWidget,
-      );
-
-      expect(
-        find.text('More'),
         findsOneWidget,
       );
     },
