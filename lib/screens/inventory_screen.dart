@@ -1,243 +1,113 @@
 import 'package:flutter/material.dart';
+
+import '../models/asset.dart';
 import '../theme/app_theme.dart';
-import '../widgets/common.dart';
-import '../widgets/status_badge.dart';
+import '../widgets/asset_card.dart';
+import '../widgets/page_header.dart';
 
-class _AssetItem {
-  final String name;
-  final String id;
-  final String category;
-  final int qty;
-  final String status;
-  final BadgeTone tone;
+class InventoryScreen extends StatefulWidget {
+  const InventoryScreen({super.key, required this.assets});
 
-  const _AssetItem({
-    required this.name,
-    required this.id,
-    required this.category,
-    required this.qty,
-    required this.status,
-    required this.tone,
-  });
+  final List<AssetItem> assets;
+
+  @override
+  State<InventoryScreen> createState() => _InventoryScreenState();
 }
 
-const _assets = [
-  _AssetItem(
-    name: 'Projector',
-    id: 'CSDO-2024-0031',
-    category: 'Equipment',
-    qty: 3,
-    status: 'Available',
-    tone: BadgeTone.green,
-  ),
-  _AssetItem(
-    name: 'Laptop',
-    id: 'CSDO-2024-0007',
-    category: 'Equipment',
-    qty: 8,
-    status: 'In use',
-    tone: BadgeTone.blue,
-  ),
-  _AssetItem(
-    name: 'Bond paper (A4)',
-    id: 'CSDO-2024-0055',
-    category: 'Supplies',
-    qty: 3,
-    status: 'Low stock',
-    tone: BadgeTone.red,
-  ),
-  _AssetItem(
-    name: 'Whiteboard marker',
-    id: 'CSDO-2024-0019',
-    category: 'Supplies',
-    qty: 5,
-    status: 'Low stock',
-    tone: BadgeTone.orange,
-  ),
-];
+class _InventoryScreenState extends State<InventoryScreen> {
+  final searchController = TextEditingController();
+  String filter = 'All';
 
-class InventoryScreen extends StatelessWidget {
-  const InventoryScreen({super.key});
+  @override
+  void initState() {
+    super.initState();
+    searchController.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
+  List<AssetItem> get filtered {
+    final query = searchController.text.toLowerCase();
+    return widget.assets.where((asset) {
+      final matchesQuery = asset.name.toLowerCase().contains(query) ||
+          asset.tagId.toLowerCase().contains(query);
+      final matchesFilter = filter == 'All' ||
+          (filter == 'Available' && asset.status == AssetStatus.available) ||
+          (filter == 'In use' && asset.status == AssetStatus.inUse) ||
+          (filter == 'Maintenance' && asset.status == AssetStatus.maintenance);
+      return matchesQuery && matchesFilter;
+    }).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: buildCsdoAppBar(
-        leadingIcon: Icons.inventory_2_outlined,
-        title: 'Inventory',
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () {},
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Add asset'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              _IconSquareButton(icon: Icons.file_download_outlined, onTap: () {}),
-            ],
-          ),
-          const SizedBox(height: 14),
-          TextField(
-            decoration: const InputDecoration(
-              hintText: 'Search assets...',
-              prefixIcon: Icon(Icons.search, color: AppColors.textMuted, size: 20),
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(28, 42, 28, 0),
+          sliver: SliverToBoxAdapter(
+            child: PageHeader(
+              title: 'Inventory',
+              subtitle: '${widget.assets.length} assets tracked',
+              showMark: false,
             ),
           ),
-          const SizedBox(height: 10),
-          Row(
-            children: const [
-              Expanded(child: _FilterDropdown(label: 'All categories')),
-              SizedBox(width: 10),
-              Expanded(child: _FilterDropdown(label: 'All status')),
-            ],
-          ),
-          const SizedBox(height: 16),
-          for (final asset in _assets) ...[
-            _AssetCard(item: asset),
-            const SizedBox(height: 12),
-          ],
-          const SizedBox(height: 4),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Showing 4 of 284 assets',
-                style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5),
-              ),
-              Row(
-                children: [
-                  _IconSquareButton(icon: Icons.chevron_left, onTap: () {}, size: 34),
-                  const SizedBox(width: 8),
-                  _IconSquareButton(icon: Icons.chevron_right, onTap: () {}, size: 34),
-                ],
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _FilterDropdown extends StatelessWidget {
-  final String label;
-  const _FilterDropdown({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceAlt,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          const Icon(Icons.keyboard_arrow_down, size: 18, color: AppColors.textMuted),
-        ],
-      ),
-    );
-  }
-}
-
-class _IconSquareButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-  final double size;
-
-  const _IconSquareButton({required this.icon, required this.onTap, this.size = 46});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(10),
-      onTap: onTap,
-      child: Container(
-        width: size,
-        height: size,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: AppColors.surfaceAlt,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppColors.border),
         ),
-        child: Icon(icon, size: 18, color: AppColors.textSecondary),
-      ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(28, 28, 28, 18),
+          sliver: SliverToBoxAdapter(
+            child: TextField(
+              controller: searchController,
+              decoration: const InputDecoration(
+                hintText: 'Search by name or tag ID',
+                prefixIcon: Icon(Icons.search),
+              ),
+            ),
+          ),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          sliver: SliverToBoxAdapter(child: _filters()),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(28, 20, 28, 110),
+          sliver: SliverList.builder(
+            itemCount: filtered.length,
+            itemBuilder: (_, index) => AssetCard(asset: filtered[index]),
+          ),
+        ),
+      ],
     );
   }
-}
 
-class _AssetCard extends StatelessWidget {
-  final _AssetItem item;
-  const _AssetCard({required this.item});
-
-  @override
-  Widget build(BuildContext context) {
-    return SectionCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Padding(
-                padding: EdgeInsets.only(top: 2, right: 10),
-                child: Icon(Icons.check_box_outline_blank,
-                    size: 18, color: AppColors.textMuted),
+  Widget _filters() {
+    const filters = ['All', 'Available', 'In use', 'Maintenance'];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: filters.map((item) {
+          final selected = filter == item;
+          return Padding(
+            padding: const EdgeInsets.only(right: 10),
+            child: ChoiceChip(
+              label: Text(item),
+              selected: selected,
+              onSelected: (_) => setState(() => filter = item),
+              selectedColor: AppTheme.darkGreen,
+              backgroundColor: Colors.white,
+              side: const BorderSide(color: AppTheme.border, width: 2),
+              labelStyle: TextStyle(
+                color: selected ? Colors.white : AppTheme.darkGreen,
+                fontWeight: FontWeight.w800,
               ),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(item.name,
-                        style: const TextStyle(
-                            fontSize: 15, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 3),
-                    Text(item.id,
-                        style: const TextStyle(
-                            fontSize: 12.5, color: AppColors.textSecondary)),
-                  ],
-                ),
-              ),
-              StatusBadge(label: item.status, tone: item.tone),
-            ],
-          ),
-          const SizedBox(height: 12),
-          const Divider(height: 1),
-          const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('${item.category} · Qty ${item.qty}',
-                  style: const TextStyle(
-                      fontSize: 12.5, color: AppColors.textSecondary)),
-              Row(
-                children: const [
-                  Icon(Icons.edit_outlined, size: 17, color: AppColors.textMuted),
-                  SizedBox(width: 14),
-                  Icon(Icons.qr_code_2, size: 17, color: AppColors.textMuted),
-                  SizedBox(width: 14),
-                  Icon(Icons.delete_outline, size: 17, color: AppColors.red),
-                ],
-              ),
-            ],
-          ),
-        ],
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+          );
+        }).toList(),
       ),
     );
   }

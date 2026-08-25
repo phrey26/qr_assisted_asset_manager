@@ -1,20 +1,21 @@
-name: qr_assisted_asset_manager
-description: "CSDO QR-Code Assisted Asset and Equipment Management System - mobile UI"
-publish_to: 'none'
+name: qr_assisted_asset_management
+description: A QR-assisted campus asset management application.
+publish_to: "none"
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.3.0 <4.0.0'
+  sdk: ">=3.6.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
-  cupertino_icons: ^1.0.6
+  cupertino_icons: ^1.0.8
+  mobile_scanner: ^6.0.2
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^4.0.0
+  flutter_lints: ^5.0.0
 
 flutter:
   uses-material-design: true
