@@ -1,4 +1,7 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../models/asset.dart';
 import '../theme/app_theme.dart';
@@ -37,6 +40,7 @@ class _AddAssetFormState extends State<AddAssetForm> {
   late final tagController = TextEditingController(text: widget.nextTagId);
   String category = 'IT equipment';
   DateTime? purchaseDate;
+  Uint8List? imageBytes;
 
   @override
   void dispose() {
@@ -56,6 +60,25 @@ class _AddAssetFormState extends State<AddAssetForm> {
     );
     if (picked != null) {
       setState(() => purchaseDate = picked);
+    }
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final image = await ImagePicker().pickImage(
+        source: source,
+        maxWidth: 1600,
+        imageQuality: 85,
+      );
+      if (image == null) return;
+      final bytes = await image.readAsBytes();
+      if (mounted) setState(() => imageBytes = bytes);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not access the selected image.')),
+        );
+      }
     }
   }
 
@@ -80,6 +103,7 @@ class _AddAssetFormState extends State<AddAssetForm> {
         description: descriptionController.text.trim(),
         status: AssetStatus.available,
         purchaseDate: purchaseDate!,
+        imageBytes: imageBytes,
       ),
     );
   }
@@ -149,6 +173,9 @@ class _AddAssetFormState extends State<AddAssetForm> {
           ),
         ),
         SizedBox(height: gap),
+        _label('Asset photo (optional)'),
+        _photoPicker(),
+        SizedBox(height: gap),
         _label('Description'),
         TextField(
           controller: descriptionController,
@@ -199,4 +226,48 @@ class _AddAssetFormState extends State<AddAssetForm> {
           ),
         ),
       );
+
+  Widget _photoPicker() {
+    final preview = imageBytes == null
+        ? Container(
+            color: AppTheme.mint,
+            child: const Center(
+              child: Icon(Icons.image_outlined, color: AppTheme.primary, size: 38),
+            ),
+          )
+        : Image.memory(imageBytes!, fit: BoxFit.cover);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: SizedBox(width: 150, height: 112, child: preview),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 10,
+          runSpacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed: () => _pickImage(ImageSource.camera),
+              icon: const Icon(Icons.camera_alt_outlined),
+              label: const Text('Take photo'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => _pickImage(ImageSource.gallery),
+              icon: const Icon(Icons.upload_file_outlined),
+              label: const Text('Upload image'),
+            ),
+            if (imageBytes != null)
+              TextButton.icon(
+                onPressed: () => setState(() => imageBytes = null),
+                icon: const Icon(Icons.close),
+                label: const Text('Remove'),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
 }

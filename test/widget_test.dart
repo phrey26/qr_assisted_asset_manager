@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qr_assisted_asset_management/main.dart';
+import 'package:qr_assisted_asset_management/models/asset.dart';
 import 'package:qr_assisted_asset_management/screens/login_screen.dart';
 
 void main() {
@@ -46,5 +47,23 @@ void main() {
 
   test('login route name is defined', () {
     expect(LoginScreen.routeName, '/login');
+  });
+
+  test('new asset tag has the CSDO-IT prefix and does not duplicate an existing tag', () {
+    final existing = [
+      AssetItem(
+        name: 'Existing asset',
+        tagId: 'CSDO-IT-0000',
+        category: 'IT equipment',
+        description: '',
+        status: AssetStatus.available,
+        purchaseDate: DateTime(2024),
+      ),
+    ];
+
+    final tagId = AssetItem.nextTagId(existing);
+
+    expect(tagId, matches(RegExp(r'^CSDO-IT-\d{4}$')));
+    expect(existing.map((asset) => asset.tagId), isNot(contains(tagId)));
   });
 }

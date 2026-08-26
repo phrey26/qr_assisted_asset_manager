@@ -45,11 +45,14 @@ class AssetCard extends StatelessWidget {
                     color: AppTheme.mint,
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: Icon(
-                    _iconFor(asset.category),
-                    color: AppTheme.primary,
-                    size: 42,
-                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: asset.imageBytes == null
+                      ? Icon(
+                          _iconFor(asset.category),
+                          color: AppTheme.primary,
+                          size: 42,
+                        )
+                      : Image.memory(asset.imageBytes!, fit: BoxFit.cover),
                 ),
                 const SizedBox(width: 24),
                 Expanded(

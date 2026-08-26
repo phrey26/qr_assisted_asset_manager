@@ -1,3 +1,6 @@
+import 'dart:math';
+import 'dart:typed_data';
+
 enum AssetStatus { available, inUse, maintenance }
 
 extension AssetStatusX on AssetStatus {
@@ -21,6 +24,7 @@ class AssetItem {
     required this.description,
     required this.status,
     required this.purchaseDate,
+    this.imageBytes,
   });
 
   final String name;
@@ -32,6 +36,11 @@ class AssetItem {
   /// When the asset was purchased. Required for every asset regardless of
   /// category.
   final DateTime purchaseDate;
+
+  /// Optional photo captured or selected when the asset was added.
+  /// Keeping the bytes with the item lets the same image work on mobile,
+  /// desktop, and web without relying on a temporary file path.
+  final Uint8List? imageBytes;
 
   /// How many years an "IT equipment" asset is expected to remain in
   /// service before it's flagged as past its lifespan.
@@ -114,12 +123,21 @@ class AssetItem {
       '${_months[date.month - 1]} ${date.day}, ${date.year}';
 
   static String nextTagId(List<AssetItem> assets) {
-    var max = 0;
-    for (final asset in assets) {
-      final match = RegExp(r'(\d+)$').firstMatch(asset.tagId);
-      final number = int.tryParse(match?.group(1) ?? '') ?? 0;
-      if (number > max) max = number;
+    final existingTags = assets.map((asset) => asset.tagId).toSet();
+    const tagPrefix = 'CSDO-IT-';
+    const possibleNumbers = 10000;
+    final tagFormat = RegExp(r'^CSDO-IT-\d{4}$');
+    final usedTagCount = existingTags.where(tagFormat.hasMatch).length;
+
+    if (usedTagCount >= possibleNumbers) {
+      throw StateError('All available CSDO-IT asset tag IDs have been used.');
     }
-    return 'CSDO-IT-${(max + 1).toString().padLeft(4, '0')}';
+
+    final random = Random();
+    while (true) {
+      final number = random.nextInt(possibleNumbers).toString().padLeft(4, '0');
+      final tagId = '$tagPrefix$number';
+      if (!existingTags.contains(tagId)) return tagId;
+    }
   }
 }

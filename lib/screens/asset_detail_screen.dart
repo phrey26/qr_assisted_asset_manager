@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../models/asset.dart';
 import '../theme/app_theme.dart';
+import '../utils/responsive.dart';
 import '../widgets/delete_confirmation_dialog.dart';
 import '../widgets/status_chip.dart';
 
@@ -98,42 +99,123 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         ],
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(28, 12, 28, 40),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Text(
-                      asset.name,
-                      style: const TextStyle(
-                        color: AppTheme.darkGreen,
-                        fontSize: 26,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  StatusChip(status: asset.status),
-                ],
-              ),
-              const SizedBox(height: 28),
-              if (asset.isPastLifespan) ...[
-                _lifespanWarningBanner(),
-                const SizedBox(height: 20),
-              ],
-              _infoCard(asset),
-              const SizedBox(height: 24),
-              _qrCard(),
-            ],
-          ),
-        ),
+        child: Responsive.isDesktop(context)
+            ? _desktopBody(asset)
+            : _mobileBody(asset),
       ),
     );
   }
+
+  /// The mobile presentation remains a single column; this keeps its cards
+  /// comfortably readable on a phone without desktop-only whitespace.
+  Widget _mobileBody(AssetItem asset) => SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(28, 12, 28, 40),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _assetHeading(asset),
+            const SizedBox(height: 28),
+            if (asset.isPastLifespan) ...[
+              _lifespanWarningBanner(),
+              const SizedBox(height: 20),
+            ],
+            if (asset.imageBytes != null) ...[
+              _assetPhoto(asset),
+              const SizedBox(height: 24),
+            ],
+            _infoCard(asset),
+            const SizedBox(height: 24),
+            _qrCard(),
+          ],
+        ),
+      );
+
+  /// Desktop uses a deliberately constrained, two-column layout rather than
+  /// allowing the phone-sized information and QR cards to span the window.
+  Widget _desktopBody(AssetItem asset) => SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(48, 42, 48, 56),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1160),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _assetHeading(asset, desktop: true),
+                const SizedBox(height: 30),
+                if (asset.isPastLifespan) ...[
+                  _lifespanWarningBanner(),
+                  const SizedBox(height: 24),
+                ],
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (asset.imageBytes != null) ...[
+                            _assetPhoto(asset, desktop: true),
+                            const SizedBox(height: 24),
+                          ],
+                          _infoCard(asset, desktop: true),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 28),
+                    SizedBox(width: 350, child: _qrCard(desktop: true)),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+  Widget _assetHeading(AssetItem asset, {bool desktop = false}) => Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  asset.name,
+                  style: TextStyle(
+                    color: AppTheme.darkGreen,
+                    fontSize: desktop ? 32 : 26,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                if (desktop) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    asset.tagId,
+                    style: const TextStyle(
+                      color: AppTheme.muted,
+                      fontFamily: 'monospace',
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          StatusChip(status: asset.status),
+        ],
+      );
+
+  Widget _assetPhoto(AssetItem asset, {bool desktop = false}) => ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: AspectRatio(
+          aspectRatio: desktop ? 16 / 9 : 4 / 3,
+          child: Image.memory(
+            asset.imageBytes!,
+            fit: BoxFit.cover,
+            semanticLabel: 'Photo of ${asset.name}',
+          ),
+        ),
+      );
 
   /// Banner shown when this asset is IT equipment past its expected
   /// [AssetItem.itEquipmentLifespanYears]-year lifespan, so the admin
@@ -179,7 +261,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     );
   }
 
-  Widget _infoCard(AssetItem asset) {
+  Widget _infoCard(AssetItem asset, {bool desktop = false}) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
@@ -188,20 +270,54 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppTheme.border, width: 2),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _detailRow('Asset tag ID', asset.tagId, mono: true),
-          _detailRow('Category', asset.category),
-          _detailRow('Date of purchase', asset.formattedPurchaseDate),
-          _detailRow('Status', asset.status.label),
-          _detailRow(
-            'Description',
-            asset.description.isEmpty ? 'No description provided.' : asset.description,
-            isLast: true,
-          ),
-        ],
-      ),
+      child: desktop
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Asset information',
+                  style: TextStyle(
+                    color: AppTheme.darkGreen,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 18,
+                  ),
+                ),
+                const SizedBox(height: 22),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: _detailRow('Asset tag ID', asset.tagId, mono: true)),
+                    Expanded(child: _detailRow('Category', asset.category)),
+                  ],
+                ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: _detailRow('Date of purchase', asset.formattedPurchaseDate)),
+                    Expanded(child: _detailRow('Status', asset.status.label)),
+                  ],
+                ),
+                _detailRow(
+                  'Description',
+                  asset.description.isEmpty ? 'No description provided.' : asset.description,
+                  isLast: true,
+                ),
+              ],
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _detailRow('Asset tag ID', asset.tagId, mono: true),
+                _detailRow('Category', asset.category),
+                _detailRow('Date of purchase', asset.formattedPurchaseDate),
+                _detailRow('Status', asset.status.label),
+                _detailRow(
+                  'Description',
+                  asset.description.isEmpty ? 'No description provided.' : asset.description,
+                  isLast: true,
+                ),
+              ],
+            ),
     );
   }
 
@@ -234,7 +350,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     );
   }
 
-  Widget _qrCard() {
+  Widget _qrCard({bool desktop = false}) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
@@ -270,7 +386,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                 // so encoding it here keeps scan -> lookup consistent.
                 data: widget.asset.tagId,
                 version: QrVersions.auto,
-                size: 220,
+                size: desktop ? 200 : 220,
                 backgroundColor: Colors.white,
               ),
             ),
