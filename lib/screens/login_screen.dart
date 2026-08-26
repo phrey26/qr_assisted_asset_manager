@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../main.dart';
 import '../theme/app_theme.dart';
+import '../utils/responsive.dart';
 import '../widgets/brand_mark.dart';
 import 'register_screen.dart';
 
@@ -35,13 +36,27 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = Responsive.isDesktop(context);
     return Scaffold(
+      backgroundColor: isDesktop ? const Color(0xFFF6F5F0) : Colors.white,
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(28, 70, 28, 40),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 650),
-            child: Column(
+          padding: EdgeInsets.fromLTRB(28, isDesktop ? 40 : 70, 28, 40),
+          child: Center(
+            child: Container(
+              width: double.infinity,
+              constraints: BoxConstraints(maxWidth: isDesktop ? 420 : 650),
+              padding: isDesktop
+                  ? const EdgeInsets.all(40)
+                  : EdgeInsets.zero,
+              decoration: isDesktop
+                  ? BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: AppTheme.border, width: 1.5),
+                    )
+                  : null,
+              child: Column(
               children: [
                 const BrandMark(size: 120),
                 const SizedBox(height: 40),
@@ -122,6 +137,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
               ],
+              ),
             ),
           ),
         ),

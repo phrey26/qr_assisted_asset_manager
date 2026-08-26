@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/asset.dart';
 import '../theme/app_theme.dart';
+import '../utils/responsive.dart';
 import '../widgets/page_header.dart';
 
 class CategoriesScreen extends StatefulWidget {
@@ -36,48 +37,75 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
         .where((category) => category.$1.toLowerCase().contains(query))
         .toList();
 
+    final isDesktop = Responsive.isDesktop(context);
+    final maxWidth = isDesktop ? 1040.0 : double.infinity;
+    final columns = Responsive.categoryColumns(context);
+
     return CustomScrollView(
       slivers: [
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(28, 42, 28, 0),
           sliver: SliverToBoxAdapter(
-            child: PageHeader(
-              title: 'Categories',
-              subtitle: 'Browse assets by type',
-              showMark: false,
+            child: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxWidth),
+                child: const PageHeader(
+                  title: 'Categories',
+                  subtitle: 'Browse assets by type',
+                  showMark: false,
+                ),
+              ),
             ),
           ),
         ),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(28, 28, 28, 26),
           sliver: SliverToBoxAdapter(
-            child: TextField(
-              controller: controller,
-              onChanged: (_) => setState(() {}),
-              decoration: const InputDecoration(
-                hintText: 'Search categories',
-                prefixIcon: Icon(Icons.search),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxWidth),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: isDesktop ? 360 : double.infinity),
+                    child: TextField(
+                      controller: controller,
+                      onChanged: (_) => setState(() {}),
+                      decoration: const InputDecoration(
+                        hintText: 'Search categories',
+                        prefixIcon: Icon(Icons.search),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
         ),
         SliverPadding(
           padding: const EdgeInsets.symmetric(horizontal: 28),
-          sliver: SliverGrid(
-            delegate: SliverChildBuilderDelegate(
-              (_, index) => _CategoryCard(
-                name: visible[index].$1,
-                icon: visible[index].$2,
-                color: visible[index].$3,
-                count: _countFor(visible[index].$1),
+          sliver: SliverToBoxAdapter(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxWidth),
+                child: GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: visible.length,
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: columns,
+                    crossAxisSpacing: 18,
+                    mainAxisSpacing: 18,
+                    childAspectRatio: .83,
+                  ),
+                  itemBuilder: (_, index) => _CategoryCard(
+                    name: visible[index].$1,
+                    icon: visible[index].$2,
+                    color: visible[index].$3,
+                    count: _countFor(visible[index].$1),
+                  ),
+                ),
               ),
-              childCount: visible.length,
-            ),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 18,
-              mainAxisSpacing: 18,
-              childAspectRatio: .83,
             ),
           ),
         ),

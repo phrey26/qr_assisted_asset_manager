@@ -3,6 +3,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../models/asset.dart';
 import '../theme/app_theme.dart';
+import '../utils/responsive.dart';
 import '../widgets/status_chip.dart';
 
 class QrScannerScreen extends StatefulWidget {
@@ -46,82 +47,41 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = Responsive.isDesktop(context);
+    final maxWidth = isDesktop ? 1040.0 : double.infinity;
+
     return CustomScrollView(
       slivers: [
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(28, 42, 28, 0),
           sliver: SliverToBoxAdapter(
-            child: Text(
-              'Scan asset',
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    color: AppTheme.darkGreen,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 32,
-                  ),
-            ),
-          ),
-        ),
-        const SliverPadding(
-          padding: EdgeInsets.fromLTRB(28, 4, 28, 24),
-          sliver: SliverToBoxAdapter(
-            child: Text(
-              'Point the camera at an asset tag',
-              style: TextStyle(color: AppTheme.muted, fontSize: 19),
-            ),
-          ),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 28),
-          sliver: SliverToBoxAdapter(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(30),
-              child: SizedBox(
-                height: 440,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    MobileScanner(
-                      controller: controller,
-                      onDetect: (capture) {
-                        final barcodes = capture.barcodes;
-                        final code =
-                            barcodes.isEmpty ? null : barcodes.first.rawValue;
-                        if (code != null) _handleTag(code);
-                      },
-                    ),
-                    IgnorePointer(
-                      child: CustomPaint(
-                        painter: _ScannerOverlayPainter(),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxWidth),
+                child: Text(
+                  'Scan asset',
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                        color: AppTheme.darkGreen,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 32,
                       ),
-                    ),
-                    Positioned(
-                      top: 16,
-                      right: 16,
-                      child: IconButton.filled(
-                        style: IconButton.styleFrom(
-                          backgroundColor: Colors.black54,
-                          foregroundColor: Colors.white,
-                        ),
-                        onPressed: () async {
-                          await controller.toggleTorch();
-                          setState(() => torchOn = !torchOn);
-                        },
-                        icon: Icon(torchOn ? Icons.flash_on : Icons.flash_off),
-                      ),
-                    ),
-                  ],
                 ),
               ),
             ),
           ),
         ),
-        const SliverPadding(
-          padding: EdgeInsets.fromLTRB(28, 22, 28, 12),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(28, 4, 28, 24),
           sliver: SliverToBoxAdapter(
             child: Center(
-              child: Text(
-                'Align the QR tag within the frame',
-                style: TextStyle(color: AppTheme.darkGreen, fontSize: 18),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxWidth),
+                child: Text(
+                  isDesktop
+                      ? 'Point the camera at an asset tag, or enter its ID manually'
+                      : 'Point the camera at an asset tag',
+                  style: const TextStyle(color: AppTheme.muted, fontSize: 19),
+                ),
               ),
             ),
           ),
@@ -129,46 +89,198 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
         SliverPadding(
           padding: const EdgeInsets.symmetric(horizontal: 28),
           sliver: SliverToBoxAdapter(
-            child: Row(
-              children: const [
-                Expanded(child: Divider(color: AppTheme.border, thickness: 2)),
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 14),
-                  child: Text(
-                    'or enter tag ID manually',
-                    style: TextStyle(color: AppTheme.muted, fontSize: 17),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxWidth),
+                child: isDesktop ? _desktopSplit() : _scanColumn(),
+              ),
+            ),
+          ),
+        ),
+        SliverToBoxAdapter(child: SizedBox(height: isDesktop ? 40 : 100)),
+      ],
+    );
+  }
+
+  // --- Desktop: scanner + manual entry on the left, live details panel on
+  // the right, matching the hi-fi desktop mockups' split layout. ---
+  Widget _desktopSplit() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(flex: 11, child: _scanColumn()),
+        const SizedBox(width: 24),
+        Expanded(flex: 9, child: _detailsPanel()),
+      ],
+    );
+  }
+
+  Widget _scanColumn() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(30),
+          child: SizedBox(
+            height: 340,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                MobileScanner(
+                  controller: controller,
+                  onDetect: (capture) {
+                    final barcodes = capture.barcodes;
+                    final code = barcodes.isEmpty ? null : barcodes.first.rawValue;
+                    if (code != null) _handleTag(code);
+                  },
+                ),
+                IgnorePointer(
+                  child: CustomPaint(painter: _ScannerOverlayPainter()),
+                ),
+                Positioned(
+                  top: 16,
+                  right: 16,
+                  child: IconButton.filled(
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.black54,
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: () async {
+                      await controller.toggleTorch();
+                      setState(() => torchOn = !torchOn);
+                    },
+                    icon: Icon(torchOn ? Icons.flash_on : Icons.flash_off),
                   ),
                 ),
-                Expanded(child: Divider(color: AppTheme.border, thickness: 2)),
               ],
             ),
           ),
         ),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(28, 14, 28, 20),
-          sliver: SliverToBoxAdapter(
-            child: TextField(
-              controller: tagController,
-              textInputAction: TextInputAction.search,
-              onSubmitted: _handleTag,
-              decoration: InputDecoration(
-                hintText: 'CSDO-IT-0231',
-                suffixIcon: IconButton(
-                  onPressed: () => _handleTag(tagController.text),
-                  icon: const Icon(Icons.arrow_forward),
-                ),
+        const SizedBox(height: 20),
+        const Center(
+          child: Text(
+            'Align the QR tag within the frame',
+            style: TextStyle(color: AppTheme.darkGreen, fontSize: 16),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: const [
+            Expanded(child: Divider(color: AppTheme.border, thickness: 2)),
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 14),
+              child: Text(
+                'or enter tag ID manually',
+                style: TextStyle(color: AppTheme.muted, fontSize: 15),
               ),
+            ),
+            Expanded(child: Divider(color: AppTheme.border, thickness: 2)),
+          ],
+        ),
+        const SizedBox(height: 14),
+        TextField(
+          controller: tagController,
+          textInputAction: TextInputAction.search,
+          onSubmitted: _handleTag,
+          decoration: InputDecoration(
+            hintText: 'CSDO-IT-0231',
+            suffixIcon: IconButton(
+              onPressed: () => _handleTag(tagController.text),
+              icon: const Icon(Icons.arrow_forward),
             ),
           ),
         ),
-        if (scannedTag != null)
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(28, 0, 28, 110),
-            sliver: SliverToBoxAdapter(child: _result()),
-          )
-        else
-          const SliverToBoxAdapter(child: SizedBox(height: 100)),
+        // On mobile the result appears inline below the scan controls;
+        // on desktop it lives in the details panel to the right instead.
+        if (!Responsive.isDesktop(context)) ...[
+          const SizedBox(height: 20),
+          if (scannedTag != null) _result(),
+        ],
       ],
+    );
+  }
+
+  Widget _detailsPanel() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: AppTheme.border, width: 1.5),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: scannedTag == null
+          ? const Padding(
+              padding: EdgeInsets.symmetric(vertical: 40),
+              child: Center(
+                child: Text(
+                  'Scan a tag or enter an ID to see asset details here.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppTheme.muted),
+                ),
+              ),
+            )
+          : scannedAsset == null
+              ? Text(
+                  'No asset found for $scannedTag.',
+                  style: const TextStyle(
+                    color: Color(0xFFC84040),
+                    fontWeight: FontWeight.w700,
+                  ),
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            scannedAsset!.name,
+                            style: const TextStyle(
+                              color: AppTheme.darkGreen,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        StatusChip(status: scannedAsset!.status),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    _detailRow('Tag ID', scannedAsset!.tagId, mono: true),
+                    _detailRow('Category', scannedAsset!.category),
+                    if (scannedAsset!.description.isNotEmpty)
+                      _detailRow('Description', scannedAsset!.description),
+                  ],
+                ),
+    );
+  }
+
+  Widget _detailRow(String label, String value, {bool mono = false}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.darkGreen,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            style: TextStyle(
+              color: AppTheme.muted,
+              fontFamily: mono ? 'monospace' : null,
+              fontSize: 13.5,
+            ),
+          ),
+        ],
+      ),
     );
   }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import '../utils/responsive.dart';
 import '../widgets/brand_mark.dart';
 import 'login_screen.dart';
 
@@ -37,49 +38,65 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = Responsive.isDesktop(context);
     return Scaffold(
+      backgroundColor: isDesktop ? const Color(0xFFF6F5F0) : Colors.white,
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(28, 60, 28, 40),
-          child: Column(
-            children: [
-              const Row(
+          padding: EdgeInsets.fromLTRB(28, isDesktop ? 40 : 60, 28, 40),
+          child: Center(
+            child: Container(
+              width: double.infinity,
+              constraints: BoxConstraints(maxWidth: isDesktop ? 480 : 650),
+              padding: isDesktop ? const EdgeInsets.all(40) : EdgeInsets.zero,
+              decoration: isDesktop
+                  ? BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: AppTheme.border, width: 1.5),
+                    )
+                  : null,
+              child: Column(
                 children: [
-                  BrandMark(size: 84),
-                  SizedBox(width: 28),
-                  Expanded(
-                    child: Text(
-                      'Create admin account',
-                      style: TextStyle(
-                        fontSize: 30,
-                        fontWeight: FontWeight.w800,
-                        color: AppTheme.darkGreen,
+                  Row(
+                    children: [
+                      const BrandMark(size: 84),
+                      const SizedBox(width: 28),
+                      const Expanded(
+                        child: Text(
+                          'Create admin account',
+                          style: TextStyle(
+                            fontSize: 30,
+                            fontWeight: FontWeight.w800,
+                            color: AppTheme.darkGreen,
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
+                  ),
+                  const SizedBox(height: 50),
+                  _field('Full name', nameController),
+                  _field('Work email', emailController,
+                      keyboard: TextInputType.emailAddress),
+                  _field('Department', departmentController),
+                  _field('Employee ID', employeeController),
+                  _field('Password', passwordController, obscure: true),
+                  const SizedBox(height: 18),
+                  ElevatedButton(
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Account created successfully.')),
+                      );
+                      Navigator.pushReplacementNamed(
+                        context,
+                        LoginScreen.routeName,
+                      );
+                    },
+                    child: const Text('Create account'),
                   ),
                 ],
               ),
-              const SizedBox(height: 50),
-              _field('Full name', nameController),
-              _field('Work email', emailController,
-                  keyboard: TextInputType.emailAddress),
-              _field('Department', departmentController),
-              _field('Employee ID', employeeController),
-              _field('Password', passwordController, obscure: true),
-              const SizedBox(height: 18),
-              ElevatedButton(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Account created successfully.')),
-                  );
-                  Navigator.pushReplacementNamed(
-                    context,
-                    LoginScreen.routeName,
-                  );
-                },
-                child: const Text('Create account'),
-              ),
-            ],
+            ),
           ),
         ),
       ),

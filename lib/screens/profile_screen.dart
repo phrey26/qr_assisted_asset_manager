@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import '../utils/responsive.dart';
 import '../widgets/brand_mark.dart';
 
 class ProfileScreen extends StatelessWidget {
@@ -8,40 +9,49 @@ class ProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = Responsive.isDesktop(context);
     return ListView(
       padding: const EdgeInsets.fromLTRB(28, 52, 28, 120),
       children: [
-        const Center(child: BrandMark(size: 100)),
-        const SizedBox(height: 22),
-        const Center(
-          child: Text(
-            'Juan Dela Cruz',
-            style: TextStyle(
-              color: AppTheme.darkGreen,
-              fontSize: 28,
-              fontWeight: FontWeight.w800,
+        Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: isDesktop ? 460 : double.infinity),
+            child: Column(
+              children: [
+                const BrandMark(size: 100),
+                const SizedBox(height: 22),
+                const Text(
+                  'Juan Dela Cruz',
+                  style: TextStyle(
+                    color: AppTheme.darkGreen,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                const Text(
+                  'CSDO-00214',
+                  style: TextStyle(color: AppTheme.muted, fontSize: 17),
+                ),
+                const SizedBox(height: 42),
+                _item(Icons.badge_outlined, 'Employee ID', 'CSDO-00214'),
+                _item(Icons.business_outlined, 'Department', 'Campus Services (CSDO)'),
+                _item(Icons.email_outlined, 'Work email', 'jdelacruz@hau.edu.ph'),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil(
+                      '/login',
+                      (route) => false,
+                    ),
+                    icon: const Icon(Icons.logout),
+                    label: const Text('Log out'),
+                  ),
+                ),
+              ],
             ),
           ),
-        ),
-        const SizedBox(height: 5),
-        const Center(
-          child: Text(
-            'CSDO-00214',
-            style: TextStyle(color: AppTheme.muted, fontSize: 17),
-          ),
-        ),
-        const SizedBox(height: 42),
-        _item(Icons.badge_outlined, 'Employee ID', 'CSDO-00214'),
-        _item(Icons.business_outlined, 'Department', 'Campus Services (CSDO)'),
-        _item(Icons.email_outlined, 'Work email', 'jdelacruz@hau.edu.ph'),
-        const SizedBox(height: 20),
-        OutlinedButton.icon(
-          onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil(
-            '/login',
-            (route) => false,
-          ),
-          icon: const Icon(Icons.logout),
-          label: const Text('Log out'),
         ),
       ],
     );
