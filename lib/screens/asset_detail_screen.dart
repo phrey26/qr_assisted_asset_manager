@@ -9,15 +9,21 @@ import 'package:share_plus/share_plus.dart';
 
 import '../models/asset.dart';
 import '../theme/app_theme.dart';
+import '../widgets/delete_confirmation_dialog.dart';
 import '../widgets/status_chip.dart';
 
 /// Full detail view for a single asset. Shows every field the admin
 /// entered when the asset was created, plus the QR code generated for it
 /// (with a "Download" action that saves/shares the QR as a PNG image).
 class AssetDetailScreen extends StatefulWidget {
-  const AssetDetailScreen({super.key, required this.asset});
+  const AssetDetailScreen({super.key, required this.asset, this.onDelete});
 
   final AssetItem asset;
+
+  /// Invoked (after the "are you sure" dialog is confirmed) to remove this
+  /// asset from the inventory once it's no longer usable. When null, no
+  /// delete action is shown in the app bar.
+  final VoidCallback? onDelete;
 
   @override
   State<AssetDetailScreen> createState() => _AssetDetailScreenState();
@@ -27,6 +33,15 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
   // Used to locate the rendered QR image so it can be captured as a PNG.
   final _qrBoundaryKey = GlobalKey();
   bool _saving = false;
+
+  Future<void> _deleteAsset() async {
+    final confirmed = await confirmAssetDeletion(context, widget.asset);
+    if (!confirmed) return;
+    widget.onDelete?.call();
+    // Return to the inventory list now that the asset has been removed;
+    // its detail page no longer has anything valid to show.
+    if (mounted) Navigator.pop(context);
+  }
 
   Future<void> _downloadQr() async {
     setState(() => _saving = true);
@@ -72,6 +87,15 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text('Asset details'),
+        actions: [
+          if (widget.onDelete != null)
+            IconButton(
+              onPressed: _deleteAsset,
+              icon: const Icon(Icons.delete_outline),
+              color: Colors.redAccent,
+              tooltip: 'Remove from inventory',
+            ),
+        ],
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -121,6 +145,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         children: [
           _detailRow('Asset tag ID', asset.tagId, mono: true),
           _detailRow('Category', asset.category),
+          _detailRow('Date of purchase', asset.formattedPurchaseDate),
           _detailRow('Status', asset.status.label),
           _detailRow(
             'Description',

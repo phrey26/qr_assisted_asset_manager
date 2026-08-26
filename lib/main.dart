@@ -59,6 +59,15 @@ class _AppShellState extends State<AppShell> {
     setState(() => _assets.insert(0, asset));
   }
 
+  /// Removes an asset from the inventory. Called only after the admin
+  /// confirms via the "are you sure" dialog shown by [InventoryScreen] /
+  /// [AssetDetailScreen] — e.g. once an asset is broken or otherwise no
+  /// longer usable. tagId is unique per asset, so it's used to identify
+  /// which one to remove.
+  void _deleteAsset(AssetItem asset) {
+    setState(() => _assets.removeWhere((item) => item.tagId == asset.tagId));
+  }
+
   Future<void> _openAddAsset() async {
     final tagId = AssetItem.nextTagId(_assets);
     final AssetItem? asset;
@@ -82,7 +91,11 @@ class _AppShellState extends State<AppShell> {
   Widget build(BuildContext context) {
     final pages = [
       CategoriesScreen(assets: _assets),
-      InventoryScreen(assets: _assets, onAddAsset: _openAddAsset),
+      InventoryScreen(
+        assets: _assets,
+        onAddAsset: _openAddAsset,
+        onDeleteAsset: _deleteAsset,
+      ),
       QrScannerScreen(assets: _assets),
       const RequestsScreen(),
       const ProfileScreen(),

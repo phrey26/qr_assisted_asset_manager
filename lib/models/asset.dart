@@ -20,6 +20,7 @@ class AssetItem {
     required this.category,
     required this.description,
     required this.status,
+    required this.purchaseDate,
   });
 
   final String name;
@@ -28,6 +29,10 @@ class AssetItem {
   final String description;
   final AssetStatus status;
 
+  /// When the asset was purchased. Required for every asset regardless of
+  /// category.
+  final DateTime purchaseDate;
+
   static List<AssetItem> samples = [
     AssetItem(
       name: 'Epson projector',
@@ -35,6 +40,7 @@ class AssetItem {
       category: 'IT equipment',
       description: 'Portable projector for classroom presentations.',
       status: AssetStatus.available,
+      purchaseDate: DateTime(2024, 6, 12),
     ),
     AssetItem(
       name: 'Dell Latitude 5420',
@@ -42,6 +48,7 @@ class AssetItem {
       category: 'IT equipment',
       description: 'Assigned office laptop.',
       status: AssetStatus.inUse,
+      purchaseDate: DateTime(2023, 11, 3),
     ),
     AssetItem(
       name: 'Steel folding chair',
@@ -49,6 +56,7 @@ class AssetItem {
       category: 'Furniture',
       description: 'Foldable steel chair.',
       status: AssetStatus.available,
+      purchaseDate: DateTime(2022, 8, 20),
     ),
     AssetItem(
       name: 'Split-type aircon',
@@ -56,8 +64,23 @@ class AssetItem {
       category: 'Maintenance',
       description: 'Wall-mounted split type air-conditioning unit.',
       status: AssetStatus.maintenance,
+      purchaseDate: DateTime(2021, 3, 15),
     ),
   ];
+
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  /// Formats [purchaseDate] as e.g. "Jun 12, 2024" without pulling in the
+  /// intl package for a single label.
+  String get formattedPurchaseDate => formatDate(purchaseDate);
+
+  /// Formats any [DateTime] as e.g. "Jun 12, 2024". Static so callers (like
+  /// the add-asset form) can preview a date before an AssetItem exists.
+  static String formatDate(DateTime date) =>
+      '${_months[date.month - 1]} ${date.day}, ${date.year}';
 
   static String nextTagId(List<AssetItem> assets) {
     var max = 0;

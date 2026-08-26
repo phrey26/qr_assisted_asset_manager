@@ -36,6 +36,7 @@ class _AddAssetFormState extends State<AddAssetForm> {
   final descriptionController = TextEditingController();
   late final tagController = TextEditingController(text: widget.nextTagId);
   String category = 'IT equipment';
+  DateTime? purchaseDate;
 
   @override
   void dispose() {
@@ -45,10 +46,29 @@ class _AddAssetFormState extends State<AddAssetForm> {
     super.dispose();
   }
 
+  Future<void> _pickPurchaseDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: purchaseDate ?? now,
+      firstDate: DateTime(2000),
+      lastDate: now,
+    );
+    if (picked != null) {
+      setState(() => purchaseDate = picked);
+    }
+  }
+
   void _save() {
     if (nameController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter an asset name.')),
+      );
+      return;
+    }
+    if (purchaseDate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please add the date of purchase.')),
       );
       return;
     }
@@ -59,6 +79,7 @@ class _AddAssetFormState extends State<AddAssetForm> {
         category: category,
         description: descriptionController.text.trim(),
         status: AssetStatus.available,
+        purchaseDate: purchaseDate!,
       ),
     );
   }
@@ -106,6 +127,26 @@ class _AddAssetFormState extends State<AddAssetForm> {
             DropdownMenuItem(value: 'Maintenance', child: Text('Maintenance')),
           ],
           onChanged: (value) => setState(() => category = value!),
+        ),
+        SizedBox(height: gap),
+        _label('Date of purchase'),
+        InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: _pickPurchaseDate,
+          child: InputDecorator(
+            decoration: const InputDecoration(
+              suffixIcon: Icon(Icons.calendar_today_outlined, size: 20),
+            ),
+            child: Text(
+              purchaseDate == null
+                  ? 'Select date'
+                  : AssetItem.formatDate(purchaseDate!),
+              style: TextStyle(
+                color: purchaseDate == null ? AppTheme.muted : AppTheme.darkGreen,
+                fontSize: 16,
+              ),
+            ),
+          ),
         ),
         SizedBox(height: gap),
         _label('Description'),

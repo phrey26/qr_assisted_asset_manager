@@ -5,13 +5,19 @@ import '../theme/app_theme.dart';
 import 'status_chip.dart';
 
 class AssetCard extends StatelessWidget {
-  const AssetCard({super.key, required this.asset, this.onTap});
+  const AssetCard({super.key, required this.asset, this.onTap, this.onDelete});
 
   final AssetItem asset;
 
   /// Invoked when the card is tapped. Wired up by [InventoryScreen] to
   /// open the asset's detail page.
   final VoidCallback? onTap;
+
+  /// Invoked when the admin confirms they want to remove this asset from
+  /// the inventory (e.g. it's broken or otherwise unusable). When null, no
+  /// delete affordance is shown — used to keep this widget reusable for
+  /// non-admin contexts if they're added later.
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -68,13 +74,30 @@ class AssetCard extends StatelessWidget {
                           fontFamily: 'monospace',
                         ),
                       ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Purchased ${asset.formattedPurchaseDate}',
+                        style: const TextStyle(
+                          color: AppTheme.muted,
+                          fontSize: 13,
+                        ),
+                      ),
                     ],
                   ),
                 ),
                 const SizedBox(width: 10),
                 StatusChip(status: asset.status),
+                if (onDelete != null) ...[
+                  const SizedBox(width: 4),
+                  IconButton(
+                    onPressed: onDelete,
+                    icon: const Icon(Icons.delete_outline),
+                    color: Colors.redAccent,
+                    tooltip: 'Remove from inventory',
+                  ),
+                ],
                 if (onTap != null) ...[
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 2),
                   const Icon(Icons.chevron_right, color: AppTheme.muted),
                 ],
               ],

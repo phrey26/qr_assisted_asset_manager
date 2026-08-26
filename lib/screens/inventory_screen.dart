@@ -4,22 +4,49 @@ import '../models/asset.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/asset_card.dart';
+import '../widgets/delete_confirmation_dialog.dart';
 import '../widgets/page_header.dart';
 import '../widgets/status_chip.dart';
 import 'asset_detail_screen.dart';
 
 /// Pushes [AssetDetailScreen] for the given asset. Shared by both the
 /// mobile card list and the desktop table so tapping an asset behaves the
-/// same way regardless of layout.
-void _openAssetDetail(BuildContext context, AssetItem asset) {
+/// same way regardless of layout. [onDeleteAsset] is forwarded so the
+/// admin can also remove the asset from the detail page.
+void _openAssetDetail(
+  BuildContext context,
+  AssetItem asset, {
+  void Function(AssetItem asset)? onDeleteAsset,
+}) {
   Navigator.push(
     context,
-    MaterialPageRoute(builder: (_) => AssetDetailScreen(asset: asset)),
+    MaterialPageRoute(
+      builder: (_) => AssetDetailScreen(
+        asset: asset,
+        onDelete: onDeleteAsset == null ? null : () => onDeleteAsset(asset),
+      ),
+    ),
   );
 }
 
+/// Shows the confirmation dialog, and only invokes [onDeleteAsset] if the
+/// admin confirms. Shared by the mobile card list and the desktop table.
+Future<void> _confirmAndDelete(
+  BuildContext context,
+  AssetItem asset,
+  void Function(AssetItem asset) onDeleteAsset,
+) async {
+  final confirmed = await confirmAssetDeletion(context, asset);
+  if (confirmed) onDeleteAsset(asset);
+}
+
 class InventoryScreen extends StatefulWidget {
-  const InventoryScreen({super.key, required this.assets, this.onAddAsset});
+  const InventoryScreen({
+    super.key,
+    required this.assets,
+    this.onAddAsset,
+    this.onDeleteAsset,
+  });
 
   final List<AssetItem> assets;
 
@@ -28,6 +55,11 @@ class InventoryScreen extends StatefulWidget {
   /// inline "+ Add asset" button next to the page title, matching the
   /// hi-fi desktop mockups.
   final VoidCallback? onAddAsset;
+
+  /// Invoked (after the admin confirms via the "are you sure" dialog) to
+  /// remove an asset from the inventory once it's no longer usable. When
+  /// null, no delete affordance is shown anywhere on this page.
+  final void Function(AssetItem asset)? onDeleteAsset;
 
   @override
   State<InventoryScreen> createState() => _InventoryScreenState();
@@ -145,7 +177,10 @@ class _InventoryScreenState extends State<InventoryScreen> {
               child: Center(
                 child: ConstrainedBox(
                   constraints: BoxConstraints(maxWidth: maxWidth),
-                  child: _InventoryTable(assets: filtered),
+                  child: _InventoryTable(
+                    assets: filtered,
+                    onDeleteAsset: widget.onDeleteAsset,
+                  ),
                 ),
               ),
             ),
@@ -159,7 +194,14 @@ class _InventoryScreenState extends State<InventoryScreen> {
                 final asset = filtered[index];
                 return AssetCard(
                   asset: asset,
-                  onTap: () => _openAssetDetail(context, asset),
+                  onTap: () => _openAssetDetail(
+                    context,
+                    asset,
+                    onDeleteAsset: widget.onDeleteAsset,
+                  ),
+                  onDelete: widget.onDeleteAsset == null
+                      ? null
+                      : () => _confirmAndDelete(context, asset, widget.onDeleteAsset!),
                 );
               },
             ),
@@ -201,9 +243,10 @@ class _InventoryScreenState extends State<InventoryScreen> {
 /// hi-fi desktop mockups (a wide table reads better than stacked cards once
 /// there's room for it).
 class _InventoryTable extends StatelessWidget {
-  const _InventoryTable({required this.assets});
+  const _InventoryTable({required this.assets, this.onDeleteAsset});
 
   final List<AssetItem> assets;
+  final void Function(AssetItem asset)? onDeleteAsset;
 
   @override
   Widget build(BuildContext context) {
@@ -236,16 +279,22 @@ class _InventoryTable extends StatelessWidget {
           // want the selection checkboxes that onSelectChanged would
           // otherwise add, just the click-to-open behavior.
           showCheckboxColumn: false,
-          columns: const [
-            DataColumn(label: Text('Asset')),
-            DataColumn(label: Text('Tag ID')),
-            DataColumn(label: Text('Category')),
-            DataColumn(label: Text('Status')),
+          columns: [
+            const DataColumn(label: Text('Asset')),
+            const DataColumn(label: Text('Tag ID')),
+            const DataColumn(label: Text('Category')),
+            const DataColumn(label: Text('Purchased')),
+            const DataColumn(label: Text('Status')),
+            if (onDeleteAsset != null) const DataColumn(label: Text('')),
           ],
           rows: assets
               .map(
                 (asset) => DataRow(
-                  onSelectChanged: (_) => _openAssetDetail(context, asset),
+                  onSelectChanged: (_) => _openAssetDetail(
+                    context,
+                    asset,
+                    onDeleteAsset: onDeleteAsset,
+                  ),
                   cells: [
                     DataCell(Text(
                       asset.name,
@@ -256,7 +305,20 @@ class _InventoryTable extends StatelessWidget {
                       style: const TextStyle(fontFamily: 'monospace', color: AppTheme.muted),
                     )),
                     DataCell(Text(asset.category)),
+                    DataCell(Text(
+                      asset.formattedPurchaseDate,
+                      style: const TextStyle(color: AppTheme.muted),
+                    )),
                     DataCell(StatusChip(status: asset.status)),
+                    if (onDeleteAsset != null)
+                      DataCell(
+                        IconButton(
+                          onPressed: () => _confirmAndDelete(context, asset, onDeleteAsset!),
+                          icon: const Icon(Icons.delete_outline),
+                          color: Colors.redAccent,
+                          tooltip: 'Remove from inventory',
+                        ),
+                      ),
                   ],
                 ),
               )
