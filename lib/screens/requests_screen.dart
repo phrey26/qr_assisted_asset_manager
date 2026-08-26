@@ -69,6 +69,15 @@ class _RequestsScreenState extends State<RequestsScreen> {
                           onPressed: _openNewRequest,
                           icon: const Icon(Icons.add),
                           label: const Text('New request'),
+                          // Override the global button theme's
+                          // Size.fromHeight(64), which sets an infinite
+                          // minimum width intended for full-bleed buttons.
+                          // Left as-is, a Row (which gives non-flex
+                          // children unbounded width) can't lay this
+                          // button out, which blanks the whole page.
+                          style: ElevatedButton.styleFrom(
+                            minimumSize: const Size(0, 48),
+                          ),
                         ),
                       ),
                     ],
@@ -241,6 +250,13 @@ class _RequestCard extends StatelessWidget {
     );
 
     return Container(
+      // The list wraps each card in a Center() (needed so the desktop
+      // max-width cap can take effect), which hands this Container loose
+      // width constraints. Without an explicit width it shrink-wraps to
+      // its own text content instead of filling the space it's given,
+      // so cards with shorter text end up narrower and re-centered,
+      // producing a staggered left edge. Force it to fill instead.
+      width: double.infinity,
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(

@@ -82,6 +82,15 @@ class _InventoryScreenState extends State<InventoryScreen> {
                           onPressed: widget.onAddAsset,
                           icon: const Icon(Icons.add),
                           label: const Text('Add asset'),
+                          // Override the global button theme's
+                          // Size.fromHeight(64), which sets an infinite
+                          // minimum width intended for full-bleed buttons.
+                          // Left as-is, a Row (which gives non-flex
+                          // children unbounded width) can't lay this
+                          // button out, which blanks the whole page.
+                          style: ElevatedButton.styleFrom(
+                            minimumSize: const Size(0, 48),
+                          ),
                         ),
                       ),
                     ],

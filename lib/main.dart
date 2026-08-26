@@ -112,15 +112,49 @@ class _AppShellState extends State<AppShell> {
     return Scaffold(
       body: SafeArea(child: IndexedStack(index: _index, children: pages)),
       floatingActionButton: _index == kTabInventory
-          ? FloatingActionButton(
-              onPressed: _openAddAsset,
-              child: const Icon(Icons.add),
-            )
+          ? _AddAssetFab(onPressed: _openAddAsset)
           : null,
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+      // endFloat sits bottom-right and, with a bottomNavigationBar present,
+      // Scaffold automatically floats it just above the bar (standard 16px
+      // margin) instead of overlapping it. centerDocked previously placed
+      // it dead-center, directly on top of the centered QR scanner button.
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: _BottomNav(
         index: _index,
         onChanged: (value) => setState(() => _index = value),
+      ),
+    );
+  }
+}
+
+/// Gradient "Add asset" FAB matching the app's green palette. A plain
+/// [FloatingActionButton] only supports a solid [backgroundColor], so this
+/// makes the button's background transparent and paints the gradient on an
+/// [Ink] child instead, which keeps the normal Material ripple/elevation.
+class _AddAssetFab extends StatelessWidget {
+  const _AddAssetFab({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return FloatingActionButton(
+      onPressed: onPressed,
+      backgroundColor: Colors.transparent,
+      elevation: 4,
+      highlightElevation: 6,
+      child: Ink(
+        decoration: const BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [AppTheme.primary, AppTheme.darkGreen],
+          ),
+        ),
+        child: const SizedBox.expand(
+          child: Icon(Icons.add, color: Colors.white),
+        ),
       ),
     );
   }
