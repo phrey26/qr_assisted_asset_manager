@@ -6,6 +6,17 @@ import '../utils/responsive.dart';
 import '../widgets/asset_card.dart';
 import '../widgets/page_header.dart';
 import '../widgets/status_chip.dart';
+import 'asset_detail_screen.dart';
+
+/// Pushes [AssetDetailScreen] for the given asset. Shared by both the
+/// mobile card list and the desktop table so tapping an asset behaves the
+/// same way regardless of layout.
+void _openAssetDetail(BuildContext context, AssetItem asset) {
+  Navigator.push(
+    context,
+    MaterialPageRoute(builder: (_) => AssetDetailScreen(asset: asset)),
+  );
+}
 
 class InventoryScreen extends StatefulWidget {
   const InventoryScreen({super.key, required this.assets, this.onAddAsset});
@@ -144,7 +155,13 @@ class _InventoryScreenState extends State<InventoryScreen> {
             padding: const EdgeInsets.fromLTRB(28, 4, 28, 110),
             sliver: SliverList.builder(
               itemCount: filtered.length,
-              itemBuilder: (_, index) => AssetCard(asset: filtered[index]),
+              itemBuilder: (context, index) {
+                final asset = filtered[index];
+                return AssetCard(
+                  asset: asset,
+                  onTap: () => _openAssetDetail(context, asset),
+                );
+              },
             ),
           ),
       ],
@@ -215,6 +232,10 @@ class _InventoryTable extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         child: DataTable(
           headingRowColor: WidgetStateProperty.all(const Color(0xFFF6F5F0)),
+          // Rows are tappable to open the asset's detail page; we don't
+          // want the selection checkboxes that onSelectChanged would
+          // otherwise add, just the click-to-open behavior.
+          showCheckboxColumn: false,
           columns: const [
             DataColumn(label: Text('Asset')),
             DataColumn(label: Text('Tag ID')),
@@ -224,6 +245,7 @@ class _InventoryTable extends StatelessWidget {
           rows: assets
               .map(
                 (asset) => DataRow(
+                  onSelectChanged: (_) => _openAssetDetail(context, asset),
                   cells: [
                     DataCell(Text(
                       asset.name,

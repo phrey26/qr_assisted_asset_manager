@@ -16,18 +16,88 @@ class QrScannerScreen extends StatefulWidget {
   State<QrScannerScreen> createState() => _QrScannerScreenState();
 }
 
-class _QrScannerScreenState extends State<QrScannerScreen> {
-  final controller = MobileScannerController();
+class _QrScannerScreenState extends State<QrScannerScreen> with WidgetsBindingObserver {
+  // autoStart is off so we can request/check camera access ourselves and
+  // show a clear message instead of a blank camera preview when it fails.
+  final controller = MobileScannerController(autoStart: false);
   final tagController = TextEditingController();
   bool torchOn = false;
   String? scannedTag;
   AssetItem? scannedAsset;
 
+  // Camera access state. This works the same way regardless of platform
+  // (Android, iOS, desktop, or web) since mobile_scanner requests the
+  // native/browser camera permission under the hood when controller.start()
+  // is called; we just react to whether that succeeded.
+  bool _checkingPermission = true;
+  bool _cameraGranted = false;
+  String? _cameraError;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _requestCameraAccess();
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     controller.dispose();
     tagController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // If the admin left the app to grant camera access from device
+    // Settings and comes back, retry automatically instead of making them
+    // tap "Try again".
+    if (state == AppLifecycleState.resumed && !_cameraGranted && !_checkingPermission) {
+      _requestCameraAccess();
+    }
+  }
+
+  Future<void> _requestCameraAccess() async {
+    setState(() {
+      _checkingPermission = true;
+      _cameraError = null;
+    });
+    try {
+      // Starting the controller is what actually triggers the OS/browser
+      // camera permission prompt the first time this runs.
+      await controller.start();
+      if (!mounted) return;
+      setState(() {
+        _cameraGranted = true;
+        _checkingPermission = false;
+      });
+    } on MobileScannerException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _cameraGranted = false;
+        _checkingPermission = false;
+        _cameraError = _messageFor(e);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _cameraGranted = false;
+        _checkingPermission = false;
+        _cameraError = 'Could not access the camera on this device.';
+      });
+    }
+  }
+
+  String _messageFor(MobileScannerException e) {
+    final code = e.errorCode.name.toLowerCase();
+    if (code.contains('permission')) {
+      return 'Camera access is turned off for this app. Please allow camera access to scan asset tags.';
+    }
+    if (code.contains('unsupported')) {
+      return 'This device does not have a usable camera for scanning.';
+    }
+    return 'Could not access the camera. Please check your camera permission and try again.';
   }
 
   void _handleTag(String value) {
@@ -123,44 +193,22 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
           borderRadius: BorderRadius.circular(30),
           child: SizedBox(
             height: 340,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                MobileScanner(
-                  controller: controller,
-                  onDetect: (capture) {
-                    final barcodes = capture.barcodes;
-                    final code = barcodes.isEmpty ? null : barcodes.first.rawValue;
-                    if (code != null) _handleTag(code);
-                  },
-                ),
-                IgnorePointer(
-                  child: CustomPaint(painter: _ScannerOverlayPainter()),
-                ),
-                Positioned(
-                  top: 16,
-                  right: 16,
-                  child: IconButton.filled(
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.black54,
-                      foregroundColor: Colors.white,
-                    ),
-                    onPressed: () async {
-                      await controller.toggleTorch();
-                      setState(() => torchOn = !torchOn);
-                    },
-                    icon: Icon(torchOn ? Icons.flash_on : Icons.flash_off),
-                  ),
-                ),
-              ],
-            ),
+            width: double.infinity,
+            child: _checkingPermission
+                ? _cameraLoading()
+                : _cameraGranted
+                    ? _cameraPreview()
+                    : _cameraAccessNeeded(),
           ),
         ),
         const SizedBox(height: 20),
-        const Center(
+        Center(
           child: Text(
-            'Align the QR tag within the frame',
-            style: TextStyle(color: AppTheme.darkGreen, fontSize: 16),
+            _cameraGranted
+                ? 'Align the QR tag within the frame'
+                : 'Camera unavailable — you can still enter the tag ID below',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: AppTheme.darkGreen, fontSize: 16),
           ),
         ),
         const SizedBox(height: 16),
@@ -197,6 +245,96 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
           if (scannedTag != null) _result(),
         ],
       ],
+    );
+  }
+
+  Widget _cameraLoading() {
+    return Container(
+      color: AppTheme.mint,
+      alignment: Alignment.center,
+      child: const CircularProgressIndicator(color: AppTheme.primary),
+    );
+  }
+
+  Widget _cameraPreview() {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        MobileScanner(
+          controller: controller,
+          onDetect: (capture) {
+            final barcodes = capture.barcodes;
+            final code = barcodes.isEmpty ? null : barcodes.first.rawValue;
+            if (code != null) _handleTag(code);
+          },
+        ),
+        IgnorePointer(
+          child: CustomPaint(painter: _ScannerOverlayPainter()),
+        ),
+        Positioned(
+          top: 16,
+          right: 16,
+          child: IconButton.filled(
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.black54,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              await controller.toggleTorch();
+              setState(() => torchOn = !torchOn);
+            },
+            icon: Icon(torchOn ? Icons.flash_on : Icons.flash_off),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Shown whenever the camera isn't available — most commonly because the
+  /// admin hasn't granted camera permission yet, or denied it. Reminds
+  /// them to enable it and offers a one-tap retry once they have.
+  Widget _cameraAccessNeeded() {
+    return Container(
+      color: AppTheme.redTint,
+      padding: const EdgeInsets.all(24),
+      alignment: Alignment.center,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.no_photography_outlined, color: Color(0xFFC84040), size: 40),
+            const SizedBox(height: 14),
+            const Text(
+              'Camera access needed',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppTheme.darkGreen,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _cameraError ?? 'Please allow camera access to scan asset tags.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: AppTheme.muted, fontSize: 14),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Check your device or browser settings for this app\'s camera permission, then try again.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppTheme.muted, fontSize: 12, fontStyle: FontStyle.italic),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: _requestCameraAccess,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Try again'),
+              style: ElevatedButton.styleFrom(minimumSize: const Size(0, 48)),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
