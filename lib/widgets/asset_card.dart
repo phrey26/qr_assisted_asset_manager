@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/asset.dart';
 import '../theme/app_theme.dart';
+import 'lifespan_warning_badge.dart';
 import 'status_chip.dart';
 
 class AssetCard extends StatelessWidget {
@@ -82,6 +83,10 @@ class AssetCard extends StatelessWidget {
                           fontSize: 13,
                         ),
                       ),
+                      if (asset.isPastLifespan) ...[
+                        const SizedBox(height: 8),
+                        const LifespanWarningBadge(),
+                      ],
                     ],
                   ),
                 ),

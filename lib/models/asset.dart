@@ -33,6 +33,27 @@ class AssetItem {
   /// category.
   final DateTime purchaseDate;
 
+  /// How many years an "IT equipment" asset is expected to remain in
+  /// service before it's flagged as past its lifespan.
+  static const itEquipmentLifespanYears = 5;
+
+  /// Whether this asset belongs to the IT equipment category. Matched
+  /// case-insensitively since category is free text elsewhere in the app.
+  bool get isItEquipment => category.toLowerCase() == 'it equipment';
+
+  /// Whether this asset is IT equipment that is past its
+  /// [itEquipmentLifespanYears]-year expected lifespan, based on
+  /// [purchaseDate]. Non-IT-equipment assets are never flagged.
+  bool get isPastLifespan {
+    if (!isItEquipment) return false;
+    final limit = DateTime(
+      purchaseDate.year + itEquipmentLifespanYears,
+      purchaseDate.month,
+      purchaseDate.day,
+    );
+    return DateTime.now().isAfter(limit);
+  }
+
   static List<AssetItem> samples = [
     AssetItem(
       name: 'Epson projector',
@@ -49,6 +70,16 @@ class AssetItem {
       description: 'Assigned office laptop.',
       status: AssetStatus.inUse,
       purchaseDate: DateTime(2023, 11, 3),
+    ),
+    AssetItem(
+      name: 'HP LaserJet Pro M404',
+      tagId: 'CSDO-IT-0104',
+      category: 'IT equipment',
+      description: 'Shared office printer.',
+      status: AssetStatus.available,
+      // Purchased more than 5 years ago, so this shows up flagged as
+      // past its expected lifespan.
+      purchaseDate: DateTime(2019, 4, 18),
     ),
     AssetItem(
       name: 'Steel folding chair',

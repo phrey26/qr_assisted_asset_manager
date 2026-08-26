@@ -121,12 +121,60 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                 ],
               ),
               const SizedBox(height: 28),
+              if (asset.isPastLifespan) ...[
+                _lifespanWarningBanner(),
+                const SizedBox(height: 20),
+              ],
               _infoCard(asset),
               const SizedBox(height: 24),
               _qrCard(),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// Banner shown when this asset is IT equipment past its expected
+  /// [AssetItem.itEquipmentLifespanYears]-year lifespan, so the admin
+  /// notices it during their review rather than having to check the
+  /// purchase date by hand.
+  Widget _lifespanWarningBanner() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppTheme.redTint,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFF3C6C4), width: 2),
+      ),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.warning_amber_rounded, color: Color(0xFFC84040)),
+          SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'This asset is past its expected lifespan',
+                  style: TextStyle(
+                    color: Color(0xFFC84040),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'IT equipment is expected to last ${AssetItem.itEquipmentLifespanYears} years from its '
+                  'date of purchase. Consider inspecting or replacing this item.',
+                  style: TextStyle(color: Color(0xFFC84040), fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -5,6 +5,7 @@ import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/asset_card.dart';
 import '../widgets/delete_confirmation_dialog.dart';
+import '../widgets/lifespan_warning_badge.dart';
 import '../widgets/page_header.dart';
 import '../widgets/status_chip.dart';
 import 'asset_detail_screen.dart';
@@ -305,9 +306,18 @@ class _InventoryTable extends StatelessWidget {
                       style: const TextStyle(fontFamily: 'monospace', color: AppTheme.muted),
                     )),
                     DataCell(Text(asset.category)),
-                    DataCell(Text(
-                      asset.formattedPurchaseDate,
-                      style: const TextStyle(color: AppTheme.muted),
+                    DataCell(Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          asset.formattedPurchaseDate,
+                          style: const TextStyle(color: AppTheme.muted),
+                        ),
+                        if (asset.isPastLifespan) ...[
+                          const SizedBox(width: 8),
+                          const LifespanWarningBadge(compact: true),
+                        ],
+                      ],
                     )),
                     DataCell(StatusChip(status: asset.status)),
                     if (onDeleteAsset != null)
