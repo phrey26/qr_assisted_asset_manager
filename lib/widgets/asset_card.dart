@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/asset.dart';
 import '../theme/app_theme.dart';
+import '../utils/responsive.dart';
 import 'lifespan_warning_badge.dart';
 import 'status_chip.dart';
 
@@ -22,8 +23,20 @@ class AssetCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // On phones the image tile, status chip, delete button and chevron were
+    // all fixed-width siblings in the same Row as the text column. Added
+    // together they could exceed the available card width, squeezing the
+    // Expanded text column down to almost nothing — which is what made
+    // Flutter wrap the tag ID one character per line in testing. Scaling
+    // the tile/text down and moving the status chip into the text column
+    // (instead of the trailing Row) on mobile keeps the text column wide
+    // enough to lay out normally on any device.
+    final isMobile = Responsive.isMobile(context);
+    final imageSize = isMobile ? 68.0 : 108.0;
+    final imageSpacing = isMobile ? 14.0 : 24.0;
+
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
+      margin: EdgeInsets.only(bottom: isMobile ? 12 : 16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
@@ -35,12 +48,13 @@ class AssetCard extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.all(20),
+            padding: EdgeInsets.all(isMobile ? 14 : 20),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                  width: 108,
-                  height: 108,
+                  width: imageSize,
+                  height: imageSize,
                   decoration: BoxDecoration(
                     color: AppTheme.mint,
                     borderRadius: BorderRadius.circular(20),
@@ -50,11 +64,11 @@ class AssetCard extends StatelessWidget {
                       ? Icon(
                           _iconFor(asset.category),
                           color: AppTheme.primary,
-                          size: 42,
+                          size: imageSize * .39,
                         )
                       : Image.memory(asset.imageBytes!, fit: BoxFit.cover),
                 ),
-                const SizedBox(width: 24),
+                SizedBox(width: imageSpacing),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -63,40 +77,46 @@ class AssetCard extends StatelessWidget {
                         asset.name,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: AppTheme.darkGreen,
-                          fontSize: 22,
+                          fontSize: isMobile ? 17 : 22,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      SizedBox(height: isMobile ? 6 : 8),
                       Text(
                         asset.tagId,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: AppTheme.muted,
-                          fontSize: 16,
+                          fontSize: isMobile ? 13 : 16,
                           fontFamily: 'monospace',
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         'Purchased ${asset.formattedPurchaseDate}',
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: AppTheme.muted,
-                          fontSize: 13,
+                          fontSize: isMobile ? 12 : 13,
                         ),
                       ),
                       if (asset.isPastLifespan) ...[
                         const SizedBox(height: 8),
                         const LifespanWarningBadge(),
                       ],
+                      if (isMobile) ...[
+                        const SizedBox(height: 8),
+                        StatusChip(status: asset.status),
+                      ],
                     ],
                   ),
                 ),
-                const SizedBox(width: 10),
-                StatusChip(status: asset.status),
+                if (!isMobile) ...[
+                  const SizedBox(width: 10),
+                  StatusChip(status: asset.status),
+                ],
                 if (onDelete != null) ...[
-                  const SizedBox(width: 4),
+                  SizedBox(width: isMobile ? 0 : 4),
                   IconButton(
                     onPressed: onDelete,
                     icon: const Icon(Icons.delete_outline),
@@ -105,8 +125,11 @@ class AssetCard extends StatelessWidget {
                   ),
                 ],
                 if (onTap != null) ...[
-                  const SizedBox(width: 2),
-                  const Icon(Icons.chevron_right, color: AppTheme.muted),
+                  SizedBox(width: isMobile ? 0 : 2),
+                  Padding(
+                    padding: EdgeInsets.only(top: isMobile ? 12 : 0),
+                    child: const Icon(Icons.chevron_right, color: AppTheme.muted),
+                  ),
                 ],
               ],
             ),

@@ -96,7 +96,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                     crossAxisCount: columns,
                     crossAxisSpacing: 18,
                     mainAxisSpacing: 18,
-                    childAspectRatio: .83,
+                    childAspectRatio: Responsive.categoryCardAspectRatio(context),
                   ),
                   itemBuilder: (_, index) => _CategoryCard(
                     name: visible[index].$1,
@@ -134,8 +134,12 @@ class _CategoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final iconSize = Responsive.categoryIconSize(context);
+    final scale = Responsive.fontScale(context);
+    final isMobile = Responsive.isMobile(context);
+
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.all(isMobile ? 14 : 20),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: AppTheme.border, width: 2),
@@ -144,27 +148,33 @@ class _CategoryCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 92,
-            height: 92,
+            width: iconSize,
+            height: iconSize,
             decoration: BoxDecoration(
               color: color,
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(iconSize * .22),
             ),
-            child: Icon(icon, size: 40, color: AppTheme.primary),
+            child: Icon(icon, size: iconSize * .43, color: AppTheme.primary),
           ),
           const Spacer(),
           Text(
             name,
-            style: const TextStyle(
-              fontSize: 20,
+            // Keep the label to a single line on every breakpoint: with a
+            // fixed-aspect-ratio grid cell, letting a long name wrap to a
+            // second line is what previously pushed the card's content
+            // past the cell's bottom edge on narrow phones.
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 20 * scale,
               fontWeight: FontWeight.w800,
               color: AppTheme.darkGreen,
             ),
           ),
-          const SizedBox(height: 7),
+          SizedBox(height: isMobile ? 4 : 7),
           Text(
             '$count items',
-            style: const TextStyle(fontSize: 17, color: AppTheme.muted),
+            style: TextStyle(fontSize: 17 * scale, color: AppTheme.muted),
           ),
         ],
       ),
