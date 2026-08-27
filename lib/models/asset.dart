@@ -101,7 +101,7 @@ class AssetItem {
     AssetItem(
       name: 'Split-type aircon',
       tagId: 'CSDO-MT-0042',
-      category: 'Maintenance',
+      category: 'Tools',
       description: 'Wall-mounted split type air-conditioning unit.',
       status: AssetStatus.maintenance,
       purchaseDate: DateTime(2021, 3, 15),

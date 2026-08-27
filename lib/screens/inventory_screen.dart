@@ -5,10 +5,29 @@ import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/asset_card.dart';
 import '../widgets/delete_confirmation_dialog.dart';
+import '../widgets/filter_chip_row.dart';
 import '../widgets/lifespan_warning_badge.dart';
 import '../widgets/page_header.dart';
+import '../widgets/sort_dropdown.dart';
 import '../widgets/status_chip.dart';
 import 'asset_detail_screen.dart';
+
+/// Sort orders available for the inventory list, selectable via the
+/// "Sort by" dropdown.
+enum InventorySortOption { nameAsc, dateAsc, dateDesc }
+
+extension InventorySortOptionX on InventorySortOption {
+  String get label {
+    switch (this) {
+      case InventorySortOption.nameAsc:
+        return 'A-Z';
+      case InventorySortOption.dateAsc:
+        return 'Purchase date (Ascending)';
+      case InventorySortOption.dateDesc:
+        return 'Purchase date (Descending)';
+    }
+  }
+}
 
 /// Pushes [AssetDetailScreen] for the given asset. Shared by both the
 /// mobile card list and the desktop table so tapping an asset behaves the
@@ -68,7 +87,15 @@ class InventoryScreen extends StatefulWidget {
 
 class _InventoryScreenState extends State<InventoryScreen> {
   final searchController = TextEditingController();
+
+  /// Category filter selection. 'All' plus each entry in [_categories]
+  /// (matched against [AssetItem.category] case-insensitively, since
+  /// category is free text elsewhere in the app).
   String filter = 'All';
+
+  InventorySortOption sortOption = InventorySortOption.nameAsc;
+
+  static const _categories = ['All', 'IT Equipment', 'Furniture', 'Vehicle', 'Tools'];
 
   @override
   void initState() {
@@ -84,15 +111,25 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
   List<AssetItem> get filtered {
     final query = searchController.text.toLowerCase();
-    return widget.assets.where((asset) {
+    final results = widget.assets.where((asset) {
       final matchesQuery = asset.name.toLowerCase().contains(query) ||
           asset.tagId.toLowerCase().contains(query);
-      final matchesFilter = filter == 'All' ||
-          (filter == 'Available' && asset.status == AssetStatus.available) ||
-          (filter == 'In use' && asset.status == AssetStatus.inUse) ||
-          (filter == 'Maintenance' && asset.status == AssetStatus.maintenance);
+      final matchesFilter =
+          filter == 'All' || asset.category.toLowerCase() == filter.toLowerCase();
       return matchesQuery && matchesFilter;
     }).toList();
+
+    switch (sortOption) {
+      case InventorySortOption.nameAsc:
+        results.sort(
+          (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+        );
+      case InventorySortOption.dateAsc:
+        results.sort((a, b) => a.purchaseDate.compareTo(b.purchaseDate));
+      case InventorySortOption.dateDesc:
+        results.sort((a, b) => b.purchaseDate.compareTo(a.purchaseDate));
+    }
+    return results;
   }
 
   @override
@@ -164,7 +201,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    _filters(),
+                    _filterAndSortRow(isDesktop),
                   ],
                 ),
               ),
@@ -212,30 +249,45 @@ class _InventoryScreenState extends State<InventoryScreen> {
   }
 
   Widget _filters() {
-    const filters = ['All', 'Available', 'In use', 'Maintenance'];
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: filters.map((item) {
-          final selected = filter == item;
-          return Padding(
-            padding: const EdgeInsets.only(right: 10),
-            child: ChoiceChip(
-              label: Text(item),
-              selected: selected,
-              onSelected: (_) => setState(() => filter = item),
-              selectedColor: AppTheme.darkGreen,
-              backgroundColor: Colors.white,
-              side: const BorderSide(color: AppTheme.border, width: 2),
-              labelStyle: TextStyle(
-                color: selected ? Colors.white : AppTheme.darkGreen,
-                fontWeight: FontWeight.w800,
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            ),
-          );
-        }).toList(),
-      ),
+    return FilterChipRow(
+      options: _categories,
+      selected: filter,
+      onSelected: (item) => setState(() => filter = item),
+    );
+  }
+
+  Widget _sortDropdown() {
+    return SortDropdown<InventorySortOption>(
+      value: sortOption,
+      options: InventorySortOption.values,
+      labelBuilder: (option) => option.label,
+      onChanged: (option) => setState(() => sortOption = option),
+    );
+  }
+
+  /// Lays out the category filter chips and the "Sort by" dropdown
+  /// together. On desktop there's enough horizontal room to keep them on
+  /// one line (chips on the left, sort control pinned to the right); on
+  /// narrower mobile widths they stack instead so the sort control never
+  /// competes with the chips for space or gets squeezed off-screen.
+  Widget _filterAndSortRow(bool isDesktop) {
+    if (isDesktop) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(child: _filters()),
+          const SizedBox(width: 16),
+          _sortDropdown(),
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _filters(),
+        const SizedBox(height: 14),
+        _sortDropdown(),
+      ],
     );
   }
 }

@@ -142,13 +142,19 @@ class _AddAssetFormState extends State<AddAssetForm> {
         SizedBox(height: gap),
         _label('Category'),
         DropdownButtonFormField<String>(
+          // Kept in sync with the category filter chips on the inventory
+          // list ('All', 'IT Equipment', 'Furniture', 'Vehicle', 'Tools')
+          // so every asset added here can actually be found under one of
+          // those filters. 'Maintenance' was previously offered here too,
+          // but that's an asset *status* (see AssetStatus), not a
+          // category, so it's been removed to avoid the two concepts
+          // colliding.
           initialValue: category,
           items: const [
             DropdownMenuItem(value: 'IT equipment', child: Text('IT equipment')),
             DropdownMenuItem(value: 'Furniture', child: Text('Furniture')),
-            DropdownMenuItem(value: 'Vehicles', child: Text('Vehicles')),
+            DropdownMenuItem(value: 'Vehicle', child: Text('Vehicle')),
             DropdownMenuItem(value: 'Tools', child: Text('Tools')),
-            DropdownMenuItem(value: 'Maintenance', child: Text('Maintenance')),
           ],
           onChanged: (value) => setState(() => category = value!),
         ),

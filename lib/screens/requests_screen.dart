@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/asset_request.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
+import '../widgets/filter_chip_row.dart';
 import '../widgets/page_header.dart';
 
 class RequestsScreen extends StatefulWidget {
@@ -135,29 +136,10 @@ class _RequestsScreenState extends State<RequestsScreen> {
 
   Widget _filters() {
     const filters = ['All', 'Pending', 'Approved', 'Rejected'];
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: filters.map((item) {
-          final selected = filter == item;
-          return Padding(
-            padding: const EdgeInsets.only(right: 10),
-            child: ChoiceChip(
-              label: Text(item),
-              selected: selected,
-              onSelected: (_) => setState(() => filter = item),
-              selectedColor: AppTheme.darkGreen,
-              backgroundColor: Colors.white,
-              side: const BorderSide(color: AppTheme.border, width: 2),
-              labelStyle: TextStyle(
-                color: selected ? Colors.white : AppTheme.darkGreen,
-                fontWeight: FontWeight.w800,
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            ),
-          );
-        }).toList(),
-      ),
+    return FilterChipRow(
+      options: filters,
+      selected: filter,
+      onSelected: (item) => setState(() => filter = item),
     );
   }
 }
