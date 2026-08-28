@@ -55,6 +55,12 @@ class _AppShellState extends State<AppShell> {
   int _index = kTabHome;
   final List<AssetItem> _assets = AssetItem.samples;
 
+  // Lets the shared circular FAB trigger [RequestsScreenState.openNewRequest]
+  // without lifting the requests list up into AppShell the way assets are —
+  // RequestsScreen keeps owning its own state, and AppShell just reaches
+  // into it via this key, the same pattern used for e.g. form/scaffold keys.
+  final _requestsKey = GlobalKey<RequestsScreenState>();
+
   void _addAsset(AssetItem asset) {
     setState(() => _assets.insert(0, asset));
   }
@@ -97,7 +103,7 @@ class _AppShellState extends State<AppShell> {
         onDeleteAsset: _deleteAsset,
       ),
       QrScannerScreen(assets: _assets),
-      const RequestsScreen(),
+      RequestsScreen(key: _requestsKey),
       const ProfileScreen(),
     ];
 
@@ -124,9 +130,13 @@ class _AppShellState extends State<AppShell> {
 
     return Scaffold(
       body: SafeArea(child: IndexedStack(index: _index, children: pages)),
-      floatingActionButton: _index == kTabInventory
-          ? _AddAssetFab(onPressed: _openAddAsset)
-          : null,
+      floatingActionButton: switch (_index) {
+        kTabInventory => _AddFab(onPressed: _openAddAsset),
+        kTabRequests => _AddFab(
+            onPressed: () => _requestsKey.currentState?.openNewRequest(),
+          ),
+        _ => null,
+      },
       // endFloat sits bottom-right and, with a bottomNavigationBar present,
       // Scaffold automatically floats it just above the bar (standard 16px
       // margin) instead of overlapping it. centerDocked previously placed
@@ -140,12 +150,14 @@ class _AppShellState extends State<AppShell> {
   }
 }
 
-/// Gradient "Add asset" FAB matching the app's green palette. A plain
+/// Gradient "add" FAB matching the app's green palette, reused for both
+/// "Add asset" (inventory tab) and "New request" (requests tab) since they
+/// share the same circular plus-button treatment. A plain
 /// [FloatingActionButton] only supports a solid [backgroundColor], so this
 /// makes the button's background transparent and paints the gradient on an
 /// [Ink] child instead, which keeps the normal Material ripple/elevation.
-class _AddAssetFab extends StatelessWidget {
-  const _AddAssetFab({required this.onPressed});
+class _AddFab extends StatelessWidget {
+  const _AddFab({required this.onPressed});
 
   final VoidCallback onPressed;
 

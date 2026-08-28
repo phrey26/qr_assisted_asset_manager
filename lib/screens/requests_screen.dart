@@ -32,10 +32,13 @@ class RequestsScreen extends StatefulWidget {
   const RequestsScreen({super.key});
 
   @override
-  State<RequestsScreen> createState() => _RequestsScreenState();
+  State<RequestsScreen> createState() => RequestsScreenState();
 }
 
-class _RequestsScreenState extends State<RequestsScreen> {
+/// Public so [AppShell] can reach [openNewRequest] via a [GlobalKey] and
+/// trigger it from the shared circular FAB, the same way it drives
+/// [InventoryScreen]'s "add asset" flow.
+class RequestsScreenState extends State<RequestsScreen> {
   final List<AssetRequest> requests = AssetRequest.samples;
   String filter = 'All';
 
@@ -51,7 +54,7 @@ class _RequestsScreenState extends State<RequestsScreen> {
     setState(() => request.status = status);
   }
 
-  Future<void> _openNewRequest() async {
+  Future<void> openNewRequest() async {
     final created = await showDialog<AssetRequest>(
       context: context,
       builder: (_) => const _NewRequestDialog(),
@@ -92,7 +95,7 @@ class _RequestsScreenState extends State<RequestsScreen> {
                       Padding(
                         padding: const EdgeInsets.only(top: 6),
                         child: ElevatedButton.icon(
-                          onPressed: _openNewRequest,
+                          onPressed: openNewRequest,
                           icon: const Icon(Icons.add),
                           label: const Text('New request'),
                           // Override the global button theme's
@@ -147,6 +150,11 @@ class _RequestsScreenState extends State<RequestsScreen> {
             ),
           )
         else
+          // On mobile, "New request" is triggered by the circular FAB that
+          // [AppShell] shows for this tab (matching the inventory page's
+          // "add asset" FAB), so no inline button is needed here — just
+          // leave room at the bottom so the last card isn't hidden behind
+          // the bottom nav bar and FAB.
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(28, 0, 28, 110),
             sliver: SliverList.builder(
@@ -165,20 +173,6 @@ class _RequestsScreenState extends State<RequestsScreen> {
                     onReject: () => _setStatus(filtered[index], RequestStatus.rejected),
                     onCancel: () => _setStatus(filtered[index], RequestStatus.pending),
                   ),
-                ),
-              ),
-            ),
-          ),
-        if (!isDesktop)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(28, 0, 28, 110),
-              child: SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: _openNewRequest,
-                  icon: const Icon(Icons.add),
-                  label: const Text('New request'),
                 ),
               ),
             ),

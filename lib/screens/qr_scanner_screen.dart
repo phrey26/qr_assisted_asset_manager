@@ -5,6 +5,7 @@ import '../models/asset.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/status_chip.dart';
+import 'qr_scan_result_screen.dart';
 
 class QrScannerScreen extends StatefulWidget {
   const QrScannerScreen({super.key, required this.assets});
@@ -22,8 +23,12 @@ class _QrScannerScreenState extends State<QrScannerScreen> with WidgetsBindingOb
   final controller = MobileScannerController(autoStart: false);
   final tagController = TextEditingController();
   bool torchOn = false;
-  String? scannedTag;
-  AssetItem? scannedAsset;
+
+  // True while a scan result is being shown (the desktop mini window, or
+  // the mobile result page). Guards against the camera's onDetect firing
+  // repeatedly for the same code — which it does many times a second while
+  // the tag is in frame — from opening several dialogs/pages at once.
+  bool _isShowingResult = false;
 
   // Camera access state. This works the same way regardless of platform
   // (Android, iOS, desktop, or web) since mobile_scanner requests the
@@ -100,19 +105,53 @@ class _QrScannerScreenState extends State<QrScannerScreen> with WidgetsBindingOb
     return 'Could not access the camera. Please check your camera permission and try again.';
   }
 
+  /// Looks up [value] against the current inventory and shows the result —
+  /// a "mini window" dialog on desktop, or a dedicated full page on mobile
+  /// (see [QrScanResultScreen]). Called both from the camera's onDetect and
+  /// from manual tag-ID entry.
   void _handleTag(String value) {
     final tag = value.trim();
-    if (tag.isEmpty) return;
-    setState(() {
-      scannedTag = tag;
-      scannedAsset = null;
-      for (final asset in widget.assets) {
-        if (asset.tagId.toLowerCase() == tag.toLowerCase()) {
-          scannedAsset = asset;
-          break;
-        }
+    if (tag.isEmpty || _isShowingResult) return;
+
+    AssetItem? found;
+    for (final asset in widget.assets) {
+      if (asset.tagId.toLowerCase() == tag.toLowerCase()) {
+        found = asset;
+        break;
       }
-    });
+    }
+
+    if (Responsive.isDesktop(context)) {
+      _showScanResultDialog(tag, found);
+    } else {
+      _openScanResultPage(tag, found);
+    }
+  }
+
+  /// Desktop: pops the "mini window" over the scan screen. Closing it (the
+  /// X button, tapping outside, or Esc) returns straight back to a
+  /// scanning-ready state.
+  Future<void> _showScanResultDialog(String tag, AssetItem? asset) async {
+    setState(() => _isShowingResult = true);
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _ScanResultDialog(tag: tag, asset: asset),
+    );
+    if (!mounted) return;
+    setState(() => _isShowingResult = false);
+  }
+
+  /// Mobile: pushes a full page with the asset's details. Coming back
+  /// (the app-bar back arrow or the "Back to scanner" button) returns to a
+  /// scanning-ready state.
+  Future<void> _openScanResultPage(String tag, AssetItem? asset) async {
+    setState(() => _isShowingResult = true);
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => QrScanResultScreen(tag: tag, asset: asset)),
+    );
+    if (!mounted) return;
+    setState(() => _isShowingResult = false);
   }
 
   @override
@@ -238,12 +277,6 @@ class _QrScannerScreenState extends State<QrScannerScreen> with WidgetsBindingOb
             ),
           ),
         ),
-        // On mobile the result appears inline below the scan controls;
-        // on desktop it lives in the details panel to the right instead.
-        if (!Responsive.isDesktop(context)) ...[
-          const SizedBox(height: 20),
-          if (scannedTag != null) _result(),
-        ],
       ],
     );
   }
@@ -338,6 +371,10 @@ class _QrScannerScreenState extends State<QrScannerScreen> with WidgetsBindingOb
     );
   }
 
+  /// Idle placeholder for the desktop details panel. Since a scan now pops
+  /// the "mini window" ([_ScanResultDialog]) instead of filling this panel,
+  /// it only ever needs to show this waiting state — closing the dialog
+  /// returns [QrScannerScreen] to exactly this.
   Widget _detailsPanel() {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -346,57 +383,107 @@ class _QrScannerScreenState extends State<QrScannerScreen> with WidgetsBindingOb
         border: Border.all(color: AppTheme.border, width: 1.5),
         borderRadius: BorderRadius.circular(16),
       ),
-      child: scannedTag == null
-          ? const Padding(
-              padding: EdgeInsets.symmetric(vertical: 40),
-              child: Center(
-                child: Text(
-                  'Scan a tag or enter an ID to see asset details here.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: AppTheme.muted),
-                ),
-              ),
-            )
-          : scannedAsset == null
-              ? Text(
-                  'No asset found for $scannedTag.',
-                  style: const TextStyle(
-                    color: Color(0xFFC84040),
-                    fontWeight: FontWeight.w700,
-                  ),
-                )
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            scannedAsset!.name,
-                            style: const TextStyle(
-                              color: AppTheme.darkGreen,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                        StatusChip(status: scannedAsset!.status),
-                      ],
+      child: const Padding(
+        padding: EdgeInsets.symmetric(vertical: 40),
+        child: Center(
+          child: Text(
+            'Scan a tag or enter an ID — the asset details will pop up here.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppTheme.muted),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Desktop's "mini window" — shown as a dialog over [QrScannerScreen] when
+/// a tag is scanned or entered manually. Holds the same information as
+/// [QrScanResultScreen] (the mobile equivalent), just presented as a
+/// dismissible popup instead of a full page. Closing it (the X button,
+/// tapping outside, or Esc) returns the scan screen to a fresh
+/// scanning-ready state.
+class _ScanResultDialog extends StatelessWidget {
+  const _ScanResultDialog({required this.tag, required this.asset});
+
+  final String tag;
+  final AssetItem? asset;
+
+  @override
+  Widget build(BuildContext context) {
+    final asset = this.asset;
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      asset == null ? 'No asset found' : asset.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppTheme.darkGreen,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
-                    const SizedBox(height: 16),
-                    _detailRow('Tag ID', scannedAsset!.tagId, mono: true),
-                    _detailRow('Category', scannedAsset!.category),
-                    if (scannedAsset!.description.isNotEmpty)
-                      _detailRow('Description', scannedAsset!.description),
+                  ),
+                  if (asset != null) ...[
+                    const SizedBox(width: 10),
+                    StatusChip(status: asset.status),
                   ],
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                    tooltip: 'Close',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (asset == null)
+                Text(
+                  'No asset in the inventory matches the tag "$tag".',
+                  style: const TextStyle(color: Color(0xFFC84040), fontWeight: FontWeight.w600),
+                )
+              else ...[
+                if (asset.imageBytes != null) ...[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: AspectRatio(
+                      aspectRatio: 16 / 9,
+                      child: Image.memory(asset.imageBytes!, fit: BoxFit.cover),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                _detailRow('Asset tag ID', asset.tagId, mono: true),
+                _detailRow('Category', asset.category),
+                _detailRow('Date of purchase', asset.formattedPurchaseDate),
+                _detailRow(
+                  'Description',
+                  asset.description.isEmpty ? 'No description provided.' : asset.description,
+                  isLast: true,
                 ),
+              ],
+            ],
+          ),
+        ),
+      ),
     );
   }
 
-  Widget _detailRow(String label, String value, {bool mono = false}) {
+  Widget _detailRow(String label, String value, {bool mono = false, bool isLast = false}) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
+      padding: EdgeInsets.only(bottom: isLast ? 0 : 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -414,59 +501,9 @@ class _QrScannerScreenState extends State<QrScannerScreen> with WidgetsBindingOb
             style: TextStyle(
               color: AppTheme.muted,
               fontFamily: mono ? 'monospace' : null,
-              fontSize: 13.5,
+              fontSize: 14,
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _result() {
-    if (scannedAsset == null) {
-      return Container(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: AppTheme.redTint,
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: Text(
-          'No asset found for $scannedTag.',
-          style: const TextStyle(
-            color: Color(0xFFC84040),
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: AppTheme.mint,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            scannedAsset!.name,
-            style: const TextStyle(
-              color: AppTheme.darkGreen,
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            scannedAsset!.tagId,
-            style: const TextStyle(
-              color: AppTheme.muted,
-              fontFamily: 'monospace',
-            ),
-          ),
-          const SizedBox(height: 12),
-          StatusChip(status: scannedAsset!.status),
         ],
       ),
     );
