@@ -5,6 +5,28 @@ import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/filter_chip_row.dart';
 import '../widgets/page_header.dart';
+import 'request_detail_screen.dart';
+
+/// Pushes [RequestDetailScreen] for the given request. Mirrors
+/// `_openAssetDetail` on the inventory page so tapping a request card
+/// behaves the same way as tapping an asset card.
+void _openRequestDetail(
+  BuildContext context,
+  AssetRequest request, {
+  required void Function(AssetRequest request, RequestStatus status) onSetStatus,
+}) {
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => RequestDetailScreen(
+        request: request,
+        onApprove: () => onSetStatus(request, RequestStatus.approved),
+        onReject: () => onSetStatus(request, RequestStatus.rejected),
+        onCancel: () => onSetStatus(request, RequestStatus.pending),
+      ),
+    ),
+  );
+}
 
 class RequestsScreen extends StatefulWidget {
   const RequestsScreen({super.key});
@@ -42,7 +64,10 @@ class _RequestsScreenState extends State<RequestsScreen> {
   @override
   Widget build(BuildContext context) {
     final isDesktop = Responsive.isDesktop(context);
-    final maxWidth = isDesktop ? 960.0 : double.infinity;
+    // Wider than the mobile/card max-width so the desktop table (which has
+    // more columns than the inventory table) has room to breathe without
+    // horizontal scrolling on typical desktop widths.
+    final maxWidth = isDesktop ? 1120.0 : double.infinity;
 
     return CustomScrollView(
       slivers: [
@@ -99,23 +124,51 @@ class _RequestsScreenState extends State<RequestsScreen> {
             ),
           ),
         ),
-        SliverPadding(
-          padding: EdgeInsets.fromLTRB(28, 0, 28, isDesktop ? 40 : 110),
-          sliver: SliverList.builder(
-            itemCount: filtered.length,
-            itemBuilder: (_, index) => Center(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: maxWidth),
-                child: _RequestCard(
-                  request: filtered[index],
-                  onApprove: () => _setStatus(filtered[index], RequestStatus.approved),
-                  onReject: () => _setStatus(filtered[index], RequestStatus.rejected),
-                  onCancel: () => _setStatus(filtered[index], RequestStatus.pending),
+        if (isDesktop)
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(28, 0, 28, 40),
+            sliver: SliverToBoxAdapter(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: maxWidth),
+                  child: _RequestsTable(
+                    requests: filtered,
+                    onOpen: (request) => _openRequestDetail(
+                      context,
+                      request,
+                      onSetStatus: _setStatus,
+                    ),
+                    onApprove: (request) => _setStatus(request, RequestStatus.approved),
+                    onReject: (request) => _setStatus(request, RequestStatus.rejected),
+                    onCancel: (request) => _setStatus(request, RequestStatus.pending),
+                  ),
+                ),
+              ),
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(28, 0, 28, 110),
+            sliver: SliverList.builder(
+              itemCount: filtered.length,
+              itemBuilder: (_, index) => Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: maxWidth),
+                  child: _RequestCard(
+                    request: filtered[index],
+                    onTap: () => _openRequestDetail(
+                      context,
+                      filtered[index],
+                      onSetStatus: _setStatus,
+                    ),
+                    onApprove: () => _setStatus(filtered[index], RequestStatus.approved),
+                    onReject: () => _setStatus(filtered[index], RequestStatus.rejected),
+                    onCancel: () => _setStatus(filtered[index], RequestStatus.pending),
+                  ),
                 ),
               ),
             ),
           ),
-        ),
         if (!isDesktop)
           SliverToBoxAdapter(
             child: Padding(
@@ -182,15 +235,205 @@ class _RequestStatusPill extends StatelessWidget {
   }
 }
 
+/// Desktop-only table presentation of the requests list, matching
+/// [_InventoryTable] on the inventory page. Built from flexible `Row`s
+/// (instead of `DataTable`, which sizes each column to its content and
+/// overflows the container width) so every column — including the status
+/// pill and the approve/reject/cancel actions — always fits within the
+/// available width instead of being pushed off-screen behind a horizontal
+/// scroll. Rows open [RequestDetailScreen] on tap; the actions stay inline
+/// so admins don't have to open every row just to act on it.
+class _RequestsTable extends StatelessWidget {
+  const _RequestsTable({
+    required this.requests,
+    required this.onOpen,
+    required this.onApprove,
+    required this.onReject,
+    required this.onCancel,
+  });
+
+  final List<AssetRequest> requests;
+  final void Function(AssetRequest request) onOpen;
+  final void Function(AssetRequest request) onApprove;
+  final void Function(AssetRequest request) onReject;
+  final void Function(AssetRequest request) onCancel;
+
+  // Fixed widths for the columns that hold a pill or icon buttons rather
+  // than free text, so they never get squeezed. The rest of the row's
+  // width is split between the flex-based text columns below.
+  static const _statusWidth = 118.0;
+  static const _actionsWidth = 96.0;
+
+  @override
+  Widget build(BuildContext context) {
+    if (requests.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(32),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.border, width: 1.5),
+        ),
+        child: const Center(
+          child: Text('No requests match this filter.', style: TextStyle(color: AppTheme.muted)),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.border, width: 1.5),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _headerRow(),
+          for (final request in requests) _dataRow(request),
+        ],
+      ),
+    );
+  }
+
+  Widget _headerRow() {
+    const style = TextStyle(fontWeight: FontWeight.w700, color: AppTheme.darkGreen);
+    return Container(
+      color: const Color(0xFFF6F5F0),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      child: Row(
+        children: [
+          Expanded(flex: 3, child: Text('Event / purpose', style: style)),
+          Expanded(flex: 2, child: Text('Requested by', style: style)),
+          Expanded(flex: 2, child: Text('Department', style: style)),
+          Expanded(flex: 3, child: Text('Item requested', style: style)),
+          Expanded(flex: 2, child: Text('Needed', style: style)),
+          SizedBox(width: _statusWidth, child: Text('Status', style: style)),
+          const SizedBox(width: _actionsWidth),
+        ],
+      ),
+    );
+  }
+
+  Widget _dataRow(AssetRequest request) {
+    const cellStyle = TextStyle(color: AppTheme.muted);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => onOpen(request),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          decoration: const BoxDecoration(
+            border: Border(top: BorderSide(color: AppTheme.border, width: 1)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                flex: 3,
+                child: Text(
+                  request.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w700, color: AppTheme.darkGreen),
+                ),
+              ),
+              Expanded(
+                flex: 2,
+                child: Text(request.requester, maxLines: 1, overflow: TextOverflow.ellipsis, style: cellStyle),
+              ),
+              Expanded(
+                flex: 2,
+                child: Text(request.department, maxLines: 1, overflow: TextOverflow.ellipsis, style: cellStyle),
+              ),
+              Expanded(
+                flex: 3,
+                child: Text(
+                  request.itemDescription,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: cellStyle,
+                ),
+              ),
+              Expanded(
+                flex: 2,
+                child: Text(
+                  request.neededDate ?? '—',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: cellStyle,
+                ),
+              ),
+              SizedBox(width: _statusWidth, child: _RequestStatusPill(status: request.status)),
+              SizedBox(width: _actionsWidth, child: _tableActions(request)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Compact approve/reject/cancel actions for the table row. Kept as icon
+  /// buttons (rather than the full text buttons on the mobile card) so the
+  /// action column stays narrow, and sized/padded down from the default
+  /// [IconButton] so both icons fit inside [_actionsWidth] without wrapping.
+  Widget _tableActions(AssetRequest request) {
+    if (request.status == RequestStatus.pending) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            onPressed: () => onApprove(request),
+            icon: const Icon(Icons.check_circle_outline),
+            color: AppTheme.primary,
+            tooltip: 'Approve',
+            iconSize: 20,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+          ),
+          IconButton(
+            onPressed: () => onReject(request),
+            icon: const Icon(Icons.cancel_outlined),
+            color: Colors.redAccent,
+            tooltip: 'Reject',
+            iconSize: 20,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+          ),
+        ],
+      );
+    }
+    if (request.status == RequestStatus.approved) {
+      return IconButton(
+        onPressed: () => onCancel(request),
+        icon: const Icon(Icons.undo),
+        color: AppTheme.muted,
+        tooltip: 'Cancel approval',
+        iconSize: 20,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+      );
+    }
+    return const SizedBox.shrink();
+  }
+}
+
 class _RequestCard extends StatelessWidget {
   const _RequestCard({
     required this.request,
+    this.onTap,
     required this.onApprove,
     required this.onReject,
     required this.onCancel,
   });
 
   final AssetRequest request;
+
+  /// Invoked when the card is tapped anywhere outside the action buttons.
+  /// Wired up by [RequestsScreen] to open the request's detail page, the
+  /// same way [InventoryScreen] opens asset details.
+  final VoidCallback? onTap;
   final VoidCallback onApprove;
   final VoidCallback onReject;
   final VoidCallback onCancel;
@@ -240,29 +483,38 @@ class _RequestCard extends StatelessWidget {
       // producing a staggered left edge. Force it to fill instead.
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppTheme.border, width: 2),
       ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          if (constraints.maxWidth < 520) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [info, const SizedBox(height: 16), actions],
-            );
-          }
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(child: info),
-              const SizedBox(width: 16),
-              actions,
-            ],
-          );
-        },
+      clipBehavior: Clip.antiAlias,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                if (constraints.maxWidth < 520) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [info, const SizedBox(height: 16), actions],
+                  );
+                }
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(child: info),
+                    const SizedBox(width: 16),
+                    actions,
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
       ),
     );
   }
