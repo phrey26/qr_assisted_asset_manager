@@ -40,12 +40,26 @@ class ProfileScreen extends StatelessWidget {
                 const SizedBox(height: 20),
                 SizedBox(
                   width: double.infinity,
+                  // The default OutlinedButton has no global theme override
+                  // (unlike ElevatedButton, which gets a 64px minimum height
+                  // from AppTheme), so left as-is it renders at Material3's
+                  // ~40px default — a thin, easy-to-miss target on a phone.
+                  // Give it an explicit comfortable height, bolder text, and
+                  // a clearer border so it reads (and taps) like a proper
+                  // full-size mobile action instead of a stray outline.
                   child: OutlinedButton.icon(
                     onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil(
                       '/login',
                       (route) => false,
                     ),
-                    icon: const Icon(Icons.logout),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(58),
+                      side: const BorderSide(color: AppTheme.primary, width: 2),
+                      foregroundColor: AppTheme.primary,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
+                    ),
+                    icon: const Icon(Icons.logout, size: 22),
                     label: const Text('Log out'),
                   ),
                 ),

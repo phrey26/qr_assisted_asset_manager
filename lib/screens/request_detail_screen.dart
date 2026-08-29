@@ -102,7 +102,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                 const SizedBox(height: 24),
                 _signaturesCard(request, desktop: true),
                 const SizedBox(height: 24),
-                _actions(request),
+                _actions(request, desktop: true),
               ],
             ),
           ),
@@ -319,38 +319,111 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     );
   }
 
+  /// Danger styling for the "Reject" action — a red outline/text instead
+  /// of the default theme-primary (green) [OutlinedButton], so a rejection
+  /// reads as visually distinct from (and more consequential than) the
+  /// neutral "Cancel approval" action below, rather than the two sharing
+  /// the same green outline. [desktop] additionally trims the button down
+  /// from the global theme's full-height mobile sizing.
+  static ButtonStyle _rejectStyle({bool desktop = false}) => OutlinedButton.styleFrom(
+        foregroundColor: const Color(0xFFC84040),
+        side: const BorderSide(color: Color(0xFFC84040), width: 2),
+        minimumSize: desktop ? _desktopMinSize : null,
+        padding: desktop ? _desktopButtonPadding : null,
+      );
+
+  /// Neutral-but-clickable styling for "Cancel approval". A plain outline
+  /// (as this used to be) reads as disabled on a phone screen — outlined
+  /// buttons lean on a hover/pointer affordance touch devices don't have,
+  /// so with nothing but a faint grey border it looked inert rather than
+  /// tappable. A soft filled background (plus a small icon) gives it the
+  /// same "this is a button" weight as Approve/Reject, while staying
+  /// visually calmer than either so it still reads as the lower-stakes,
+  /// reversible action.
+  static ButtonStyle _cancelStyle({bool desktop = false}) => FilledButton.styleFrom(
+        backgroundColor: const Color(0xFFE8ECEA),
+        foregroundColor: AppTheme.darkGreen,
+        side: const BorderSide(color: Color(0xFFD3DBD8), width: 1.5),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+        minimumSize: desktop ? _desktopMinSize : const Size.fromHeight(56),
+        padding: desktop ? _desktopButtonPadding : const EdgeInsets.symmetric(horizontal: 24),
+      );
+
+  /// Compact sizing for desktop action buttons, overriding the global
+  /// button theme's `Size.fromHeight(64)` (sized for full-width mobile
+  /// buttons), so desktop doesn't end up with two edge-to-edge, 64px-tall
+  /// buttons that were clearly sized for a phone screen.
+  static const _desktopButtonPadding = EdgeInsets.symmetric(horizontal: 28, vertical: 14);
+  static const _desktopMinSize = Size(0, 48);
+
   /// Approve/reject (pending) or cancel (approved) actions, matching what
   /// used to be available only from the request card on the list page.
-  Widget _actions(AssetRequest request) {
+  ///
+  /// Mobile keeps a full-width button (or button pair) — a large, easy
+  /// thumb target at the bottom of the scrolling page. Desktop instead
+  /// wraps the same actions in a card with compact, right-aligned buttons,
+  /// matching the "New request" button's desktop-sized override elsewhere
+  /// in the app, so the page ends in a proper action bar instead of
+  /// stretched mobile-sized buttons.
+  Widget _actions(AssetRequest request, {bool desktop = false}) {
     if (request.status == RequestStatus.pending) {
-      return Row(
-        children: [
-          Expanded(
-            child: ElevatedButton(
-              onPressed: widget.onApprove == null ? null : _approve,
-              child: const Text('Approve'),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: OutlinedButton(
-              onPressed: widget.onReject == null ? null : _reject,
-              child: const Text('Reject'),
-            ),
-          ),
-        ],
+      final approve = ElevatedButton(
+        onPressed: widget.onApprove == null ? null : _approve,
+        style: desktop
+            ? ElevatedButton.styleFrom(
+                minimumSize: _desktopMinSize,
+                padding: _desktopButtonPadding,
+              )
+            : null,
+        child: const Text('Approve'),
       );
+      final reject = OutlinedButton(
+        onPressed: widget.onReject == null ? null : _reject,
+        style: _rejectStyle(desktop: desktop),
+        child: const Text('Reject'),
+      );
+      if (!desktop) {
+        return Row(
+          children: [
+            Expanded(child: approve),
+            const SizedBox(width: 12),
+            Expanded(child: reject),
+          ],
+        );
+      }
+      return _desktopActionsBar([reject, const SizedBox(width: 12), approve]);
     }
     if (request.status == RequestStatus.approved) {
-      return SizedBox(
-        width: double.infinity,
-        child: OutlinedButton(
-          onPressed: widget.onCancel == null ? null : _cancel,
-          child: const Text('Cancel approval'),
-        ),
+      final cancel = FilledButton.icon(
+        onPressed: widget.onCancel == null ? null : _cancel,
+        style: _cancelStyle(desktop: desktop),
+        icon: const Icon(Icons.undo, size: 18),
+        label: const Text('Cancel approval'),
       );
+      if (!desktop) {
+        return SizedBox(width: double.infinity, child: cancel);
+      }
+      return _desktopActionsBar([cancel]);
     }
     return const SizedBox.shrink();
+  }
+
+  /// Card-style action bar for desktop: matches the info/signatures cards
+  /// above it (white background, rounded border) and right-aligns its
+  /// buttons, rather than letting them float as bare, full-bleed widgets
+  /// at the end of the page the way the mobile layout does.
+  Widget _desktopActionsBar(List<Widget> children) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.border, width: 2),
+      ),
+      child: Row(mainAxisAlignment: MainAxisAlignment.end, children: children),
+    );
   }
 }
 

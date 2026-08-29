@@ -466,6 +466,31 @@ class _RequestCard extends StatelessWidget {
   final VoidCallback onReject;
   final VoidCallback onCancel;
 
+  /// Danger styling for "Reject" — a red outline/text instead of the
+  /// default theme-primary (green) [OutlinedButton], matching
+  /// [RequestDetailScreen]'s reject styling so a rejection reads as
+  /// visually distinct from (and more consequential than) the neutral
+  /// "Cancel" action below, rather than the two sharing the same green
+  /// outline.
+  static final ButtonStyle _rejectButtonStyle = OutlinedButton.styleFrom(
+    foregroundColor: const Color(0xFFC84040),
+    side: const BorderSide(color: Color(0xFFC84040), width: 2),
+  );
+
+  /// Neutral-but-clickable styling for "Cancel". A plain outline (as this
+  /// used to be) reads as disabled on a phone screen — outlined buttons
+  /// lean on a hover/pointer affordance touch devices don't have, so with
+  /// nothing but a faint grey border it looked inert rather than tappable.
+  /// A soft filled background gives it the same "this is a button" weight
+  /// as Approve/Reject, while staying visually calmer than either so it
+  /// still reads as the lower-stakes, reversible action.
+  static final ButtonStyle _cancelButtonStyle = FilledButton.styleFrom(
+    backgroundColor: const Color(0xFFE8ECEA),
+    foregroundColor: AppTheme.darkGreen,
+    side: const BorderSide(color: Color(0xFFD3DBD8), width: 1.5),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+  );
+
   @override
   Widget build(BuildContext context) {
     final info = Column(
@@ -496,9 +521,18 @@ class _RequestCard extends StatelessWidget {
         _RequestStatusPill(status: request.status),
         if (request.status == RequestStatus.pending) ...[
           FilledButton(onPressed: onApprove, child: const Text('Approve')),
-          OutlinedButton(onPressed: onReject, child: const Text('Reject')),
+          OutlinedButton(
+            onPressed: onReject,
+            style: _rejectButtonStyle,
+            child: const Text('Reject'),
+          ),
         ] else if (request.status == RequestStatus.approved)
-          OutlinedButton(onPressed: onCancel, child: const Text('Cancel')),
+          FilledButton.icon(
+            onPressed: onCancel,
+            style: _cancelButtonStyle,
+            icon: const Icon(Icons.undo, size: 16),
+            label: const Text('Cancel'),
+          ),
       ],
     );
 
