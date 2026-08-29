@@ -79,6 +79,19 @@ class _AppShellState extends State<AppShell> {
     setState(() => _assets.removeWhere((item) => item.tagId == asset.tagId));
   }
 
+  /// Changes an asset's status — e.g. flagging it as under maintenance, or
+  /// marking it available again once it's fixed. Triggered from the status
+  /// chip's menu on the inventory page (list, table, and detail views all
+  /// share this one handler). tagId is unique per asset, so it's used to
+  /// find the matching item in [_assets] rather than relying on object
+  /// identity, which the widgets that call this don't guarantee.
+  void _updateAssetStatus(AssetItem asset, AssetStatus status) {
+    setState(() {
+      final match = _assets.firstWhere((item) => item.tagId == asset.tagId);
+      match.status = status;
+    });
+  }
+
   Future<void> _openAddAsset() async {
     final tagId = AssetItem.nextTagId(_assets);
     final AssetItem? asset;
@@ -114,6 +127,7 @@ class _AppShellState extends State<AppShell> {
         assets: _assets,
         onAddAsset: _openAddAsset,
         onDeleteAsset: _deleteAsset,
+        onUpdateStatus: _updateAssetStatus,
       ),
       QrScannerScreen(assets: _assets),
       RequestsScreen(key: _requestsKey),

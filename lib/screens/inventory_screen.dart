@@ -37,6 +37,7 @@ void _openAssetDetail(
   BuildContext context,
   AssetItem asset, {
   void Function(AssetItem asset)? onDeleteAsset,
+  void Function(AssetItem asset, AssetStatus status)? onUpdateStatus,
 }) {
   Navigator.push(
     context,
@@ -44,6 +45,9 @@ void _openAssetDetail(
       builder: (_) => AssetDetailScreen(
         asset: asset,
         onDelete: onDeleteAsset == null ? null : () => onDeleteAsset(asset),
+        onUpdateStatus: onUpdateStatus == null
+            ? null
+            : (status) => onUpdateStatus(asset, status),
       ),
     ),
   );
@@ -66,6 +70,7 @@ class InventoryScreen extends StatefulWidget {
     required this.assets,
     this.onAddAsset,
     this.onDeleteAsset,
+    this.onUpdateStatus,
   });
 
   final List<AssetItem> assets;
@@ -80,6 +85,12 @@ class InventoryScreen extends StatefulWidget {
   /// remove an asset from the inventory once it's no longer usable. When
   /// null, no delete affordance is shown anywhere on this page.
   final void Function(AssetItem asset)? onDeleteAsset;
+
+  /// Invoked when the admin changes an asset's status from its status
+  /// chip's menu — e.g. flagging it as under maintenance, or marking it
+  /// available again once it's fixed. When null, status chips throughout
+  /// this page are read-only.
+  final void Function(AssetItem asset, AssetStatus status)? onUpdateStatus;
 
   @override
   State<InventoryScreen> createState() => InventoryScreenState();
@@ -229,6 +240,7 @@ class InventoryScreenState extends State<InventoryScreen> {
                   child: _InventoryTable(
                     assets: filtered,
                     onDeleteAsset: widget.onDeleteAsset,
+                    onUpdateStatus: widget.onUpdateStatus,
                   ),
                 ),
               ),
@@ -247,10 +259,14 @@ class InventoryScreenState extends State<InventoryScreen> {
                     context,
                     asset,
                     onDeleteAsset: widget.onDeleteAsset,
+                    onUpdateStatus: widget.onUpdateStatus,
                   ),
                   onDelete: widget.onDeleteAsset == null
                       ? null
                       : () => _confirmAndDelete(context, asset, widget.onDeleteAsset!),
+                  onUpdateStatus: widget.onUpdateStatus == null
+                      ? null
+                      : (status) => widget.onUpdateStatus!(asset, status),
                 );
               },
             ),
@@ -307,10 +323,11 @@ class InventoryScreenState extends State<InventoryScreen> {
 /// hi-fi desktop mockups (a wide table reads better than stacked cards once
 /// there's room for it).
 class _InventoryTable extends StatelessWidget {
-  const _InventoryTable({required this.assets, this.onDeleteAsset});
+  const _InventoryTable({required this.assets, this.onDeleteAsset, this.onUpdateStatus});
 
   final List<AssetItem> assets;
   final void Function(AssetItem asset)? onDeleteAsset;
+  final void Function(AssetItem asset, AssetStatus status)? onUpdateStatus;
 
   @override
   Widget build(BuildContext context) {
@@ -358,6 +375,7 @@ class _InventoryTable extends StatelessWidget {
                     context,
                     asset,
                     onDeleteAsset: onDeleteAsset,
+                    onUpdateStatus: onUpdateStatus,
                   ),
                   cells: [
                     DataCell(Text(
@@ -382,7 +400,14 @@ class _InventoryTable extends StatelessWidget {
                         ],
                       ],
                     )),
-                    DataCell(StatusChip(status: asset.status)),
+                    DataCell(
+                      StatusChip(
+                        status: asset.status,
+                        onChanged: onUpdateStatus == null
+                            ? null
+                            : (status) => onUpdateStatus!(asset, status),
+                      ),
+                    ),
                     if (onDeleteAsset != null)
                       DataCell(
                         IconButton(

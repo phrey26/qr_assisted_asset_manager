@@ -31,7 +31,11 @@ class AssetItem {
   final String tagId;
   final String category;
   final String description;
-  final AssetStatus status;
+
+  /// Mutable so the admin can change it from the inventory page — e.g.
+  /// flagging an asset as under maintenance, or bringing it back once
+  /// it's fixed — without having to delete and re-add the asset.
+  AssetStatus status;
 
   /// When the asset was purchased. Required for every asset regardless of
   /// category.

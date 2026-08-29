@@ -17,7 +17,12 @@ import '../widgets/status_chip.dart';
 /// entered when the asset was created, plus the QR code generated for it
 /// (with a "Download" action that saves/shares the QR as a PNG image).
 class AssetDetailScreen extends StatefulWidget {
-  const AssetDetailScreen({super.key, required this.asset, this.onDelete});
+  const AssetDetailScreen({
+    super.key,
+    required this.asset,
+    this.onDelete,
+    this.onUpdateStatus,
+  });
 
   final AssetItem asset;
 
@@ -25,6 +30,11 @@ class AssetDetailScreen extends StatefulWidget {
   /// asset from the inventory once it's no longer usable. When null, no
   /// delete action is shown in the app bar.
   final VoidCallback? onDelete;
+
+  /// Invoked with the newly-picked status when the admin changes it from
+  /// the status chip's menu (e.g. flagging the asset as under
+  /// maintenance). When null, the chip is a plain read-only label.
+  final ValueChanged<AssetStatus>? onUpdateStatus;
 
   @override
   State<AssetDetailScreen> createState() => _AssetDetailScreenState();
@@ -34,6 +44,18 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
   // Used to locate the rendered QR image so it can be captured as a PNG.
   final _qrBoundaryKey = GlobalKey();
   bool _saving = false;
+
+  /// Applies the status change and refreshes this page. [widget.asset] is
+  /// the same mutable object held by the inventory list (matched by
+  /// tagId), so [onUpdateStatus] mutates it in place; since this page is a
+  /// separate pushed route, it won't pick that up on its own the way the
+  /// inventory list does via its own setState, so a local setState is
+  /// needed here too — mirroring how [RequestDetailScreen] refreshes after
+  /// approve/reject.
+  void _changeStatus(AssetStatus status) {
+    widget.onUpdateStatus?.call(status);
+    setState(() {});
+  }
 
   Future<void> _deleteAsset() async {
     final confirmed = await confirmAssetDeletion(context, widget.asset);
@@ -201,7 +223,10 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
             ),
           ),
           const SizedBox(width: 12),
-          StatusChip(status: asset.status),
+          StatusChip(
+            status: asset.status,
+            onChanged: widget.onUpdateStatus == null ? null : _changeStatus,
+          ),
         ],
       );
 

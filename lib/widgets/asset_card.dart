@@ -7,7 +7,13 @@ import 'lifespan_warning_badge.dart';
 import 'status_chip.dart';
 
 class AssetCard extends StatelessWidget {
-  const AssetCard({super.key, required this.asset, this.onTap, this.onDelete});
+  const AssetCard({
+    super.key,
+    required this.asset,
+    this.onTap,
+    this.onDelete,
+    this.onUpdateStatus,
+  });
 
   final AssetItem asset;
 
@@ -20,6 +26,11 @@ class AssetCard extends StatelessWidget {
   /// delete affordance is shown — used to keep this widget reusable for
   /// non-admin contexts if they're added later.
   final VoidCallback? onDelete;
+
+  /// Invoked with the newly-picked status when the admin changes it from
+  /// the status chip's menu (e.g. flagging the asset as under
+  /// maintenance). When null, the chip is a plain read-only label.
+  final ValueChanged<AssetStatus>? onUpdateStatus;
 
   @override
   Widget build(BuildContext context) {
@@ -106,14 +117,14 @@ class AssetCard extends StatelessWidget {
                       ],
                       if (isMobile) ...[
                         const SizedBox(height: 8),
-                        StatusChip(status: asset.status),
+                        StatusChip(status: asset.status, onChanged: onUpdateStatus),
                       ],
                     ],
                   ),
                 ),
                 if (!isMobile) ...[
                   const SizedBox(width: 10),
-                  StatusChip(status: asset.status),
+                  StatusChip(status: asset.status, onChanged: onUpdateStatus),
                 ],
                 if (onDelete != null) ...[
                   SizedBox(width: isMobile ? 0 : 4),
