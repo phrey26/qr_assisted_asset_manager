@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/asset_request.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
+import '../widgets/signature_line.dart';
 
 /// Full detail view for a single asset request. Shows every field the
 /// requester entered, plus the approve/reject/cancel actions that used to
@@ -78,6 +79,8 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
             const SizedBox(height: 24),
             _infoCard(request),
             const SizedBox(height: 24),
+            _signaturesCard(request),
+            const SizedBox(height: 24),
             _actions(request),
           ],
         ),
@@ -96,6 +99,8 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                 _requestHeading(request, desktop: true),
                 const SizedBox(height: 30),
                 _infoCard(request, desktop: true),
+                const SizedBox(height: 24),
+                _signaturesCard(request, desktop: true),
                 const SizedBox(height: 24),
                 _actions(request),
               ],
@@ -131,51 +136,44 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppTheme.border, width: 2),
       ),
-      child: desktop
-          ? Column(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (desktop) ...[
+            const Text(
+              'Request information',
+              style: TextStyle(
+                color: AppTheme.darkGreen,
+                fontWeight: FontWeight.w800,
+                fontSize: 18,
+              ),
+            ),
+            const SizedBox(height: 22),
+            Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Request information',
-                  style: TextStyle(
-                    color: AppTheme.darkGreen,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 18,
-                  ),
-                ),
-                const SizedBox(height: 22),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: _detailRow('Requested by', request.requester)),
-                    Expanded(child: _detailRow('Department / org', request.department)),
-                  ],
-                ),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: _detailRow('Item requested', request.itemDescription)),
-                    Expanded(
-                      child: _detailRow(
-                        'Needed by',
-                        request.neededDate ?? 'Not specified',
-                      ),
-                    ),
-                  ],
-                ),
-                _detailRow('Status', request.status.label, isLast: true),
-              ],
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _detailRow('Requested by', request.requester),
-                _detailRow('Department / org', request.department),
-                _detailRow('Item requested', request.itemDescription),
-                _detailRow('Needed by', request.neededDate ?? 'Not specified'),
-                _detailRow('Status', request.status.label, isLast: true),
+                Expanded(child: _detailRow('Requested by', request.requester)),
+                Expanded(child: _detailRow('Department / org', request.department)),
               ],
             ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _detailRow('Venue / facility', request.venue ?? 'Not requested')),
+                Expanded(child: _detailRow('Needed by', request.neededDate)),
+              ],
+            ),
+          ] else ...[
+            _detailRow('Requested by', request.requester),
+            _detailRow('Department / org', request.department),
+            _detailRow('Venue / facility', request.venue ?? 'Not requested'),
+            _detailRow('Needed by', request.neededDate),
+          ],
+          if (request.logistics.isNotEmpty) _itemsRow('Logistics', request.logistics),
+          if (request.equipment.isNotEmpty) _itemsRow('Equipment', request.equipment),
+          _detailRow('Status', request.status.label, isLast: true),
+        ],
+      ),
     );
   }
 
@@ -199,6 +197,123 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
             value,
             style: const TextStyle(color: AppTheme.muted, fontSize: 16),
           ),
+        ],
+      ),
+    );
+  }
+
+  /// Renders a labeled list of logistics/equipment lines, each with its
+  /// requested amount (e.g. "Foldable chairs" · "× 120").
+  Widget _itemsRow(String label, List<RequestedItem> items) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.darkGreen,
+              letterSpacing: 0.3,
+            ),
+          ),
+          const SizedBox(height: 6),
+          for (final item in items)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      item.name,
+                      style: const TextStyle(color: AppTheme.muted, fontSize: 16),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    '× ${item.quantity}',
+                    style: const TextStyle(
+                      color: AppTheme.darkGreen,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 15,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// The four "signature over printed name" blocks from the paper slip —
+  /// requester, adviser, principal/office head, and dean — laid out side
+  /// by side on desktop and two-per-row on mobile so they still resemble
+  /// a signature strip rather than a stacked list.
+  Widget _signaturesCard(AssetRequest request, {bool desktop = false}) {
+    final signatories = request.signatories;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.border, width: 2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Signatures',
+                  style: TextStyle(
+                    color: AppTheme.darkGreen,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 18,
+                  ),
+                ),
+              ),
+              Text(
+                '${request.signedCount}/${signatories.length} signed',
+                style: const TextStyle(
+                  color: AppTheme.muted,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          desktop
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final entry in signatories)
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          child: SignatureLine(role: entry.key, signatory: entry.value),
+                        ),
+                      ),
+                  ],
+                )
+              : GridView.count(
+                  crossAxisCount: 2,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  mainAxisSpacing: 22,
+                  crossAxisSpacing: 12,
+                  childAspectRatio: 1.35,
+                  children: [
+                    for (final entry in signatories)
+                      SignatureLine(role: entry.key, signatory: entry.value),
+                  ],
+                ),
         ],
       ),
     );

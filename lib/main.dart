@@ -61,6 +61,11 @@ class _AppShellState extends State<AppShell> {
   // into it via this key, the same pattern used for e.g. form/scaffold keys.
   final _requestsKey = GlobalKey<RequestsScreenState>();
 
+  // Lets tapping a category card on the Categories tab jump straight to
+  // the Inventory tab with that category already filtered — same
+  // GlobalKey pattern as [_requestsKey] above.
+  final _inventoryKey = GlobalKey<InventoryScreenState>();
+
   void _addAsset(AssetItem asset) {
     setState(() => _assets.insert(0, asset));
   }
@@ -93,11 +98,19 @@ class _AppShellState extends State<AppShell> {
     if (asset != null) _addAsset(asset);
   }
 
+  /// Switches to the Inventory tab with [category] already selected in its
+  /// filter chips. Wired up to [CategoriesScreen]'s category cards.
+  void _openCategoryInInventory(String category) {
+    _inventoryKey.currentState?.setFilter(category);
+    setState(() => _index = kTabInventory);
+  }
+
   @override
   Widget build(BuildContext context) {
     final pages = [
-      CategoriesScreen(assets: _assets),
+      CategoriesScreen(assets: _assets, onCategoryTap: _openCategoryInInventory),
       InventoryScreen(
+        key: _inventoryKey,
         assets: _assets,
         onAddAsset: _openAddAsset,
         onDeleteAsset: _deleteAsset,

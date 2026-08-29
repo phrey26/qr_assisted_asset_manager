@@ -82,10 +82,14 @@ class InventoryScreen extends StatefulWidget {
   final void Function(AssetItem asset)? onDeleteAsset;
 
   @override
-  State<InventoryScreen> createState() => _InventoryScreenState();
+  State<InventoryScreen> createState() => InventoryScreenState();
 }
 
-class _InventoryScreenState extends State<InventoryScreen> {
+/// Public so [AppShell] can reach [setFilter] via a [GlobalKey] and jump
+/// straight to a given category — e.g. when the admin taps a category
+/// card on the home page — the same way it drives [RequestsScreenState]'s
+/// "new request" flow.
+class InventoryScreenState extends State<InventoryScreen> {
   final searchController = TextEditingController();
 
   /// Category filter selection. 'All' plus each entry in [_categories]
@@ -96,6 +100,13 @@ class _InventoryScreenState extends State<InventoryScreen> {
   InventorySortOption sortOption = InventorySortOption.nameAsc;
 
   static const _categories = ['All', 'IT Equipment', 'Furniture', 'Vehicle', 'Tools'];
+
+  /// Jumps straight to [category] (one of [_categories]), replacing
+  /// whatever filter was previously selected. Falls back to 'All' if given
+  /// a category this page doesn't recognize.
+  void setFilter(String category) {
+    setState(() => filter = _categories.contains(category) ? category : 'All');
+  }
 
   @override
   void initState() {

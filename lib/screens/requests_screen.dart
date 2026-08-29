@@ -1,10 +1,14 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
+import '../models/asset.dart';
 import '../models/asset_request.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/filter_chip_row.dart';
 import '../widgets/page_header.dart';
+import '../widgets/signature_field.dart';
 import 'request_detail_screen.dart';
 
 /// Pushes [RequestDetailScreen] for the given request. Mirrors
@@ -301,7 +305,7 @@ class _RequestsTable extends StatelessWidget {
           Expanded(flex: 3, child: Text('Event / purpose', style: style)),
           Expanded(flex: 2, child: Text('Requested by', style: style)),
           Expanded(flex: 2, child: Text('Department', style: style)),
-          Expanded(flex: 3, child: Text('Item requested', style: style)),
+          Expanded(flex: 3, child: Text('Requested items', style: style)),
           Expanded(flex: 2, child: Text('Needed', style: style)),
           SizedBox(width: _statusWidth, child: Text('Status', style: style)),
           const SizedBox(width: _actionsWidth),
@@ -344,7 +348,7 @@ class _RequestsTable extends StatelessWidget {
               Expanded(
                 flex: 3,
                 child: Text(
-                  request.itemDescription,
+                  request.itemsSummary,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: cellStyle,
@@ -353,7 +357,7 @@ class _RequestsTable extends StatelessWidget {
               Expanded(
                 flex: 2,
                 child: Text(
-                  request.neededDate ?? '—',
+                  request.neededDate,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: cellStyle,
@@ -514,6 +518,10 @@ class _RequestCard extends StatelessWidget {
   }
 }
 
+/// The "New request" form — mirrors the office's actual borrow slip:
+/// event/purpose, requester, department, an optional venue/facility, the
+/// date everything is needed, and then logistics and equipment as
+/// separate lists of items with amounts (e.g. "Foldable chairs" × 120).
 class _NewRequestDialog extends StatefulWidget {
   const _NewRequestDialog();
 
@@ -525,35 +533,152 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
   final titleController = TextEditingController();
   final requesterController = TextEditingController();
   final departmentController = TextEditingController();
-  final itemController = TextEditingController();
+  final venueController = TextEditingController();
+  DateTime? neededDate;
+
+  // Each list always keeps at least one (possibly blank) row so the
+  // section never looks empty; blank rows are simply skipped on submit.
+  final logisticsRows = [_ItemFormRow()];
+  final equipmentRows = [_ItemFormRow()];
+
+  // The four signature-over-printed-name blocks the paper slip always
+  // asks for. The requester's printed name mirrors requesterController
+  // so it doesn't have to be typed twice, but is kept as its own
+  // controller so it can still be edited independently (e.g. someone
+  // else fills out the form on the requester's behalf).
+  final adviserNameController = TextEditingController();
+  final principalNameController = TextEditingController();
+  final deanNameController = TextEditingController();
+  Uint8List? requesterSignatureBytes;
+  Uint8List? adviserSignatureBytes;
+  Uint8List? principalSignatureBytes;
+  Uint8List? deanSignatureBytes;
 
   @override
   void dispose() {
     titleController.dispose();
     requesterController.dispose();
     departmentController.dispose();
-    itemController.dispose();
+    venueController.dispose();
+    adviserNameController.dispose();
+    principalNameController.dispose();
+    deanNameController.dispose();
+    for (final row in logisticsRows) {
+      row.dispose();
+    }
+    for (final row in equipmentRows) {
+      row.dispose();
+    }
     super.dispose();
   }
 
+  Future<void> _pickNeededDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: neededDate ?? now,
+      // Requests are for upcoming use of a venue/logistics/equipment, so
+      // don't offer past dates.
+      firstDate: now,
+      lastDate: DateTime(now.year + 2),
+    );
+    if (picked != null) setState(() => neededDate = picked);
+  }
+
+  void _addRow(List<_ItemFormRow> rows) {
+    setState(() => rows.add(_ItemFormRow()));
+  }
+
+  void _removeRow(List<_ItemFormRow> rows, int index) {
+    setState(() {
+      rows[index].dispose();
+      rows.removeAt(index);
+      // Always leave at least one row so the section has somewhere to
+      // type the next item.
+      if (rows.isEmpty) rows.add(_ItemFormRow());
+    });
+  }
+
+  /// Turns the filled-in rows in [rows] into [RequestedItem]s, defaulting
+  /// a blank amount to 1. Returns null (after showing a snackbar) if any
+  /// named row has an invalid amount.
+  List<RequestedItem>? _parseRows(List<_ItemFormRow> rows) {
+    final items = <RequestedItem>[];
+    for (final row in rows) {
+      final name = row.nameController.text.trim();
+      if (name.isEmpty) continue;
+      final rawQuantity = row.quantityController.text.trim();
+      final quantity = rawQuantity.isEmpty ? 1 : int.tryParse(rawQuantity);
+      if (quantity == null || quantity <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Please enter a valid amount for "$name".')),
+        );
+        return null;
+      }
+      items.add(RequestedItem(name: name, quantity: quantity));
+    }
+    return items;
+  }
+
   void _submit() {
-    if (titleController.text.trim().isEmpty || itemController.text.trim().isEmpty) {
+    if (titleController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill in the event and item requested.')),
+        const SnackBar(content: Text('Please fill in the event / purpose.')),
       );
       return;
     }
+    if (neededDate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please select the date it's needed.")),
+      );
+      return;
+    }
+
+    final logistics = _parseRows(logisticsRows);
+    if (logistics == null) return;
+    final equipment = _parseRows(equipmentRows);
+    if (equipment == null) return;
+    final venue = venueController.text.trim();
+
+    if (venue.isEmpty && logistics.isEmpty && equipment.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please add a venue, logistics, or equipment for this request.'),
+        ),
+      );
+      return;
+    }
+
+    final requesterName =
+        requesterController.text.trim().isEmpty ? 'You' : requesterController.text.trim();
+
     Navigator.pop(
       context,
       AssetRequest(
         title: titleController.text.trim(),
-        requester: requesterController.text.trim().isEmpty
-            ? 'You'
-            : requesterController.text.trim(),
-        department: departmentController.text.trim().isEmpty
-            ? 'CSDO'
-            : departmentController.text.trim(),
-        itemDescription: itemController.text.trim(),
+        requester: requesterName,
+        department:
+            departmentController.text.trim().isEmpty ? 'CSDO' : departmentController.text.trim(),
+        venue: venue.isEmpty ? null : venue,
+        logistics: logistics,
+        equipment: equipment,
+        neededDate: AssetItem.formatDate(neededDate!),
+        requesterSignature: Signatory(
+          name: requesterName,
+          imageBytes: requesterSignatureBytes,
+        ),
+        adviserSignature: Signatory(
+          name: adviserNameController.text.trim(),
+          imageBytes: adviserSignatureBytes,
+        ),
+        principalSignature: Signatory(
+          name: principalNameController.text.trim(),
+          imageBytes: principalSignatureBytes,
+        ),
+        deanSignature: Signatory(
+          name: deanNameController.text.trim(),
+          imageBytes: deanSignatureBytes,
+        ),
       ),
     );
   }
@@ -563,9 +688,9 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(26),
+        constraints: const BoxConstraints(maxWidth: 460, maxHeight: 680),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(26, 22, 26, 22),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -584,12 +709,40 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
-              _field('Event / purpose', titleController, hint: 'e.g. Freshmen orientation'),
-              _field('Requested by', requesterController, hint: 'Your name'),
-              _field('Department / org', departmentController, hint: 'e.g. OSA'),
-              _field('Item requested', itemController, hint: 'e.g. Wireless microphone'),
-              const SizedBox(height: 10),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 4),
+                      _field('Event / purpose', titleController, hint: 'e.g. Freshmen orientation'),
+                      _field('Requested by', requesterController, hint: 'Your name'),
+                      _field('Department / org', departmentController, hint: 'e.g. OSA'),
+                      _field(
+                        'Venue / facility',
+                        venueController,
+                        hint: 'e.g. Gymnasium — leave blank if none needed',
+                      ),
+                      _dateField(),
+                      const SizedBox(height: 6),
+                      _itemsSection(
+                        'Logistics',
+                        logisticsRows,
+                        hint: 'e.g. Foldable chairs',
+                      ),
+                      const SizedBox(height: 10),
+                      _itemsSection(
+                        'Equipment',
+                        equipmentRows,
+                        hint: 'e.g. Wireless microphone',
+                      ),
+                      const SizedBox(height: 10),
+                      _signaturesSection(),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
               Row(
                 children: [
                   Expanded(
@@ -636,5 +789,167 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
         ],
       ),
     );
+  }
+
+  /// Date picker field for "when it's needed", styled to match
+  /// [AddAssetForm]'s "Date of purchase" field.
+  Widget _dateField() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Date needed',
+            style: TextStyle(color: AppTheme.darkGreen, fontSize: 13, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 6),
+          InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: _pickNeededDate,
+            child: InputDecorator(
+              decoration: const InputDecoration(
+                suffixIcon: Icon(Icons.calendar_today_outlined, size: 20),
+              ),
+              child: Text(
+                neededDate == null ? 'Select date' : AssetItem.formatDate(neededDate!),
+                style: TextStyle(
+                  color: neededDate == null ? AppTheme.muted : AppTheme.darkGreen,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// A labeled group of item-name + amount rows (used for both Logistics
+  /// and Equipment), with an "Add item" action to append another row.
+  Widget _itemsSection(String label, List<_ItemFormRow> rows, {required String hint}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(color: AppTheme.darkGreen, fontSize: 13, fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 6),
+          for (var i = 0; i < rows.length; i++) _itemRow(rows, i, hint: hint),
+          TextButton.icon(
+            onPressed: () => _addRow(rows),
+            icon: const Icon(Icons.add, size: 18),
+            label: Text('Add ${label.toLowerCase()} item'),
+            style: TextButton.styleFrom(
+              padding: EdgeInsets.zero,
+              minimumSize: const Size(0, 36),
+              alignment: Alignment.centerLeft,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The "Signatures" section: one upload block per role on the paper
+  /// slip — requester, adviser, principal/office head, and dean — each
+  /// with a printed-name field and a scanned/photographed signature
+  /// image in lieu of a wet-ink signature.
+  Widget _signaturesSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Signatures',
+          style: TextStyle(color: AppTheme.darkGreen, fontSize: 13, fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'Upload a scanned or photographed signature for each approver, over their printed name — same as the paper form.',
+          style: TextStyle(color: AppTheme.muted, fontSize: 12.5),
+        ),
+        const SizedBox(height: 10),
+        SignatureField(
+          role: SignatoryRole.requester,
+          nameController: requesterController,
+          nameHint: 'Your name',
+          imageBytes: requesterSignatureBytes,
+          onImageChanged: (bytes) => setState(() => requesterSignatureBytes = bytes),
+        ),
+        SignatureField(
+          role: SignatoryRole.adviser,
+          nameController: adviserNameController,
+          imageBytes: adviserSignatureBytes,
+          onImageChanged: (bytes) => setState(() => adviserSignatureBytes = bytes),
+        ),
+        SignatureField(
+          role: SignatoryRole.principal,
+          nameController: principalNameController,
+          imageBytes: principalSignatureBytes,
+          onImageChanged: (bytes) => setState(() => principalSignatureBytes = bytes),
+        ),
+        SignatureField(
+          role: SignatoryRole.dean,
+          nameController: deanNameController,
+          imageBytes: deanSignatureBytes,
+          onImageChanged: (bytes) => setState(() => deanSignatureBytes = bytes),
+        ),
+      ],
+    );
+  }
+
+  Widget _itemRow(List<_ItemFormRow> rows, int index, {required String hint}) {
+    final row = rows[index];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 3,
+            child: TextField(
+              controller: row.nameController,
+              decoration: InputDecoration(hintText: hint),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 72,
+            child: TextField(
+              controller: row.quantityController,
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.center,
+              decoration: const InputDecoration(hintText: 'Qty'),
+            ),
+          ),
+          SizedBox(
+            width: 40,
+            child: rows.length > 1
+                ? IconButton(
+                    onPressed: () => _removeRow(rows, index),
+                    icon: const Icon(Icons.close, size: 18),
+                    tooltip: 'Remove item',
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                  )
+                : null,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Holds the two controllers for one logistics/equipment row (item name +
+/// amount) in [_NewRequestDialog].
+class _ItemFormRow {
+  final nameController = TextEditingController();
+  final quantityController = TextEditingController();
+
+  void dispose() {
+    nameController.dispose();
+    quantityController.dispose();
   }
 }
