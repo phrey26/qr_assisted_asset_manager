@@ -145,8 +145,16 @@ class RequestsScreenState extends State<RequestsScreen> {
                       request,
                       onSetStatus: _setStatus,
                     ),
-                    onApprove: (request) => _setStatus(request, RequestStatus.approved),
-                    onReject: (request) => _setStatus(request, RequestStatus.rejected),
+                    onApprove: (request) => _openRequestDetail(
+                      context,
+                      request,
+                      onSetStatus: _setStatus,
+                    ),
+                    onReject: (request) => _openRequestDetail(
+                      context,
+                      request,
+                      onSetStatus: _setStatus,
+                    ),
                     onCancel: (request) => _setStatus(request, RequestStatus.pending),
                   ),
                 ),
@@ -173,8 +181,16 @@ class RequestsScreenState extends State<RequestsScreen> {
                       filtered[index],
                       onSetStatus: _setStatus,
                     ),
-                    onApprove: () => _setStatus(filtered[index], RequestStatus.approved),
-                    onReject: () => _setStatus(filtered[index], RequestStatus.rejected),
+                    onApprove: () => _openRequestDetail(
+                      context,
+                      filtered[index],
+                      onSetStatus: _setStatus,
+                    ),
+                    onReject: () => _openRequestDetail(
+                      context,
+                      filtered[index],
+                      onSetStatus: _setStatus,
+                    ),
                     onCancel: () => _setStatus(filtered[index], RequestStatus.pending),
                   ),
                 ),
@@ -376,6 +392,11 @@ class _RequestsTable extends StatelessWidget {
   /// buttons (rather than the full text buttons on the mobile card) so the
   /// action column stays narrow, and sized/padded down from the default
   /// [IconButton] so both icons fit inside [_actionsWidth] without wrapping.
+  ///
+  /// Neither the approve nor the reject icon acts immediately — both open
+  /// [RequestDetailScreen] (via [onApprove]/[onReject], wired to
+  /// `_openRequestDetail`) so the admin reviews the full request before
+  /// either decision is actually available.
   Widget _tableActions(AssetRequest request) {
     if (request.status == RequestStatus.pending) {
       return Row(
@@ -385,7 +406,7 @@ class _RequestsTable extends StatelessWidget {
             onPressed: () => onApprove(request),
             icon: const Icon(Icons.check_circle_outline),
             color: AppTheme.primary,
-            tooltip: 'Approve',
+            tooltip: 'Review to approve',
             iconSize: 20,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
@@ -394,7 +415,7 @@ class _RequestsTable extends StatelessWidget {
             onPressed: () => onReject(request),
             icon: const Icon(Icons.cancel_outlined),
             color: Colors.redAccent,
-            tooltip: 'Reject',
+            tooltip: 'Review to reject',
             iconSize: 20,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
@@ -432,7 +453,16 @@ class _RequestCard extends StatelessWidget {
   /// Wired up by [RequestsScreen] to open the request's detail page, the
   /// same way [InventoryScreen] opens asset details.
   final VoidCallback? onTap;
+
+  /// Invoked when the "Approve" button is pressed. Wired up by
+  /// [RequestsScreen] to open [RequestDetailScreen] (same as [onTap])
+  /// rather than approving immediately — approving is only possible from
+  /// the detail screen, once the admin has reviewed the full request.
   final VoidCallback onApprove;
+
+  /// Invoked when the "Reject" button is pressed. Like [onApprove], this
+  /// opens [RequestDetailScreen] instead of rejecting immediately, so a
+  /// reject decision also only happens after reviewing the full request.
   final VoidCallback onReject;
   final VoidCallback onCancel;
 
