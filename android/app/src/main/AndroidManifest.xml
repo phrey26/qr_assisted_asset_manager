@@ -1,5 +1,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- mobile_scanner (CameraX/ML Kit) needs these feature declarations to
+         reliably find and bind a camera on every device — without them,
+         some Android phones/tablets fail to initialize the camera for the
+         scanner (black/blank preview or a permission-looking error) even
+         though the CAMERA permission above is granted. required="false"
+         so a device without a camera (or without autofocus) can still
+         install and use the rest of the app — the scanner screen already
+         falls back to manual tag entry. -->
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera.autofocus"
+        android:required="false" />
     <application
         android:label="QR Asset Management"
         android:name="${applicationName}"
