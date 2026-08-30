@@ -1,11 +1,12 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter_file_dialog/flutter_file_dialog.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../models/asset.dart';
 import '../theme/app_theme.dart';
@@ -15,7 +16,7 @@ import '../widgets/status_chip.dart';
 
 /// Full detail view for a single asset. Shows every field the admin
 /// entered when the asset was created, plus the QR code generated for it
-/// (with a "Download" action that saves/shares the QR as a PNG image).
+/// (with a "Download" action that saves the QR as a PNG image).
 class AssetDetailScreen extends StatefulWidget {
   const AssetDetailScreen({
     super.key,
@@ -77,18 +78,37 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       final bytes = byteData!.buffer.asUint8List();
 
-      final dir = await getTemporaryDirectory();
       final safeTag = widget.asset.tagId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
-      final file = File('${dir.path}/qr_$safeTag.png');
-      await file.writeAsBytes(bytes);
+      final fileName = 'qr_$safeTag.png';
 
-      // shareXFiles opens the native share/save sheet, letting the admin
-      // save the QR to Photos/Files (mobile) or pick a save location
-      // (desktop) rather than us guessing at storage permissions.
-      await Share.shareXFiles(
-        [XFile(file.path, mimeType: 'image/png')],
-        text: 'QR code for ${widget.asset.name} (${widget.asset.tagId})',
-      );
+      if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+        // The OS's own "Save file" flow — Android's Storage Access
+        // Framework / iOS's document picker — rather than
+        // `Share.shareXFiles`, which was opening the share sheet (Messages,
+        // Gmail, AirDrop, ...) instead of actually saving anything. This
+        // lets the admin pick a folder and writes the PNG straight there,
+        // and needs no storage permission since the OS itself brokers the
+        // write.
+        final savedPath = await FlutterFileDialog.saveFile(
+          params: SaveFileDialogParams(data: bytes, fileName: fileName),
+        );
+        if (mounted && savedPath != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('QR code saved.')),
+          );
+        }
+      } else {
+        // Desktop: write straight to the user's Downloads folder, the same
+        // way a browser download would — no share sheet or dialog needed.
+        final dir = await getDownloadsDirectory() ?? await getTemporaryDirectory();
+        final file = File('${dir.path}${Platform.pathSeparator}$fileName');
+        await file.writeAsBytes(bytes);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('QR code saved to ${file.path}')),
+          );
+        }
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
