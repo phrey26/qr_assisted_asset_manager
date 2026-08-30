@@ -302,17 +302,30 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                       ),
                   ],
                 )
-              : GridView.count(
-                  crossAxisCount: 2,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  mainAxisSpacing: 22,
-                  crossAxisSpacing: 12,
-                  childAspectRatio: 1.35,
-                  children: [
-                    for (final entry in signatories)
-                      SignatureLine(role: entry.key, signatory: entry.value),
-                  ],
+              // A GridView.count with a fixed childAspectRatio forces every
+              // cell to a rigid height derived from its width. That works
+              // on a "typical" phone width, but on a narrower device the
+              // cell shrinks below what the name + role text inside
+              // SignatureLine actually needs, which is what was causing
+              // the "BOTTOM OVERFLOWED" errors. A Wrap has no such
+              // constraint — each item is only as tall as its own content,
+              // so it can never overflow, on any screen width.
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    const spacing = 12.0;
+                    final itemWidth = (constraints.maxWidth - spacing) / 2;
+                    return Wrap(
+                      spacing: spacing,
+                      runSpacing: 22,
+                      children: [
+                        for (final entry in signatories)
+                          SizedBox(
+                            width: itemWidth,
+                            child: SignatureLine(role: entry.key, signatory: entry.value),
+                          ),
+                      ],
+                    );
+                  },
                 ),
         ],
       ),

@@ -103,6 +103,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final asset = widget.asset;
+    final desktop = Responsive.isDesktop(context);
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -111,19 +112,33 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         ),
         title: const Text('Asset details'),
         actions: [
-          if (widget.onDelete != null)
-            IconButton(
-              onPressed: _deleteAsset,
-              icon: const Icon(Icons.delete_outline),
-              color: Colors.redAccent,
-              tooltip: 'Remove from inventory',
+          // On desktop there's plenty of room in the app bar for a proper,
+          // legible button instead of a bare icon that's easy to miss next
+          // to the back arrow. Mobile drops this entirely in favour of a
+          // full-width button at the bottom of the page (see
+          // `_deleteButton`) — a small icon crammed into a narrow phone
+          // app bar is both easy to miss and easy to mis-tap.
+          if (widget.onDelete != null && desktop)
+            Padding(
+              padding: const EdgeInsets.only(right: 24),
+              child: OutlinedButton.icon(
+                onPressed: _deleteAsset,
+                icon: const Icon(Icons.delete_outline, size: 18),
+                label: const Text('Delete asset'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFFC84040),
+                  side: const BorderSide(color: Color(0xFFC84040), width: 2),
+                  minimumSize: const Size(0, 44),
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                ),
+              ),
             ),
         ],
       ),
       body: SafeArea(
-        child: Responsive.isDesktop(context)
-            ? _desktopBody(asset)
-            : _mobileBody(asset),
+        child: desktop ? _desktopBody(asset) : _mobileBody(asset),
       ),
     );
   }
@@ -148,6 +163,10 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
             _infoCard(asset),
             const SizedBox(height: 24),
             _qrCard(),
+            if (widget.onDelete != null) ...[
+              const SizedBox(height: 24),
+              _deleteButton(),
+            ],
           ],
         ),
       );
@@ -192,6 +211,40 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
           ),
         ),
       );
+
+  /// Full-width danger button for mobile, styled to match the app's other
+  /// destructive actions (e.g. "Reject" on the request detail screen): a
+  /// red outline rather than a bare icon, plus a short caption so it's
+  /// unambiguous this can't be undone. This replaces the old app-bar icon,
+  /// which was small, easy to miss, and easy to mis-tap next to the back
+  /// arrow on a narrow phone screen.
+  Widget _deleteButton() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: _deleteAsset,
+            icon: const Icon(Icons.delete_outline, size: 20),
+            label: const Text('Remove asset'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFFC84040),
+              side: const BorderSide(color: Color(0xFFC84040), width: 2),
+              minimumSize: const Size.fromHeight(56),
+              textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        const Text(
+          'This removes the asset from inventory and can\'t be undone.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: AppTheme.muted, fontSize: 13),
+        ),
+      ],
+    );
+  }
 
   Widget _assetHeading(AssetItem asset, {bool desktop = false}) => Row(
         crossAxisAlignment: CrossAxisAlignment.start,

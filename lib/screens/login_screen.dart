@@ -37,158 +37,50 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final isDesktop = Responsive.isDesktop(context);
+
+    if (isDesktop) {
+      return _DesktopLoginView(
+        idController: idController,
+        passwordController: passwordController,
+        obscure: obscure,
+        onToggleObscure: () => setState(() => obscure = !obscure),
+        onLogin: _login,
+      );
+    }
+
     return Scaffold(
-      backgroundColor: isDesktop ? const Color(0xFFF6F5F0) : Colors.white,
+      backgroundColor: Colors.white,
+      // The keyboard would otherwise shrink the available height and
+      // trigger the same "not everything fits" problem this screen is
+      // built to avoid. The form fields are simple enough that nothing is
+      // lost by leaving the layout as-is and letting the OS handle the
+      // keyboard overlay instead of resizing the body.
+      resizeToAvoidBottomInset: false,
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            // The desktop layout (a card centered in a wide window) never
-            // had a scrolling problem, so it keeps its original fixed
-            // sizing untouched. Mobile is where a phone with a shorter
-            // screen (or one with a tall status bar / gesture inset) forced
-            // a scroll to see the "Log in" button — so on mobile, scale
-            // every font size, gap, the logo placeholder, and the button
-            // height down (or up) together, proportional to how much
-            // vertical room is actually available, instead of using the
-            // same fixed sizing on every phone. `SingleChildScrollView`
-            // stays in place below as a safety net (e.g. once the
-            // keyboard opens), but with this scaling the common case no
-            // longer needs it.
-            final availableHeight = constraints.maxHeight;
-            final double scale = isDesktop
-                ? 1.0
-                : (availableHeight / 760).clamp(0.72, 1.05).toDouble();
-            double sp(double base) => isDesktop ? base : base * scale;
-            double gap(double base) => isDesktop ? base : base * scale;
-
-            return SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(
-                28,
-                isDesktop ? 40 : gap(28),
-                28,
-                isDesktop ? 40 : gap(28),
-              ),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: availableHeight),
-                child: Center(
-                  child: Container(
-                    width: double.infinity,
-                    constraints: BoxConstraints(maxWidth: isDesktop ? 420 : 650),
-                    padding: isDesktop
-                        ? const EdgeInsets.all(40)
-                        : EdgeInsets.zero,
-                    decoration: isDesktop
-                        ? BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(24),
-                            border: Border.all(color: AppTheme.border, width: 1.5),
-                          )
-                        : null,
-                    child: Theme(
-                      // Scales the text fields' vertical padding down to
-                      // match the rest of the shrunk layout on shorter
-                      // mobile screens; inherited as-is on desktop.
-                      data: Theme.of(context).copyWith(
-                        inputDecorationTheme: Theme.of(context).inputDecorationTheme.copyWith(
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 24,
-                                vertical: isDesktop ? 20 : gap(20).clamp(12.0, 20.0).toDouble(),
-                              ),
-                            ),
-                      ),
-                      child: Column(
-                        children: [
-                          BrandMark(size: isDesktop ? 120 : (120 * scale).clamp(72.0, 130.0).toDouble()),
-                          SizedBox(height: gap(40)),
-                          Text(
-                            'Welcome back',
-                            style: TextStyle(
-                              fontSize: sp(36),
-                              fontWeight: FontWeight.w800,
-                              color: AppTheme.darkGreen,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          SizedBox(height: gap(6)),
-                          Text(
-                            'Sign in to manage campus assets',
-                            style: TextStyle(color: AppTheme.muted, fontSize: sp(20)),
-                            textAlign: TextAlign.center,
-                          ),
-                          SizedBox(height: gap(65)),
-                          _label('Employee ID', fontSize: sp(20)),
-                          TextField(
-                            controller: idController,
-                            textInputAction: TextInputAction.next,
-                          ),
-                          SizedBox(height: gap(30)),
-                          _label('Password', fontSize: sp(20)),
-                          TextField(
-                            controller: passwordController,
-                            obscureText: obscure,
-                            decoration: InputDecoration(
-                              suffixIcon: IconButton(
-                                onPressed: () => setState(() => obscure = !obscure),
-                                icon: Icon(
-                                  obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                                ),
-                              ),
-                            ),
-                          ),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: TextButton(
-                              onPressed: () {},
-                              child: Text(
-                                'Forgot password?',
-                                style: TextStyle(
-                                  color: AppTheme.primary,
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: sp(17),
-                                ),
-                              ),
-                            ),
-                          ),
-                          SizedBox(height: gap(20)),
-                          ElevatedButton(
-                            onPressed: _login,
-                            style: isDesktop
-                                ? null
-                                : ElevatedButton.styleFrom(
-                                    minimumSize: Size.fromHeight((64 * scale).clamp(52.0, 64.0).toDouble()),
-                                    textStyle: TextStyle(
-                                      fontSize: sp(20),
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                            child: const Text('Log in'),
-                          ),
-                          SizedBox(height: gap(24)),
-                          TextButton(
-                            onPressed: () => Navigator.pushNamed(
-                              context,
-                              RegisterScreen.routeName,
-                            ),
-                            child: RichText(
-                              text: TextSpan(
-                                style: TextStyle(color: AppTheme.muted, fontSize: sp(18)),
-                                children: [
-                                  const TextSpan(text: 'Need an account? '),
-                                  TextSpan(
-                                    text: 'Register',
-                                    style: TextStyle(
-                                      color: AppTheme.primary,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: sp(18),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+            // Mobile: instead of scrolling (or guessing at a scale factor
+            // that still overflows on very short phones), lay the content
+            // out at its natural/full size inside a fixed-size canvas,
+            // then let FittedBox scale that whole canvas down (or up) as
+            // one unit to exactly fit whatever height/width is actually
+            // available. This guarantees every element — logo down to the
+            // "Register" link — is on screen with no scrolling, on any
+            // phone size.
+            const designWidth = 400.0;
+            const designHeight = 760.0;
+            return Center(
+              child: FittedBox(
+                fit: BoxFit.contain,
+                child: SizedBox(
+                  width: designWidth,
+                  height: designHeight,
+                  child: _MobileLoginForm(
+                    idController: idController,
+                    passwordController: passwordController,
+                    obscure: obscure,
+                    onToggleObscure: () => setState(() => obscure = !obscure),
+                    onLogin: _login,
                   ),
                 ),
               ),
@@ -198,19 +90,472 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     );
   }
+}
 
-  Widget _label(String text, {double fontSize = 20}) => Align(
-        alignment: Alignment.centerLeft,
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: Text(
-            text,
-            style: TextStyle(
-              color: AppTheme.darkGreen,
-              fontSize: fontSize,
-              fontWeight: FontWeight.w800,
+/// The mobile login form, laid out at full/natural size. The parent
+/// `FittedBox` (in `_LoginScreenState.build`) takes care of scaling this
+/// down to fit any phone without ever needing to scroll.
+class _MobileLoginForm extends StatelessWidget {
+  const _MobileLoginForm({
+    required this.idController,
+    required this.passwordController,
+    required this.obscure,
+    required this.onToggleObscure,
+    required this.onLogin,
+  });
+
+  final TextEditingController idController;
+  final TextEditingController passwordController;
+  final bool obscure;
+  final VoidCallback onToggleObscure;
+  final VoidCallback onLogin;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(28, 28, 28, 28),
+      child: Center(
+        child: Container(
+          width: double.infinity,
+          constraints: const BoxConstraints(maxWidth: 650),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const BrandMark(size: 120),
+              const SizedBox(height: 40),
+              Text(
+                'Welcome back',
+                style: TextStyle(
+                  fontSize: 36,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.darkGreen,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Sign in to manage campus assets',
+                style: TextStyle(color: AppTheme.muted, fontSize: 20),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 50),
+              _FormLabel('Employee ID', fontSize: 20),
+              TextField(
+                controller: idController,
+                textInputAction: TextInputAction.next,
+              ),
+              const SizedBox(height: 30),
+              _FormLabel('Password', fontSize: 20),
+              TextField(
+                controller: passwordController,
+                obscureText: obscure,
+                decoration: InputDecoration(
+                  suffixIcon: IconButton(
+                    onPressed: onToggleObscure,
+                    icon: Icon(
+                      obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                    ),
+                  ),
+                ),
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () {},
+                  child: Text(
+                    'Forgot password?',
+                    style: TextStyle(
+                      color: AppTheme.primary,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 17,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: onLogin,
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(64),
+                  textStyle: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                child: const Text('Log in'),
+              ),
+              const SizedBox(height: 24),
+              TextButton(
+                onPressed: () => Navigator.pushNamed(
+                  context,
+                  RegisterScreen.routeName,
+                ),
+                child: RichText(
+                  text: TextSpan(
+                    style: TextStyle(color: AppTheme.muted, fontSize: 18),
+                    children: [
+                      const TextSpan(text: 'Need an account? '),
+                      TextSpan(
+                        text: 'Register',
+                        style: TextStyle(
+                          color: AppTheme.primary,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A fresh, modern desktop login screen: a split view with a brand/feature
+/// panel on the left and the sign-in form on the right. Each side scrolls
+/// independently and is wrapped with its own `minHeight` safety net, so a
+/// short/maximized browser window can never overflow the way the old
+/// single fixed-size card used to.
+class _DesktopLoginView extends StatelessWidget {
+  const _DesktopLoginView({
+    required this.idController,
+    required this.passwordController,
+    required this.obscure,
+    required this.onToggleObscure,
+    required this.onLogin,
+  });
+
+  final TextEditingController idController;
+  final TextEditingController passwordController;
+  final bool obscure;
+  final VoidCallback onToggleObscure;
+  final VoidCallback onLogin;
+
+  static const _brandPanelMinWidth = 1080.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final showBrandPanel = constraints.maxWidth >= _brandPanelMinWidth;
+            return Row(
+              children: [
+                if (showBrandPanel) const Expanded(flex: 5, child: _BrandPanel()),
+                Expanded(
+                  flex: showBrandPanel ? 4 : 1,
+                  child: _FormPanel(
+                    idController: idController,
+                    passwordController: passwordController,
+                    obscure: obscure,
+                    onToggleObscure: onToggleObscure,
+                    onLogin: onLogin,
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+/// Left-hand brand/feature panel for the desktop split view.
+class _BrandPanel extends StatelessWidget {
+  const _BrandPanel();
+
+  static const _features = [
+    (Icons.qr_code_scanner_rounded, 'Scan a QR code to check assets in or out in seconds'),
+    (Icons.inventory_2_outlined, 'Track every item\'s location, condition, and history'),
+    (Icons.fact_check_outlined, 'Keep audit-ready records without a single paper form'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [AppTheme.darkGreen, Color(0xFF123A2F)],
+        ),
+      ),
+      child: Stack(
+        children: [
+          // Soft decorative circles, purely for visual interest.
+          Positioned(
+            top: -80,
+            right: -60,
+            child: _decorativeCircle(220, AppTheme.primary.withValues(alpha: 0.35)),
+          ),
+          Positioned(
+            bottom: -100,
+            left: -60,
+            child: _decorativeCircle(260, AppTheme.mint.withValues(alpha: 0.08)),
+          ),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 64, vertical: 48),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 56,
+                          height: 56,
+                          decoration: BoxDecoration(
+                            color: AppTheme.mint,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: const Icon(
+                            Icons.qr_code_2_rounded,
+                            color: AppTheme.darkGreen,
+                            size: 32,
+                          ),
+                        ),
+                        const SizedBox(height: 40),
+                        const Text(
+                          'QR-Assisted Asset\nManagement',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 42,
+                            height: 1.15,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'The paperless way to check, track, and account for every '
+                          'campus asset your office manages.',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.72),
+                            fontSize: 17,
+                            height: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 48),
+                        for (final feature in _features) ...[
+                          _FeatureRow(icon: feature.$1, label: feature.$2),
+                          const SizedBox(height: 22),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _decorativeCircle(double size, Color color) => Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+      );
+}
+
+class _FeatureRow extends StatelessWidget {
+  const _FeatureRow({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, color: AppTheme.mint, size: 20),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.9),
+                fontSize: 15.5,
+                height: 1.4,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         ),
-      );
+      ],
+    );
+  }
+}
+
+/// Right-hand sign-in form panel for the desktop split view.
+class _FormPanel extends StatelessWidget {
+  const _FormPanel({
+    required this.idController,
+    required this.passwordController,
+    required this.obscure,
+    required this.onToggleObscure,
+    required this.onLogin,
+  });
+
+  final TextEditingController idController;
+  final TextEditingController passwordController;
+  final bool obscure;
+  final VoidCallback onToggleObscure;
+  final VoidCallback onLogin;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.white,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 40),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 400),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Welcome back',
+                        style: TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.darkGreen,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Sign in to manage campus assets',
+                        style: TextStyle(color: AppTheme.muted, fontSize: 16),
+                      ),
+                      const SizedBox(height: 40),
+                      _FormLabel('Employee ID', fontSize: 15),
+                      TextField(
+                        controller: idController,
+                        textInputAction: TextInputAction.next,
+                      ),
+                      const SizedBox(height: 22),
+                      _FormLabel('Password', fontSize: 15),
+                      TextField(
+                        controller: passwordController,
+                        obscureText: obscure,
+                        decoration: InputDecoration(
+                          suffixIcon: IconButton(
+                            onPressed: onToggleObscure,
+                            icon: Icon(
+                              obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                            ),
+                          ),
+                        ),
+                      ),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: () {},
+                          child: Text(
+                            'Forgot password?',
+                            style: TextStyle(
+                              color: AppTheme.primary,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: onLogin,
+                          child: const Text('Log in'),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Center(
+                        child: TextButton(
+                          onPressed: () => Navigator.pushNamed(
+                            context,
+                            RegisterScreen.routeName,
+                          ),
+                          child: RichText(
+                            text: TextSpan(
+                              style: TextStyle(color: AppTheme.muted, fontSize: 15),
+                              children: [
+                                const TextSpan(text: 'Need an account? '),
+                                TextSpan(
+                                  text: 'Register',
+                                  style: TextStyle(
+                                    color: AppTheme.primary,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _FormLabel extends StatelessWidget {
+  const _FormLabel(this.text, {this.fontSize = 20});
+
+  final String text;
+  final double fontSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Text(
+          text,
+          style: TextStyle(
+            color: AppTheme.darkGreen,
+            fontSize: fontSize,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
 }
