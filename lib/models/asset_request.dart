@@ -70,7 +70,7 @@ class RequestedItem {
 /// A request from a requester/department to borrow a venue/facility,
 /// logistics, and/or equipment for an event — mirrors the office's actual
 /// borrow slip: event/purpose, requester, department, venue, logistics
-/// (with amounts), equipment (with amounts), and the date they're needed.
+/// (with amounts), equipment (with amounts), and the period of the loan.
 class AssetRequest {
   AssetRequest({
     required this.title,
@@ -79,7 +79,8 @@ class AssetRequest {
     this.venue,
     this.logistics = const [],
     this.equipment = const [],
-    required this.neededDate,
+    required this.borrowDate,
+    required this.returnDate,
     this.status = RequestStatus.pending,
     Signatory? requesterSignature,
     Signatory? adviserSignature,
@@ -104,8 +105,15 @@ class AssetRequest {
   /// Equipment items requested, each with the amount needed.
   final List<RequestedItem> equipment;
 
-  /// The date the venue/logistics/equipment are needed for.
-  final String neededDate;
+  /// The first and final dates of the requested asset loan.
+  final String borrowDate;
+  final String returnDate;
+
+  /// Kept as a compatibility alias for code consuming older request data.
+  @Deprecated('Use borrowDate and returnDate instead.')
+  String get neededDate => borrowDate;
+
+  String get dateRangeLabel => '$borrowDate – $returnDate';
 
   RequestStatus status;
 
@@ -150,7 +158,7 @@ class AssetRequest {
   }
 
   String get detailLine {
-    final parts = [requester, department, itemsSummary, 'Needed $neededDate'];
+    final parts = [requester, department, itemsSummary, 'Borrow $dateRangeLabel'];
     return parts.join(' · ');
   }
 
@@ -161,7 +169,8 @@ class AssetRequest {
       department: 'OSA',
       venue: 'Gymnasium',
       equipment: const [RequestedItem(name: 'Wireless microphone', quantity: 2)],
-      neededDate: 'Aug 29, 2026',
+      borrowDate: 'Aug 29, 2026',
+      returnDate: 'Aug 29, 2026',
       status: RequestStatus.pending,
     ),
     AssetRequest(
@@ -171,7 +180,8 @@ class AssetRequest {
       venue: 'CICS Function Hall',
       logistics: const [RequestedItem(name: 'Foldable chairs', quantity: 120)],
       equipment: const [RequestedItem(name: 'Projector', quantity: 1)],
-      neededDate: 'Sep 15, 2026',
+      borrowDate: 'Sep 15, 2026',
+      returnDate: 'Sep 16, 2026',
       status: RequestStatus.approved,
       // Shows what a fully-signed slip looks like; the actual signature
       // images are left blank since samples ship without real scans, but
@@ -185,7 +195,8 @@ class AssetRequest {
       requester: 'Pedro Reyes',
       department: 'Org',
       equipment: const [RequestedItem(name: 'Service vehicle (van)', quantity: 1)],
-      neededDate: 'Jul 10, 2026',
+      borrowDate: 'Jul 10, 2026',
+      returnDate: 'Jul 10, 2026',
       status: RequestStatus.rejected,
     ),
   ];

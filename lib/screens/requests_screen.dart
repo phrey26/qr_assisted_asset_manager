@@ -8,6 +8,7 @@ import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/filter_chip_row.dart';
 import '../widgets/page_header.dart';
+import '../widgets/request_date_range_field.dart';
 import '../widgets/signature_field.dart';
 import 'request_detail_screen.dart';
 
@@ -59,12 +60,19 @@ class RequestsScreenState extends State<RequestsScreen> {
   }
 
   Future<void> openNewRequest() async {
-    final created = await showDialog<AssetRequest>(
-      context: context,
-      builder: (_) => const _NewRequestDialog(),
-    );
+    final AssetRequest? created;
+    if (Responsive.isMobile(context)) {
+      created = await Navigator.of(context).push<AssetRequest>(
+        MaterialPageRoute(builder: (_) => const NewRequestForm(fullPage: true)),
+      );
+    } else {
+      created = await showDialog<AssetRequest>(
+        context: context,
+        builder: (_) => const NewRequestForm(),
+      );
+    }
     if (created != null) {
-      setState(() => requests.insert(0, created));
+      setState(() => requests.insert(0, created!));
     }
   }
 
@@ -322,7 +330,7 @@ class _RequestsTable extends StatelessWidget {
           Expanded(flex: 2, child: Text('Requested by', style: style)),
           Expanded(flex: 2, child: Text('Department', style: style)),
           Expanded(flex: 3, child: Text('Requested items', style: style)),
-          Expanded(flex: 2, child: Text('Needed', style: style)),
+          Expanded(flex: 2, child: Text('Loan period', style: style)),
           SizedBox(width: _statusWidth, child: Text('Status', style: style)),
           const SizedBox(width: _actionsWidth),
         ],
@@ -373,7 +381,7 @@ class _RequestsTable extends StatelessWidget {
               Expanded(
                 flex: 2,
                 child: Text(
-                  request.neededDate,
+                  request.dateRangeLabel,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: cellStyle,
@@ -586,19 +594,22 @@ class _RequestCard extends StatelessWidget {
 /// event/purpose, requester, department, an optional venue/facility, the
 /// date everything is needed, and then logistics and equipment as
 /// separate lists of items with amounts (e.g. "Foldable chairs" × 120).
-class _NewRequestDialog extends StatefulWidget {
-  const _NewRequestDialog();
+class NewRequestForm extends StatefulWidget {
+  const NewRequestForm({super.key, this.fullPage = false});
+
+  final bool fullPage;
 
   @override
-  State<_NewRequestDialog> createState() => _NewRequestDialogState();
+  State<NewRequestForm> createState() => _NewRequestFormState();
 }
 
-class _NewRequestDialogState extends State<_NewRequestDialog> {
+class _NewRequestFormState extends State<NewRequestForm> {
   final titleController = TextEditingController();
   final requesterController = TextEditingController();
   final departmentController = TextEditingController();
   final venueController = TextEditingController();
-  DateTime? neededDate;
+  DateTime? borrowDate;
+  DateTime? returnDate;
 
   // Each list always keeps at least one (possibly blank) row so the
   // section never looks empty; blank rows are simply skipped on submit.
@@ -636,17 +647,22 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
     super.dispose();
   }
 
-  Future<void> _pickNeededDate() async {
+  Future<void> _pickLoanPeriod() async {
     final now = DateTime.now();
-    final picked = await showDatePicker(
+    final picked = await showDateRangePicker(
       context: context,
-      initialDate: neededDate ?? now,
-      // Requests are for upcoming use of a venue/logistics/equipment, so
-      // don't offer past dates.
+      initialDateRange: borrowDate != null && returnDate != null
+          ? DateTimeRange(start: borrowDate!, end: returnDate!)
+          : null,
       firstDate: now,
       lastDate: DateTime(now.year + 2),
     );
-    if (picked != null) setState(() => neededDate = picked);
+    if (picked != null) {
+      setState(() {
+        borrowDate = picked.start;
+        returnDate = picked.end;
+      });
+    }
   }
 
   void _addRow(List<_ItemFormRow> rows) {
@@ -691,9 +707,9 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
       );
       return;
     }
-    if (neededDate == null) {
+    if (borrowDate == null || returnDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please select the date it's needed.")),
+        const SnackBar(content: Text('Please select the borrow and return dates.')),
       );
       return;
     }
@@ -726,7 +742,8 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
         venue: venue.isEmpty ? null : venue,
         logistics: logistics,
         equipment: equipment,
-        neededDate: AssetItem.formatDate(neededDate!),
+        borrowDate: AssetItem.formatDate(borrowDate!),
+        returnDate: AssetItem.formatDate(returnDate!),
         requesterSignature: Signatory(
           name: requesterName,
           imageBytes: requesterSignatureBytes,
@@ -749,6 +766,8 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.fullPage) return _mobilePage();
+
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       child: ConstrainedBox(
@@ -787,7 +806,7 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
                         venueController,
                         hint: 'e.g. Gymnasium — leave blank if none needed',
                       ),
-                      _dateField(),
+                      _loanPeriodField(),
                       const SizedBox(height: 6),
                       _itemsSection(
                         'Logistics',
@@ -831,6 +850,83 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
     );
   }
 
+  /// Full-screen mobile route. It avoids constraining the long request form
+  /// to a dialog and keeps the primary action reachable while the fields
+  /// scroll above it.
+  Widget _mobilePage() {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('New request', style: TextStyle(fontWeight: FontWeight.w800)),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          tooltip: 'Back',
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _field('Event / purpose', titleController, hint: 'e.g. Freshmen orientation'),
+                    _field('Requested by', requesterController, hint: 'Your name'),
+                    _field('Department / org', departmentController, hint: 'e.g. OSA'),
+                    _field('Venue / facility', venueController, hint: 'e.g. Gymnasium — leave blank if none needed'),
+                    _loanPeriodField(),
+                    const SizedBox(height: 6),
+                    _itemsSection('Logistics', logisticsRows, hint: 'e.g. Foldable chairs'),
+                    const SizedBox(height: 10),
+                    _itemsSection('Equipment', equipmentRows, hint: 'e.g. Wireless microphone'),
+                    const SizedBox(height: 10),
+                    _signaturesSection(),
+                  ],
+                ),
+              ),
+            ),
+            DecoratedBox(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(top: BorderSide(color: AppTheme.border)),
+              ),
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Cancel'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: _submit,
+                          style: ElevatedButton.styleFrom(
+                            minimumSize: const Size(0, 52),
+                            textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                          ),
+                          child: const Text('Submit request'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _field(String label, TextEditingController controller, {String? hint}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
@@ -855,39 +951,12 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
     );
   }
 
-  /// Date picker field for "when it's needed", styled to match
-  /// [AddAssetForm]'s "Date of purchase" field.
-  Widget _dateField() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Date needed',
-            style: TextStyle(color: AppTheme.darkGreen, fontSize: 13, fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 6),
-          InkWell(
-            borderRadius: BorderRadius.circular(14),
-            onTap: _pickNeededDate,
-            child: InputDecorator(
-              decoration: const InputDecoration(
-                suffixIcon: Icon(Icons.calendar_today_outlined, size: 20),
-              ),
-              child: Text(
-                neededDate == null ? 'Select date' : AssetItem.formatDate(neededDate!),
-                style: TextStyle(
-                  color: neededDate == null ? AppTheme.muted : AppTheme.darkGreen,
-                  fontSize: 16,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _loanPeriodField() => RequestDateRangeField(
+        borrowDate: borrowDate,
+        returnDate: returnDate,
+        onTap: _pickLoanPeriod,
+        formatDate: AssetItem.formatDate,
+      );
 
   /// A labeled group of item-name + amount rows (used for both Logistics
   /// and Equipment), with an "Add item" action to append another row.
@@ -1007,7 +1076,7 @@ class _NewRequestDialogState extends State<_NewRequestDialog> {
 }
 
 /// Holds the two controllers for one logistics/equipment row (item name +
-/// amount) in [_NewRequestDialog].
+/// amount) in [NewRequestForm].
 class _ItemFormRow {
   final nameController = TextEditingController();
   final quantityController = TextEditingController();

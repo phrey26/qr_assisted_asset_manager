@@ -160,14 +160,14 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(child: _detailRow('Venue / facility', request.venue ?? 'Not requested')),
-                Expanded(child: _detailRow('Needed by', request.neededDate)),
+                Expanded(child: _detailRow('Borrow / return', request.dateRangeLabel)),
               ],
             ),
           ] else ...[
             _detailRow('Requested by', request.requester),
             _detailRow('Department / org', request.department),
             _detailRow('Venue / facility', request.venue ?? 'Not requested'),
-            _detailRow('Needed by', request.neededDate),
+            _detailRow('Borrow / return', request.dateRangeLabel),
           ],
           if (request.logistics.isNotEmpty) _itemsRow('Logistics', request.logistics),
           if (request.equipment.isNotEmpty) _itemsRow('Equipment', request.equipment),

@@ -90,67 +90,59 @@ class _SignatureFieldState extends State<SignatureField> {
             ),
           ),
           const SizedBox(height: 10),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              ClipRRect(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final preview = ClipRRect(
                 borderRadius: BorderRadius.circular(10),
                 child: Container(
                   width: 120,
                   height: 60,
                   color: Colors.white,
                   child: imageBytes == null
-                      ? const Center(
-                          child: Icon(
-                            Icons.draw_outlined,
-                            color: AppTheme.muted,
-                            size: 26,
-                          ),
-                        )
+                      ? const Center(child: Icon(Icons.draw_outlined, color: AppTheme.muted, size: 26))
                       : Image.memory(imageBytes, fit: BoxFit.contain),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed: () => _pickImage(ImageSource.camera),
-                      icon: const Icon(Icons.camera_alt_outlined, size: 18),
-                      label: const Text('Capture'),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(0, 40),
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        textStyle: const TextStyle(fontSize: 13),
-                      ),
+              );
+              final actions = Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () => _pickImage(ImageSource.camera),
+                    icon: const Icon(Icons.camera_alt_outlined, size: 18),
+                    label: const Text('Capture'),
+                    style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40), padding: const EdgeInsets.symmetric(horizontal: 12), textStyle: const TextStyle(fontSize: 13)),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => _pickImage(ImageSource.gallery),
+                    icon: const Icon(Icons.upload_file_outlined, size: 18),
+                    label: const Text('Upload scan'),
+                    style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40), padding: const EdgeInsets.symmetric(horizontal: 12), textStyle: const TextStyle(fontSize: 13)),
+                  ),
+                  if (imageBytes != null)
+                    TextButton.icon(
+                      onPressed: () => widget.onImageChanged(null),
+                      icon: const Icon(Icons.close, size: 18),
+                      label: const Text('Remove'),
+                      style: TextButton.styleFrom(minimumSize: const Size(0, 40), padding: const EdgeInsets.symmetric(horizontal: 8), textStyle: const TextStyle(fontSize: 13)),
                     ),
-                    OutlinedButton.icon(
-                      onPressed: () => _pickImage(ImageSource.gallery),
-                      icon: const Icon(Icons.upload_file_outlined, size: 18),
-                      label: const Text('Upload scan'),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(0, 40),
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        textStyle: const TextStyle(fontSize: 13),
-                      ),
-                    ),
-                    if (imageBytes != null)
-                      TextButton.icon(
-                        onPressed: () => widget.onImageChanged(null),
-                        icon: const Icon(Icons.close, size: 18),
-                        label: const Text('Remove'),
-                        style: TextButton.styleFrom(
-                          minimumSize: const Size(0, 40),
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          textStyle: const TextStyle(fontSize: 13),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ],
+                ],
+              );
+
+              // A phone card cannot fit a preview and text buttons on one
+              // line. Stack them before the buttons are forced into tiny,
+              // vertically-wrapped controls.
+              if (constraints.maxWidth < 330) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [preview, const SizedBox(height: 10), actions],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [preview, const SizedBox(width: 10), Expanded(child: actions)],
+              );
+            },
           ),
         ],
       ),
