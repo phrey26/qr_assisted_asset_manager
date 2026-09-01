@@ -73,9 +73,11 @@ class _AppShellState extends State<AppShell> {
   // GlobalKey pattern as [_requestsKey] above.
   final _inventoryKey = GlobalKey<InventoryScreenState>();
 
-  // Lets the shared FAB trigger [CategoriesScreenState.openAddCategoryDialog]
-  // when the admin is on the Categories tab — same GlobalKey pattern as
-  // [_requestsKey] and [_inventoryKey] above.
+  // Lets the shared "add" FAB and the bottom-left "delete category" FAB
+  // trigger [CategoriesScreenState.openAddCategoryDialog] /
+  // [CategoriesScreenState.openDeleteCategoryDialog] when the admin is on
+  // the Categories tab — same GlobalKey pattern as [_requestsKey] and
+  // [_inventoryKey] above.
   final _categoriesKey = GlobalKey<CategoriesScreenState>();
 
   void _addAsset(AssetItem asset) {
@@ -194,7 +196,27 @@ class _AppShellState extends State<AppShell> {
     }
 
     return Scaffold(
-      body: SafeArea(child: IndexedStack(index: _index, children: pages)),
+      // On the Categories tab, a second circular button sits bottom-left
+      // (mirroring the bottom-right "add" FAB below) for deleting a
+      // category. It's layered on top of the body via Stack/Positioned
+      // rather than through Scaffold's own floatingActionButton slot,
+      // since that slot only supports one button/location at a time.
+      // Sitting inside body (which Scaffold already keeps clear of the
+      // bottomNavigationBar) means its 16px bottom margin lines up with
+      // the add FAB's own margin above the nav bar.
+      body: Stack(
+        children: [
+          SafeArea(child: IndexedStack(index: _index, children: pages)),
+          Positioned(
+            left: 16,
+            bottom: 16,
+            child: _DeleteCategoryFab(
+              visible: _index == kTabHome,
+              onPressed: () => _categoriesKey.currentState?.openDeleteCategoryDialog(),
+            ),
+          ),
+        ],
+      ),
       floatingActionButton: switch (_index) {
         kTabHome => _AddFab(
             onPressed: () => _categoriesKey.currentState?.openAddCategoryDialog(),
@@ -247,6 +269,87 @@ class _AddFab extends StatelessWidget {
         ),
         child: const SizedBox.expand(
           child: Icon(Icons.add, color: Colors.white),
+        ),
+      ),
+    );
+  }
+}
+
+/// Circular "delete category" button shown bottom-left on the Categories
+/// tab (mobile only — desktop uses the toolbar button next to "Add
+/// category" instead). Styled after the red trash-in-a-circle icon
+/// already used for the delete confirmation dialogs elsewhere in the app
+/// (see [AppTheme.redTint]/[Colors.redAccent] in
+/// delete_category_dialog.dart and select_category_to_delete_dialog.dart),
+/// so the "this removes something" affordance reads the same wherever it
+/// shows up — just white-on-red instead of that badge's red-on-red-tint,
+/// to still read clearly as a FAB.
+///
+/// Unlike [_AddFab], this button isn't wired into Scaffold's own
+/// floatingActionButton slot (that slot only holds one widget/location at
+/// a time, and the add FAB already occupies it), so it doesn't get
+/// Scaffold's automatic scale-and-rotate transition for free when it
+/// appears or disappears between tabs. [visible] drives a matching
+/// scale/rotate animation by hand — same duration and easing curves
+/// Scaffold's default [FloatingActionButtonAnimator] uses for its own
+/// FAB — so the two buttons pop in and out the same way instead of the
+/// add FAB animating while this one just blinks on/off.
+class _DeleteCategoryFab extends StatefulWidget {
+  const _DeleteCategoryFab({required this.visible, required this.onPressed});
+
+  final bool visible;
+  final VoidCallback onPressed;
+
+  @override
+  State<_DeleteCategoryFab> createState() => _DeleteCategoryFabState();
+}
+
+class _DeleteCategoryFabState extends State<_DeleteCategoryFab>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 200),
+    value: widget.visible ? 1 : 0,
+  );
+  late final Animation<double> _scale = CurvedAnimation(
+    parent: _controller,
+    curve: Curves.easeOut,
+    reverseCurve: Curves.easeIn,
+  );
+  // A subtle quarter-turn-ish twist alongside the scale, matching the
+  // slight rotation Scaffold's default FAB transition adds as it pops in.
+  late final Animation<double> _turns = Tween<double>(begin: 0.75, end: 1).animate(_scale);
+
+  @override
+  void didUpdateWidget(covariant _DeleteCategoryFab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.visible != oldWidget.visible) {
+      widget.visible ? _controller.forward() : _controller.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      ignoring: !widget.visible,
+      child: ScaleTransition(
+        scale: _scale,
+        child: RotationTransition(
+          turns: _turns,
+          child: FloatingActionButton(
+            onPressed: widget.onPressed,
+            backgroundColor: Colors.redAccent,
+            elevation: 4,
+            highlightElevation: 6,
+            tooltip: 'Delete category',
+            child: const Icon(Icons.delete_outline, color: Colors.white),
+          ),
         ),
       ),
     );

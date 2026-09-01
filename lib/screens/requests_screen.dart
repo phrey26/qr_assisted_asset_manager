@@ -189,17 +189,6 @@ class RequestsScreenState extends State<RequestsScreen> {
                       filtered[index],
                       onSetStatus: _setStatus,
                     ),
-                    onApprove: () => _openRequestDetail(
-                      context,
-                      filtered[index],
-                      onSetStatus: _setStatus,
-                    ),
-                    onReject: () => _openRequestDetail(
-                      context,
-                      filtered[index],
-                      onSetStatus: _setStatus,
-                    ),
-                    onCancel: () => _setStatus(filtered[index], RequestStatus.pending),
                   ),
                 ),
               ),
@@ -448,121 +437,39 @@ class _RequestsTable extends StatelessWidget {
 }
 
 class _RequestCard extends StatelessWidget {
-  const _RequestCard({
-    required this.request,
-    this.onTap,
-    required this.onApprove,
-    required this.onReject,
-    required this.onCancel,
-  });
+  const _RequestCard({required this.request, this.onTap});
 
   final AssetRequest request;
 
-  /// Invoked when the card is tapped anywhere outside the action buttons.
-  /// Wired up by [RequestsScreen] to open the request's detail page, the
-  /// same way [InventoryScreen] opens asset details.
+  /// Invoked when the card is tapped. Wired up by [RequestsScreen] to open
+  /// the request's detail page. This card is now just a compact, tappable
+  /// summary — mirroring [AssetCard] on the Inventory tab — rather than a
+  /// mini version of the detail screen: the requester, venue, itemized
+  /// logistics/equipment, signatories, and the Approve/Reject/Cancel
+  /// actions all live on [RequestDetailScreen] now, one tap away, instead
+  /// of being crammed onto the card itself.
   final VoidCallback? onTap;
-
-  /// Invoked when the "Approve" button is pressed. Wired up by
-  /// [RequestsScreen] to open [RequestDetailScreen] (same as [onTap])
-  /// rather than approving immediately — approving is only possible from
-  /// the detail screen, once the admin has reviewed the full request.
-  final VoidCallback onApprove;
-
-  /// Invoked when the "Reject" button is pressed. Like [onApprove], this
-  /// opens [RequestDetailScreen] instead of rejecting immediately, so a
-  /// reject decision also only happens after reviewing the full request.
-  final VoidCallback onReject;
-  final VoidCallback onCancel;
-
-  /// Danger styling for "Reject" — a red outline/text instead of the
-  /// default theme-primary (green) [OutlinedButton], matching
-  /// [RequestDetailScreen]'s reject styling so a rejection reads as
-  /// visually distinct from (and more consequential than) the neutral
-  /// "Cancel" action below, rather than the two sharing the same green
-  /// outline.
-  static final ButtonStyle _rejectButtonStyle = OutlinedButton.styleFrom(
-    foregroundColor: const Color(0xFFC84040),
-    side: const BorderSide(color: Color(0xFFC84040), width: 2),
-  );
-
-  /// Neutral-but-clickable styling for "Cancel". A plain outline (as this
-  /// used to be) reads as disabled on a phone screen — outlined buttons
-  /// lean on a hover/pointer affordance touch devices don't have, so with
-  /// nothing but a faint grey border it looked inert rather than tappable.
-  /// A soft filled background gives it the same "this is a button" weight
-  /// as Approve/Reject, while staying visually calmer than either so it
-  /// still reads as the lower-stakes, reversible action.
-  static final ButtonStyle _cancelButtonStyle = FilledButton.styleFrom(
-    backgroundColor: const Color(0xFFE8ECEA),
-    foregroundColor: AppTheme.darkGreen,
-    side: const BorderSide(color: Color(0xFFD3DBD8), width: 1.5),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-  );
 
   @override
   Widget build(BuildContext context) {
-    // This card previously had no responsive sizing at all — a fixed
-    // 20px title, 20px padding, etc. on every device. That's the "request
-    // card" the width/height scaling below now covers, matching the
-    // treatment already applied to AssetCard: `scale` shrinks smoothly
-    // with a device's actual width and usable height (a skinny phone, or
-    // a normal-width phone with a tall on-screen nav bar, both scale
-    // down) instead of jumping between just a couple of fixed sizes.
+    // Same responsive scaling as AssetCard: `scale` shrinks smoothly with
+    // a device's actual width and usable height (a skinny phone, or a
+    // normal-width phone with a tall on-screen nav bar, both scale down)
+    // instead of jumping between just a couple of fixed sizes.
     final scale = Responsive.uiScale(context);
-
-    final info = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          request.title,
-          style: TextStyle(
-            color: AppTheme.darkGreen,
-            fontSize: 20 * scale,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        SizedBox(height: 6 * scale),
-        Text(
-          request.detailLine,
-          style: TextStyle(color: AppTheme.muted, fontSize: 15 * scale),
-        ),
-      ],
-    );
-
-    final actions = Wrap(
-      spacing: 8 * scale,
-      runSpacing: 8 * scale,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        _RequestStatusPill(status: request.status),
-        if (request.status == RequestStatus.pending) ...[
-          FilledButton(onPressed: onApprove, child: const Text('Approve')),
-          OutlinedButton(
-            onPressed: onReject,
-            style: _rejectButtonStyle,
-            child: const Text('Reject'),
-          ),
-        ] else if (request.status == RequestStatus.approved)
-          FilledButton.icon(
-            onPressed: onCancel,
-            style: _cancelButtonStyle,
-            icon: const Icon(Icons.undo, size: 16),
-            label: const Text('Cancel'),
-          ),
-      ],
-    );
+    final imageSize = 68.0 * scale;
+    final imageSpacing = 14.0 * scale;
 
     return Container(
       // The list wraps each card in a Center() (needed so the desktop
       // max-width cap can take effect), which hands this Container loose
       // width constraints. Without an explicit width it shrink-wraps to
-      // its own text content instead of filling the space it's given,
-      // so cards with shorter text end up narrower and re-centered,
-      // producing a staggered left edge. Force it to fill instead.
+      // its own content instead of filling the space it's given — and
+      // since the title/subtext column below is Expanded (so it can
+      // ellipsize instead of overflowing), an unbounded width here would
+      // be a layout error rather than just a cosmetic issue.
       width: double.infinity,
-      margin: EdgeInsets.only(bottom: 16 * scale),
+      margin: EdgeInsets.only(bottom: 12 * scale),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
@@ -574,24 +481,72 @@ class _RequestCard extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           child: Padding(
-            padding: EdgeInsets.all(20 * scale),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                if (constraints.maxWidth < 520) {
-                  return Column(
+            padding: EdgeInsets.all(14 * scale),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // A plain icon tile stands in for AssetCard's item image —
+                // requests don't have a photo of their own, so this just
+                // marks the row as a request at a glance, the same way the
+                // category icon does for an asset without a photo.
+                Container(
+                  width: imageSize,
+                  height: imageSize,
+                  decoration: BoxDecoration(
+                    color: AppTheme.mint,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Icon(
+                    Icons.assignment_outlined,
+                    color: AppTheme.primary,
+                    size: imageSize * .39,
+                  ),
+                ),
+                SizedBox(width: imageSpacing),
+                Expanded(
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [info, SizedBox(height: 16 * scale), actions],
-                  );
-                }
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(child: info),
-                    SizedBox(width: 16 * scale),
-                    actions,
-                  ],
-                );
-              },
+                    children: [
+                      Text(
+                        request.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AppTheme.darkGreen,
+                          fontSize: 17 * scale,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      SizedBox(height: 6 * scale),
+                      // Just the department/org and the borrow date — the
+                      // two facts that actually help someone tell requests
+                      // apart while scanning the list. Everything else
+                      // (requester, venue, items) is a tap away on the
+                      // detail screen.
+                      Text(
+                        request.department,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: AppTheme.muted, fontSize: 13 * scale),
+                      ),
+                      SizedBox(height: 4 * scale),
+                      Text(
+                        'Borrow ${request.dateRangeLabel}',
+                        style: TextStyle(color: AppTheme.muted, fontSize: 12 * scale),
+                      ),
+                      SizedBox(height: 8 * scale),
+                      _RequestStatusPill(status: request.status),
+                    ],
+                  ),
+                ),
+                if (onTap != null) ...[
+                  SizedBox(width: 6 * scale),
+                  Padding(
+                    padding: EdgeInsets.only(top: 12 * scale),
+                    child: Icon(Icons.chevron_right, color: AppTheme.muted, size: 24 * scale),
+                  ),
+                ],
+              ],
             ),
           ),
         ),

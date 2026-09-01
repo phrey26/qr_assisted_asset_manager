@@ -7,6 +7,7 @@ import '../utils/responsive.dart';
 import '../widgets/add_category_dialog.dart';
 import '../widgets/delete_category_dialog.dart';
 import '../widgets/page_header.dart';
+import '../widgets/select_category_to_delete_dialog.dart';
 
 class CategoriesScreen extends StatefulWidget {
   const CategoriesScreen({
@@ -40,19 +41,23 @@ class CategoriesScreen extends StatefulWidget {
 
   /// Invoked when the admin confirms (via the "are you sure" dialog) that
   /// they want to remove a category. When null, no delete affordance is
-  /// shown on any card. [CategoriesScreenState] only ever calls this for
-  /// a category with no assets currently filed under it — deletion is
-  /// blocked (with an explanatory message) otherwise, so this never has
-  /// to reassign or orphan any asset's category.
+  /// shown at all (the desktop "Delete category" toolbar button is
+  /// hidden; [CategoriesScreenState]'s dialog opener still works for a
+  /// FAB wired up elsewhere, but simply won't remove anything).
+  /// [CategoriesScreenState] only ever calls this for a category with no
+  /// assets currently filed under it — deletion is blocked (with an
+  /// explanatory message) otherwise, so this never has to reassign or
+  /// orphan any asset's category.
   final void Function(AssetCategory category)? onDeleteCategory;
 
   @override
   State<CategoriesScreen> createState() => CategoriesScreenState();
 }
 
-/// Public so [AppShell] can reach [openAddCategoryDialog] via a [GlobalKey]
-/// and trigger it from the shared mobile FAB, the same way it drives
-/// [InventoryScreenState]'s "add asset" flow.
+/// Public so [AppShell] can reach [openAddCategoryDialog] and
+/// [openDeleteCategoryDialog] via a [GlobalKey] and trigger them from the
+/// shared mobile FABs, the same way it drives [InventoryScreenState]'s
+/// "add asset" flow.
 class CategoriesScreenState extends State<CategoriesScreen> {
   final controller = TextEditingController();
 
@@ -71,6 +76,23 @@ class CategoriesScreenState extends State<CategoriesScreen> {
       existingNames: widget.categories.map((c) => c.displayName).toList(),
     );
     if (category != null) widget.onAddCategory!(category);
+  }
+
+  /// Opens the "which category should I delete?" picker and, if the admin
+  /// selects one, runs it through the same validation/confirmation flow
+  /// as before ([_confirmAndDelete]). This is the single delete entry
+  /// point now — the desktop toolbar button and the mobile circular FAB
+  /// both call this instead of each card having its own delete button, so
+  /// there's one consistent "choose a category, then confirm" flow
+  /// regardless of platform.
+  Future<void> openDeleteCategoryDialog() async {
+    if (widget.onDeleteCategory == null) return;
+    final category = await showSelectCategoryToDeleteDialog(
+      context,
+      categories: widget.categories,
+      itemCountFor: (c) => _countFor(c.value),
+    );
+    if (category != null) await _confirmAndDelete(category);
   }
 
   /// Shows the "are you sure" confirmation dialog and, if the admin
@@ -133,6 +155,25 @@ class CategoriesScreenState extends State<CategoriesScreen> {
                         showMark: false,
                       ),
                     ),
+                    if (isDesktop && widget.onDeleteCategory != null) ...[
+                      const SizedBox(width: 16),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: OutlinedButton.icon(
+                          onPressed: openDeleteCategoryDialog,
+                          icon: const Icon(Icons.delete_outline),
+                          label: const Text('Delete category'),
+                          // Same override as the "Add category" button
+                          // below — see its comment for why this is
+                          // needed.
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.redAccent,
+                            side: const BorderSide(color: Colors.redAccent, width: 2),
+                            minimumSize: const Size(0, 48),
+                          ),
+                        ),
+                      ),
+                    ],
                     if (isDesktop && widget.onAddCategory != null) ...[
                       const SizedBox(width: 16),
                       Padding(
@@ -207,9 +248,6 @@ class CategoriesScreenState extends State<CategoriesScreen> {
                     onTap: widget.onCategoryTap == null
                         ? null
                         : () => widget.onCategoryTap!(visible[index].value),
-                    onDelete: widget.onDeleteCategory == null
-                        ? null
-                        : () => _confirmAndDelete(visible[index]),
                   ),
                 ),
               ),
@@ -233,7 +271,6 @@ class _CategoryCard extends StatelessWidget {
     required this.color,
     required this.count,
     this.onTap,
-    this.onDelete,
   });
 
   final String name;
@@ -244,11 +281,6 @@ class _CategoryCard extends StatelessWidget {
   /// Invoked when the card is tapped. Wired up by [CategoriesScreen] to
   /// jump to the Inventory tab with this category already selected.
   final VoidCallback? onTap;
-
-  /// Invoked when the admin taps the delete button (confirmation is
-  /// handled by [CategoriesScreen] before this fires). When null, no
-  /// delete button is shown.
-  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -264,71 +296,45 @@ class _CategoryCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: Material(
         color: Colors.transparent,
-        child: Stack(
-          children: [
-            InkWell(
-              onTap: onTap,
-              child: Padding(
-                padding: EdgeInsets.all(isMobile ? 14 : 20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: iconSize,
-                      height: iconSize,
-                      decoration: BoxDecoration(
-                        color: color,
-                        borderRadius: BorderRadius.circular(iconSize * .22),
-                      ),
-                      child: Icon(icon, size: iconSize * .43, color: AppTheme.primary),
-                    ),
-                    const Spacer(),
-                    Text(
-                      name,
-                      // Keep the label to a single line on every breakpoint: with a
-                      // fixed-aspect-ratio grid cell, letting a long name wrap to a
-                      // second line is what previously pushed the card's content
-                      // past the cell's bottom edge on narrow phones.
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 20 * scale,
-                        fontWeight: FontWeight.w800,
-                        color: AppTheme.darkGreen,
-                      ),
-                    ),
-                    SizedBox(height: isMobile ? 4 : 7),
-                    Text(
-                      '$count items',
-                      style: TextStyle(fontSize: 17 * scale, color: AppTheme.muted),
-                    ),
-                  ],
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: EdgeInsets.all(isMobile ? 14 : 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: iconSize,
+                  height: iconSize,
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(iconSize * .22),
+                  ),
+                  child: Icon(icon, size: iconSize * .43, color: AppTheme.primary),
                 ),
-              ),
+                const Spacer(),
+                Text(
+                  name,
+                  // Keep the label to a single line on every breakpoint: with a
+                  // fixed-aspect-ratio grid cell, letting a long name wrap to a
+                  // second line is what previously pushed the card's content
+                  // past the cell's bottom edge on narrow phones.
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 20 * scale,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.darkGreen,
+                  ),
+                ),
+                SizedBox(height: isMobile ? 4 : 7),
+                Text(
+                  '$count items',
+                  style: TextStyle(fontSize: 17 * scale, color: AppTheme.muted),
+                ),
+              ],
             ),
-            // A separate tappable area layered on top of (rather than
-            // inside) the card's Column, so it can sit in the corner
-            // without disturbing the existing icon/name/count layout.
-            // Nesting a button inside the outer InkWell like this is the
-            // same pattern AssetCard already uses for its own delete
-            // button, and works fine — the inner IconButton claims the
-            // tap itself rather than it bubbling up to onTap.
-            if (onDelete != null)
-              Positioned(
-                top: 2,
-                right: 2,
-                child: IconButton(
-                  onPressed: onDelete,
-                  icon: const Icon(Icons.delete_outline),
-                  iconSize: 20,
-                  color: Colors.redAccent,
-                  tooltip: 'Delete category',
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.all(8),
-                  constraints: const BoxConstraints(),
-                ),
-              ),
-          ],
+          ),
         ),
       ),
     );
