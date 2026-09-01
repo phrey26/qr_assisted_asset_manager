@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/asset.dart';
+import '../models/category.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/asset_card.dart';
@@ -68,12 +69,18 @@ class InventoryScreen extends StatefulWidget {
   const InventoryScreen({
     super.key,
     required this.assets,
+    required this.categories,
     this.onAddAsset,
     this.onDeleteAsset,
     this.onUpdateStatus,
   });
 
   final List<AssetItem> assets;
+
+  /// The categories offered as filter chips (in addition to 'All'). Owned
+  /// by [AppShell] and shared with the Categories tab and Add Asset
+  /// dropdown, so a category added there immediately shows up here too.
+  final List<AssetCategory> categories;
 
   /// Invoked when the user wants to add a new asset. On mobile this is
   /// triggered by the FAB in [AppShell]; on desktop it's also wired to the
@@ -110,7 +117,9 @@ class InventoryScreenState extends State<InventoryScreen> {
 
   InventorySortOption sortOption = InventorySortOption.nameAsc;
 
-  static const _categories = ['All', 'IT Equipment', 'Furniture', 'Vehicle', 'Tools'];
+  /// 'All' plus the current [AssetCategory.value] for each entry in
+  /// [InventoryScreen.categories], in order.
+  List<String> get _categories => ['All', ...widget.categories.map((c) => c.value)];
 
   /// Jumps straight to [category] (one of [_categories]), replacing
   /// whatever filter was previously selected. Falls back to 'All' if given
@@ -123,6 +132,18 @@ class InventoryScreenState extends State<InventoryScreen> {
   void initState() {
     super.initState();
     searchController.addListener(() => setState(() {}));
+  }
+
+  @override
+  void didUpdateWidget(InventoryScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // If the category currently selected in the filter was just deleted
+    // (widget.categories is owned by AppShell and can shrink), fall back
+    // to 'All' rather than keep pointing at a filter that no longer
+    // exists.
+    if (!_categories.contains(filter)) {
+      filter = 'All';
+    }
   }
 
   @override
@@ -304,7 +325,14 @@ class InventoryScreenState extends State<InventoryScreen> {
         children: [
           Expanded(child: _filters()),
           const SizedBox(width: 16),
-          _sortDropdown(),
+          // SortDropdown stretches to `width: double.infinity` (it's built
+          // to fill a full-width column slot on mobile). As a bare non-flex
+          // child of this Row it's handed unbounded width, so it balloons
+          // out, starves the Expanded filter chips beside it to zero width
+          // (leaving just the selected chip's stray check mark visible) and
+          // mangles its own internal layout. Pinning it to a fixed width
+          // gives it — and the chips — a definite box to lay out in.
+          SizedBox(width: 300, child: _sortDropdown()),
         ],
       );
     }

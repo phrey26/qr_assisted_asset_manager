@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../models/asset.dart';
+import '../models/category.dart';
 import '../theme/app_theme.dart';
 
 /// The actual "add asset" form fields, shared between [AddAssetScreen]
@@ -14,12 +15,20 @@ class AddAssetForm extends StatefulWidget {
   const AddAssetForm({
     super.key,
     required this.nextTagId,
+    required this.categories,
     required this.onSave,
     this.onCancel,
     this.compact = false,
   });
 
   final String nextTagId;
+
+  /// Categories offered in the "Category" dropdown below. Owned by
+  /// [AppShell] and shared with the Categories and Inventory tabs, so a
+  /// category added there immediately shows up here too. Must be
+  /// non-empty.
+  final List<AssetCategory> categories;
+
   final ValueChanged<AssetItem> onSave;
 
   /// Shown as a "Cancel" button next to the save button when provided
@@ -38,9 +47,15 @@ class _AddAssetFormState extends State<AddAssetForm> {
   final nameController = TextEditingController();
   final descriptionController = TextEditingController();
   late final tagController = TextEditingController(text: widget.nextTagId);
-  String category = 'IT equipment';
+  late String category;
   DateTime? purchaseDate;
   Uint8List? imageBytes;
+
+  @override
+  void initState() {
+    super.initState();
+    category = widget.categories.first.value;
+  }
 
   @override
   void dispose() {
@@ -142,19 +157,18 @@ class _AddAssetFormState extends State<AddAssetForm> {
         SizedBox(height: gap),
         _label('Category'),
         DropdownButtonFormField<String>(
-          // Kept in sync with the category filter chips on the inventory
-          // list ('All', 'IT Equipment', 'Furniture', 'Vehicle', 'Tools')
-          // so every asset added here can actually be found under one of
-          // those filters. 'Maintenance' was previously offered here too,
-          // but that's an asset *status* (see AssetStatus), not a
-          // category, so it's been removed to avoid the two concepts
+          // Options come from widget.categories, kept in sync with the
+          // category filter chips on the inventory list and the cards on
+          // the Categories tab, so every asset added here can actually be
+          // found under one of those filters — including any category the
+          // admin has added since. 'Maintenance' was previously offered
+          // here too, but that's an asset *status* (see AssetStatus), not
+          // a category, so it's been removed to avoid the two concepts
           // colliding.
           initialValue: category,
-          items: const [
-            DropdownMenuItem(value: 'IT equipment', child: Text('IT equipment')),
-            DropdownMenuItem(value: 'Furniture', child: Text('Furniture')),
-            DropdownMenuItem(value: 'Vehicle', child: Text('Vehicle')),
-            DropdownMenuItem(value: 'Tools', child: Text('Tools')),
+          items: [
+            for (final c in widget.categories)
+              DropdownMenuItem(value: c.value, child: Text(c.displayName)),
           ],
           onChanged: (value) => setState(() => category = value!),
         ),

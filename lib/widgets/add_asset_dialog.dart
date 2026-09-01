@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 
 import '../models/asset.dart';
+import '../models/category.dart';
 import 'add_asset_form.dart';
 
 /// Centered modal used on desktop/wide layouts, matching the "Add new
 /// asset" modal in the QREMS hi-fi desktop mockups.
 class AddAssetDialog extends StatelessWidget {
-  const AddAssetDialog({super.key, required this.nextTagId});
+  const AddAssetDialog({super.key, required this.nextTagId, required this.categories});
 
   final String nextTagId;
+  final List<AssetCategory> categories;
 
   @override
   Widget build(BuildContext context) {
@@ -38,6 +40,7 @@ class AddAssetDialog extends StatelessWidget {
               ),
               AddAssetForm(
                 nextTagId: nextTagId,
+                categories: categories,
                 compact: true,
                 onCancel: () => Navigator.pop(context),
                 onSave: (asset) => Navigator.pop<AssetItem>(context, asset),

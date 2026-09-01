@@ -1,14 +1,29 @@
 import 'package:flutter/material.dart';
 
 import '../models/asset.dart';
+import '../models/category.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
+import '../widgets/add_category_dialog.dart';
+import '../widgets/delete_category_dialog.dart';
 import '../widgets/page_header.dart';
 
 class CategoriesScreen extends StatefulWidget {
-  const CategoriesScreen({super.key, required this.assets, this.onCategoryTap});
+  const CategoriesScreen({
+    super.key,
+    required this.assets,
+    required this.categories,
+    this.onCategoryTap,
+    this.onAddCategory,
+    this.onDeleteCategory,
+  });
 
   final List<AssetItem> assets;
+
+  /// The categories to show as cards. Owned by [AppShell] and shared with
+  /// the Inventory filter chips and Add Asset dropdown, so a category
+  /// added here immediately shows up there too.
+  final List<AssetCategory> categories;
 
   /// Invoked with the matching Inventory-page filter label (e.g. 'IT
   /// Equipment') when a category card is tapped. [AppShell] uses this to
@@ -16,23 +31,30 @@ class CategoriesScreen extends StatefulWidget {
   /// null, cards are shown but aren't tappable.
   final void Function(String inventoryCategory)? onCategoryTap;
 
+  /// Invoked with the new category once the admin fills in and confirms
+  /// the "Add new category" dialog. When null, no add affordance is shown
+  /// (the desktop inline button is hidden; [CategoriesScreenState]'s
+  /// dialog opener still works for a FAB wired up elsewhere, but simply
+  /// won't add anything).
+  final void Function(AssetCategory category)? onAddCategory;
+
+  /// Invoked when the admin confirms (via the "are you sure" dialog) that
+  /// they want to remove a category. When null, no delete affordance is
+  /// shown on any card. [CategoriesScreenState] only ever calls this for
+  /// a category with no assets currently filed under it — deletion is
+  /// blocked (with an explanatory message) otherwise, so this never has
+  /// to reassign or orphan any asset's category.
+  final void Function(AssetCategory category)? onDeleteCategory;
+
   @override
-  State<CategoriesScreen> createState() => _CategoriesScreenState();
+  State<CategoriesScreen> createState() => CategoriesScreenState();
 }
 
-class _CategoriesScreenState extends State<CategoriesScreen> {
+/// Public so [AppShell] can reach [openAddCategoryDialog] via a [GlobalKey]
+/// and trigger it from the shared mobile FAB, the same way it drives
+/// [InventoryScreenState]'s "add asset" flow.
+class CategoriesScreenState extends State<CategoriesScreen> {
   final controller = TextEditingController();
-
-  // $1: display name shown on the card. $2: the matching label in
-  // InventoryScreen's category filter chips — kept as a separate field
-  // since the two pages' labels don't match exactly (casing, "Vehicles"
-  // vs "Vehicle") rather than relying on a fragile string transform.
-  final categories = const [
-    ('IT equipment', 'IT Equipment', Icons.devices_outlined, AppTheme.mint),
-    ('Furniture', 'Furniture', Icons.chair_outlined, AppTheme.cream),
-    ('Vehicles', 'Vehicle', Icons.directions_car_outlined, AppTheme.redTint),
-    ('Tools', 'Tools', Icons.build_outlined, AppTheme.mint),
-  ];
 
   @override
   void dispose() {
@@ -40,11 +62,53 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
     super.dispose();
   }
 
+  /// Opens the "add new category" dialog and, if the admin confirms,
+  /// forwards the result to [CategoriesScreen.onAddCategory].
+  Future<void> openAddCategoryDialog() async {
+    if (widget.onAddCategory == null) return;
+    final category = await showAddCategoryDialog(
+      context,
+      existingNames: widget.categories.map((c) => c.displayName).toList(),
+    );
+    if (category != null) widget.onAddCategory!(category);
+  }
+
+  /// Shows the "are you sure" confirmation dialog and, if the admin
+  /// confirms, forwards [category] to [CategoriesScreen.onDeleteCategory].
+  /// Refuses outright (with an explanatory snackbar, no confirmation
+  /// dialog) in two cases: if any assets are still filed under this
+  /// category — they'd need to be reassigned or removed first — or if
+  /// it's the last remaining category, since the Add Asset dropdown needs
+  /// at least one option.
+  Future<void> _confirmAndDelete(AssetCategory category) async {
+    final itemCount = _countFor(category.value);
+    if (itemCount > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Can\'t delete "${category.displayName}" — $itemCount '
+            '${itemCount == 1 ? 'asset is' : 'assets are'} still filed under it. '
+            'Reassign or remove ${itemCount == 1 ? 'it' : 'them'} first.',
+          ),
+        ),
+      );
+      return;
+    }
+    if (widget.categories.length <= 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('At least one category is required.')),
+      );
+      return;
+    }
+    final confirmed = await confirmCategoryDeletion(context, category);
+    if (confirmed) widget.onDeleteCategory?.call(category);
+  }
+
   @override
   Widget build(BuildContext context) {
     final query = controller.text.toLowerCase();
-    final visible = categories
-        .where((category) => category.$1.toLowerCase().contains(query))
+    final visible = widget.categories
+        .where((category) => category.displayName.toLowerCase().contains(query))
         .toList();
 
     final isDesktop = Responsive.isDesktop(context);
@@ -59,10 +123,37 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
             child: Center(
               child: ConstrainedBox(
                 constraints: BoxConstraints(maxWidth: maxWidth),
-                child: const PageHeader(
-                  title: 'Categories',
-                  subtitle: 'Browse assets by type',
-                  showMark: false,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Expanded(
+                      child: PageHeader(
+                        title: 'Categories',
+                        subtitle: 'Browse assets by type',
+                        showMark: false,
+                      ),
+                    ),
+                    if (isDesktop && widget.onAddCategory != null) ...[
+                      const SizedBox(width: 16),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: ElevatedButton.icon(
+                          onPressed: openAddCategoryDialog,
+                          icon: const Icon(Icons.add),
+                          label: const Text('Add category'),
+                          // Override the global button theme's
+                          // Size.fromHeight(64), which sets an infinite
+                          // minimum width intended for full-bleed buttons.
+                          // Left as-is, a Row (which gives non-flex
+                          // children unbounded width) can't lay this
+                          // button out, which blanks the whole page.
+                          style: ElevatedButton.styleFrom(
+                            minimumSize: const Size(0, 48),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),
@@ -109,13 +200,16 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                     childAspectRatio: Responsive.categoryCardAspectRatio(context),
                   ),
                   itemBuilder: (_, index) => _CategoryCard(
-                    name: visible[index].$1,
-                    icon: visible[index].$3,
-                    color: visible[index].$4,
-                    count: _countFor(visible[index].$1),
+                    name: visible[index].displayName,
+                    icon: visible[index].icon,
+                    color: visible[index].color,
+                    count: _countFor(visible[index].value),
                     onTap: widget.onCategoryTap == null
                         ? null
-                        : () => widget.onCategoryTap!(visible[index].$2),
+                        : () => widget.onCategoryTap!(visible[index].value),
+                    onDelete: widget.onDeleteCategory == null
+                        ? null
+                        : () => _confirmAndDelete(visible[index]),
                   ),
                 ),
               ),
@@ -139,6 +233,7 @@ class _CategoryCard extends StatelessWidget {
     required this.color,
     required this.count,
     this.onTap,
+    this.onDelete,
   });
 
   final String name;
@@ -149,6 +244,11 @@ class _CategoryCard extends StatelessWidget {
   /// Invoked when the card is tapped. Wired up by [CategoriesScreen] to
   /// jump to the Inventory tab with this category already selected.
   final VoidCallback? onTap;
+
+  /// Invoked when the admin taps the delete button (confirmation is
+  /// handled by [CategoriesScreen] before this fires). When null, no
+  /// delete button is shown.
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -164,45 +264,71 @@ class _CategoryCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: Material(
         color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          child: Padding(
-            padding: EdgeInsets.all(isMobile ? 14 : 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: iconSize,
-                  height: iconSize,
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(iconSize * .22),
-                  ),
-                  child: Icon(icon, size: iconSize * .43, color: AppTheme.primary),
+        child: Stack(
+          children: [
+            InkWell(
+              onTap: onTap,
+              child: Padding(
+                padding: EdgeInsets.all(isMobile ? 14 : 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: iconSize,
+                      height: iconSize,
+                      decoration: BoxDecoration(
+                        color: color,
+                        borderRadius: BorderRadius.circular(iconSize * .22),
+                      ),
+                      child: Icon(icon, size: iconSize * .43, color: AppTheme.primary),
+                    ),
+                    const Spacer(),
+                    Text(
+                      name,
+                      // Keep the label to a single line on every breakpoint: with a
+                      // fixed-aspect-ratio grid cell, letting a long name wrap to a
+                      // second line is what previously pushed the card's content
+                      // past the cell's bottom edge on narrow phones.
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 20 * scale,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.darkGreen,
+                      ),
+                    ),
+                    SizedBox(height: isMobile ? 4 : 7),
+                    Text(
+                      '$count items',
+                      style: TextStyle(fontSize: 17 * scale, color: AppTheme.muted),
+                    ),
+                  ],
                 ),
-                const Spacer(),
-                Text(
-                  name,
-                  // Keep the label to a single line on every breakpoint: with a
-                  // fixed-aspect-ratio grid cell, letting a long name wrap to a
-                  // second line is what previously pushed the card's content
-                  // past the cell's bottom edge on narrow phones.
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 20 * scale,
-                    fontWeight: FontWeight.w800,
-                    color: AppTheme.darkGreen,
-                  ),
-                ),
-                SizedBox(height: isMobile ? 4 : 7),
-                Text(
-                  '$count items',
-                  style: TextStyle(fontSize: 17 * scale, color: AppTheme.muted),
-                ),
-              ],
+              ),
             ),
-          ),
+            // A separate tappable area layered on top of (rather than
+            // inside) the card's Column, so it can sit in the corner
+            // without disturbing the existing icon/name/count layout.
+            // Nesting a button inside the outer InkWell like this is the
+            // same pattern AssetCard already uses for its own delete
+            // button, and works fine — the inner IconButton claims the
+            // tap itself rather than it bubbling up to onTap.
+            if (onDelete != null)
+              Positioned(
+                top: 2,
+                right: 2,
+                child: IconButton(
+                  onPressed: onDelete,
+                  icon: const Icon(Icons.delete_outline),
+                  iconSize: 20,
+                  color: Colors.redAccent,
+                  tooltip: 'Delete category',
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.all(8),
+                  constraints: const BoxConstraints(),
+                ),
+              ),
+          ],
         ),
       ),
     );

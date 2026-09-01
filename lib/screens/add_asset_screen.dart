@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/asset.dart';
+import '../models/category.dart';
 import '../theme/app_theme.dart';
 import '../widgets/add_asset_form.dart';
 import '../widgets/brand_mark.dart';
@@ -10,9 +11,10 @@ import '../widgets/brand_mark.dart';
 /// so the flow matches the QREMS hi-fi desktop mockups (a centered modal
 /// over a dimmed inventory list).
 class AddAssetScreen extends StatelessWidget {
-  const AddAssetScreen({super.key, required this.nextTagId});
+  const AddAssetScreen({super.key, required this.nextTagId, required this.categories});
 
   final String nextTagId;
+  final List<AssetCategory> categories;
 
   @override
   Widget build(BuildContext context) {
@@ -48,6 +50,7 @@ class AddAssetScreen extends StatelessWidget {
               const SizedBox(height: 48),
               AddAssetForm(
                 nextTagId: nextTagId,
+                categories: categories,
                 onSave: (asset) => Navigator.pop<AssetItem>(context, asset),
               ),
             ],

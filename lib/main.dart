@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'models/asset.dart';
+import 'models/category.dart';
 import 'screens/add_asset_screen.dart';
 import 'screens/categories_screen.dart';
 import 'screens/inventory_screen.dart';
@@ -55,6 +56,12 @@ class _AppShellState extends State<AppShell> {
   int _index = kTabHome;
   final List<AssetItem> _assets = AssetItem.samples;
 
+  // The list of asset categories, shared by the Categories tab (cards),
+  // the Inventory tab (filter chips), and the Add Asset form (dropdown).
+  // Starts with the app's built-in categories; the admin can add more
+  // from the Categories tab via [_addCategory].
+  final List<AssetCategory> _categories = List.of(AssetCategory.defaults);
+
   // Lets the shared circular FAB trigger [RequestsScreenState.openNewRequest]
   // without lifting the requests list up into AppShell the way assets are —
   // RequestsScreen keeps owning its own state, and AppShell just reaches
@@ -66,8 +73,29 @@ class _AppShellState extends State<AppShell> {
   // GlobalKey pattern as [_requestsKey] above.
   final _inventoryKey = GlobalKey<InventoryScreenState>();
 
+  // Lets the shared FAB trigger [CategoriesScreenState.openAddCategoryDialog]
+  // when the admin is on the Categories tab — same GlobalKey pattern as
+  // [_requestsKey] and [_inventoryKey] above.
+  final _categoriesKey = GlobalKey<CategoriesScreenState>();
+
   void _addAsset(AssetItem asset) {
     setState(() => _assets.insert(0, asset));
+  }
+
+  /// Adds a new category, created by the admin via the "Add new category"
+  /// dialog on the Categories tab. Immediately available as an Inventory
+  /// filter chip and an Add Asset dropdown option, since all three read
+  /// from this same list.
+  void _addCategory(AssetCategory category) {
+    setState(() => _categories.add(category));
+  }
+
+  /// Removes a category, once the admin confirms via the "are you sure"
+  /// dialog shown by [CategoriesScreen]. Only ever called for a category
+  /// with no assets currently filed under it — [CategoriesScreen] blocks
+  /// the delete before it gets here otherwise.
+  void _deleteCategory(AssetCategory category) {
+    setState(() => _categories.remove(category));
   }
 
   /// Removes an asset from the inventory. Called only after the admin
@@ -100,12 +128,14 @@ class _AppShellState extends State<AppShell> {
       // dimmed inventory list, rather than navigating to a new page.
       asset = await showDialog<AssetItem>(
         context: context,
-        builder: (_) => AddAssetDialog(nextTagId: tagId),
+        builder: (_) => AddAssetDialog(nextTagId: tagId, categories: _categories),
       );
     } else {
       asset = await Navigator.push<AssetItem>(
         context,
-        MaterialPageRoute(builder: (_) => AddAssetScreen(nextTagId: tagId)),
+        MaterialPageRoute(
+          builder: (_) => AddAssetScreen(nextTagId: tagId, categories: _categories),
+        ),
       );
     }
     if (asset != null) _addAsset(asset);
@@ -121,10 +151,18 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final pages = [
-      CategoriesScreen(assets: _assets, onCategoryTap: _openCategoryInInventory),
+      CategoriesScreen(
+        key: _categoriesKey,
+        assets: _assets,
+        categories: _categories,
+        onCategoryTap: _openCategoryInInventory,
+        onAddCategory: _addCategory,
+        onDeleteCategory: _deleteCategory,
+      ),
       InventoryScreen(
         key: _inventoryKey,
         assets: _assets,
+        categories: _categories,
         onAddAsset: _openAddAsset,
         onDeleteAsset: _deleteAsset,
         onUpdateStatus: _updateAssetStatus,
@@ -158,6 +196,9 @@ class _AppShellState extends State<AppShell> {
     return Scaffold(
       body: SafeArea(child: IndexedStack(index: _index, children: pages)),
       floatingActionButton: switch (_index) {
+        kTabHome => _AddFab(
+            onPressed: () => _categoriesKey.currentState?.openAddCategoryDialog(),
+          ),
         kTabInventory => _AddFab(onPressed: _openAddAsset),
         kTabRequests => _AddFab(
             onPressed: () => _requestsKey.currentState?.openNewRequest(),
