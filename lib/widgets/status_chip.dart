@@ -24,7 +24,10 @@ class StatusChip extends StatelessWidget {
   /// different one from the menu. Passing this makes the chip tappable.
   final ValueChanged<AssetStatus>? onChanged;
 
-  static (Color background, Color foreground) _colorsFor(AssetStatus status) {
+  /// Background/foreground tint pair for [status], shared with the detail
+  /// row on [AssetDetailScreen] so a status reads with the same color
+  /// there as it does on this chip.
+  static (Color background, Color foreground) colorsFor(AssetStatus status) {
     switch (status) {
       case AssetStatus.available:
         return (AppTheme.mint, AppTheme.primary);
@@ -37,7 +40,7 @@ class StatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (background, foreground) = _colorsFor(status);
+    final (background, foreground) = colorsFor(status);
     final scale = Responsive.uiScale(context);
     final pill = Container(
       padding: EdgeInsets.only(
@@ -194,7 +197,7 @@ class _StatusOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (background, foreground) = StatusChip._colorsFor(option);
+    final (background, foreground) = StatusChip.colorsFor(option);
     final scale = Responsive.uiScale(context);
     return Material(
       color: Colors.transparent,
