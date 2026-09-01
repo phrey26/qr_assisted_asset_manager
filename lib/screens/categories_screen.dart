@@ -8,6 +8,7 @@ import '../widgets/add_category_dialog.dart';
 import '../widgets/delete_category_dialog.dart';
 import '../widgets/page_header.dart';
 import '../widgets/select_category_to_delete_dialog.dart';
+import 'select_category_to_delete_screen.dart';
 
 class CategoriesScreen extends StatefulWidget {
   const CategoriesScreen({
@@ -85,13 +86,25 @@ class CategoriesScreenState extends State<CategoriesScreen> {
   /// both call this instead of each card having its own delete button, so
   /// there's one consistent "choose a category, then confirm" flow
   /// regardless of platform.
+  ///
+  /// The picker itself differs by platform: desktop keeps the centered
+  /// dialog (it's already comfortably sized there), while mobile pushes a
+  /// full page instead — a dialog sized for one phone either clips or
+  /// looks lost on another, whereas a page scales with the rest of the
+  /// mobile UI on any screen size.
   Future<void> openDeleteCategoryDialog() async {
     if (widget.onDeleteCategory == null) return;
-    final category = await showSelectCategoryToDeleteDialog(
-      context,
-      categories: widget.categories,
-      itemCountFor: (c) => _countFor(c.value),
-    );
+    final category = Responsive.isDesktop(context)
+        ? await showSelectCategoryToDeleteDialog(
+            context,
+            categories: widget.categories,
+            itemCountFor: (c) => _countFor(c.value),
+          )
+        : await showSelectCategoryToDeleteScreen(
+            context,
+            categories: widget.categories,
+            itemCountFor: (c) => _countFor(c.value),
+          );
     if (category != null) await _confirmAndDelete(category);
   }
 
