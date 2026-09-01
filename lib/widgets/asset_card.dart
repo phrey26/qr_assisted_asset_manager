@@ -42,12 +42,20 @@ class AssetCard extends StatelessWidget {
     // the tile/text down and moving the status chip into the text column
     // (instead of the trailing Row) on mobile keeps the text column wide
     // enough to lay out normally on any device.
+    //
+    // `scale` on top of the mobile/desktop split makes the mobile sizing
+    // itself continuous instead of a single fixed size for every phone —
+    // a 360px-wide "skinny" phone and a 430px-wide phone both count as
+    // "mobile" but need visibly different card/font sizes, and a phone
+    // with a tall on-screen nav bar eating into its usable height needs
+    // to shrink a bit further still even at the same width.
     final isMobile = Responsive.isMobile(context);
-    final imageSize = isMobile ? 68.0 : 108.0;
-    final imageSpacing = isMobile ? 14.0 : 24.0;
+    final scale = Responsive.uiScale(context);
+    final imageSize = (isMobile ? 68.0 : 108.0) * scale;
+    final imageSpacing = (isMobile ? 14.0 : 24.0) * scale;
 
     return Container(
-      margin: EdgeInsets.only(bottom: isMobile ? 12 : 16),
+      margin: EdgeInsets.only(bottom: (isMobile ? 12.0 : 16.0) * scale),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
@@ -59,7 +67,7 @@ class AssetCard extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           child: Padding(
-            padding: EdgeInsets.all(isMobile ? 14 : 20),
+            padding: EdgeInsets.all((isMobile ? 14.0 : 20.0) * scale),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -90,56 +98,56 @@ class AssetCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: AppTheme.darkGreen,
-                          fontSize: isMobile ? 17 : 22,
+                          fontSize: (isMobile ? 17.0 : 22.0) * scale,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                      SizedBox(height: isMobile ? 6 : 8),
+                      SizedBox(height: (isMobile ? 6.0 : 8.0) * scale),
                       Text(
                         asset.tagId,
                         style: TextStyle(
                           color: AppTheme.muted,
-                          fontSize: isMobile ? 13 : 16,
+                          fontSize: (isMobile ? 13.0 : 16.0) * scale,
                           fontFamily: 'monospace',
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      SizedBox(height: 4 * scale),
                       Text(
                         'Purchased ${asset.formattedPurchaseDate}',
                         style: TextStyle(
                           color: AppTheme.muted,
-                          fontSize: isMobile ? 12 : 13,
+                          fontSize: (isMobile ? 12.0 : 13.0) * scale,
                         ),
                       ),
                       if (asset.isPastLifespan) ...[
-                        const SizedBox(height: 8),
+                        SizedBox(height: 8 * scale),
                         const LifespanWarningBadge(),
                       ],
                       if (isMobile) ...[
-                        const SizedBox(height: 8),
+                        SizedBox(height: 8 * scale),
                         StatusChip(status: asset.status, onChanged: onUpdateStatus),
                       ],
                     ],
                   ),
                 ),
                 if (!isMobile) ...[
-                  const SizedBox(width: 10),
+                  SizedBox(width: 10 * scale),
                   StatusChip(status: asset.status, onChanged: onUpdateStatus),
                 ],
                 if (onDelete != null) ...[
-                  SizedBox(width: isMobile ? 0 : 4),
+                  SizedBox(width: isMobile ? 0 : 4 * scale),
                   IconButton(
                     onPressed: onDelete,
-                    icon: const Icon(Icons.delete_outline),
+                    icon: Icon(Icons.delete_outline, size: 24 * scale),
                     color: Colors.redAccent,
                     tooltip: 'Remove from inventory',
                   ),
                 ],
                 if (onTap != null) ...[
-                  SizedBox(width: isMobile ? 0 : 2),
+                  SizedBox(width: isMobile ? 0 : 2 * scale),
                   Padding(
-                    padding: EdgeInsets.only(top: isMobile ? 12 : 0),
-                    child: const Icon(Icons.chevron_right, color: AppTheme.muted),
+                    padding: EdgeInsets.only(top: isMobile ? 12 * scale : 0),
+                    child: Icon(Icons.chevron_right, color: AppTheme.muted, size: 24 * scale),
                   ),
                 ],
               ],

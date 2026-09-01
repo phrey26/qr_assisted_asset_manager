@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import '../utils/responsive.dart';
 
 /// Small pill warning shown wherever an IT equipment asset is displayed
 /// past its expected [AssetItem.itEquipmentLifespanYears]-year lifespan.
@@ -15,37 +16,39 @@ class LifespanWarningBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scale = Responsive.uiScale(context);
+
     if (compact) {
       return Tooltip(
         message: 'Past its 5-year expected lifespan',
         child: Container(
-          padding: const EdgeInsets.all(6),
+          padding: EdgeInsets.all(6 * scale),
           decoration: const BoxDecoration(
             color: AppTheme.redTint,
             shape: BoxShape.circle,
           ),
-          child: const Icon(Icons.warning_amber_rounded, color: Color(0xFFC84040), size: 16),
+          child: Icon(Icons.warning_amber_rounded, color: const Color(0xFFC84040), size: 16 * scale),
         ),
       );
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: EdgeInsets.symmetric(horizontal: 10 * scale, vertical: 5 * scale),
       decoration: BoxDecoration(
         color: AppTheme.redTint,
         borderRadius: BorderRadius.circular(30),
       ),
-      child: const Row(
+      child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.warning_amber_rounded, color: Color(0xFFC84040), size: 14),
-          SizedBox(width: 5),
+          Icon(Icons.warning_amber_rounded, color: const Color(0xFFC84040), size: 14 * scale),
+          SizedBox(width: 5 * scale),
           Text(
             'Past lifespan',
             style: TextStyle(
-              color: Color(0xFFC84040),
+              color: const Color(0xFFC84040),
               fontWeight: FontWeight.w800,
-              fontSize: 12,
+              fontSize: 12 * scale,
             ),
           ),
         ],

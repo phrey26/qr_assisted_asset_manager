@@ -176,7 +176,7 @@ class RequestsScreenState extends State<RequestsScreen> {
           // leave room at the bottom so the last card isn't hidden behind
           // the bottom nav bar and FAB.
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(28, 0, 28, 110),
+            padding: EdgeInsets.fromLTRB(28, 0, 28, Responsive.bottomScrollClearance(context)),
             sliver: SliverList.builder(
               itemCount: filtered.length,
               itemBuilder: (_, index) => Center(
@@ -239,8 +239,9 @@ class _RequestStatusPill extends StatelessWidget {
         background = AppTheme.redTint;
         foreground = const Color(0xFFC84040);
     }
+    final scale = Responsive.uiScale(context);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+      padding: EdgeInsets.symmetric(horizontal: 16 * scale, vertical: 9 * scale),
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(30),
@@ -250,7 +251,7 @@ class _RequestStatusPill extends StatelessWidget {
         style: TextStyle(
           color: foreground,
           fontWeight: FontWeight.w800,
-          fontSize: 14,
+          fontSize: 14 * scale,
         ),
       ),
     );
@@ -501,29 +502,38 @@ class _RequestCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // This card previously had no responsive sizing at all — a fixed
+    // 20px title, 20px padding, etc. on every device. That's the "request
+    // card" the width/height scaling below now covers, matching the
+    // treatment already applied to AssetCard: `scale` shrinks smoothly
+    // with a device's actual width and usable height (a skinny phone, or
+    // a normal-width phone with a tall on-screen nav bar, both scale
+    // down) instead of jumping between just a couple of fixed sizes.
+    final scale = Responsive.uiScale(context);
+
     final info = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
           request.title,
-          style: const TextStyle(
+          style: TextStyle(
             color: AppTheme.darkGreen,
-            fontSize: 20,
+            fontSize: 20 * scale,
             fontWeight: FontWeight.w800,
           ),
         ),
-        const SizedBox(height: 6),
+        SizedBox(height: 6 * scale),
         Text(
           request.detailLine,
-          style: const TextStyle(color: AppTheme.muted, fontSize: 15),
+          style: TextStyle(color: AppTheme.muted, fontSize: 15 * scale),
         ),
       ],
     );
 
     final actions = Wrap(
-      spacing: 8,
-      runSpacing: 8,
+      spacing: 8 * scale,
+      runSpacing: 8 * scale,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         _RequestStatusPill(status: request.status),
@@ -552,7 +562,7 @@ class _RequestCard extends StatelessWidget {
       // so cards with shorter text end up narrower and re-centered,
       // producing a staggered left edge. Force it to fill instead.
       width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 16),
+      margin: EdgeInsets.only(bottom: 16 * scale),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
@@ -564,20 +574,20 @@ class _RequestCard extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.all(20),
+            padding: EdgeInsets.all(20 * scale),
             child: LayoutBuilder(
               builder: (context, constraints) {
                 if (constraints.maxWidth < 520) {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [info, const SizedBox(height: 16), actions],
+                    children: [info, SizedBox(height: 16 * scale), actions],
                   );
                 }
                 return Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Expanded(child: info),
-                    const SizedBox(width: 16),
+                    SizedBox(width: 16 * scale),
                     actions,
                   ],
                 );

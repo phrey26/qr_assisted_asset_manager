@@ -59,6 +59,12 @@ class FilterChipRow extends StatelessWidget {
   }
 
   Widget _dropdown(BuildContext context) {
+    // Same scaling treatment as SortDropdown: padding/font/icon sizes now
+    // shrink smoothly with the device instead of being fixed, so this
+    // control (used here on Inventory, and reused as-is for the Requests
+    // page status filter) doesn't run into the same kind of narrow-phone
+    // overflow that hit the "Sort by" control next to it.
+    final scale = Responsive.uiScale(context);
     return PopupMenuButton<String>(
       initialValue: selected,
       onSelected: onSelected,
@@ -75,17 +81,22 @@ class FilterChipRow extends StatelessWidget {
             child: Row(
               children: [
                 SizedBox(
-                  width: 22,
+                  width: 22 * scale,
                   child: item == selected
-                      ? const Icon(Icons.check, size: 18, color: AppTheme.primary)
+                      ? Icon(Icons.check, size: 18 * scale, color: AppTheme.primary)
                       : null,
                 ),
-                const SizedBox(width: 6),
-                Text(
-                  item,
-                  style: TextStyle(
-                    color: AppTheme.darkGreen,
-                    fontWeight: item == selected ? FontWeight.w800 : FontWeight.w600,
+                SizedBox(width: 6 * scale),
+                Flexible(
+                  child: Text(
+                    item,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: AppTheme.darkGreen,
+                      fontWeight: item == selected ? FontWeight.w800 : FontWeight.w600,
+                      fontSize: 14 * scale,
+                    ),
                   ),
                 ),
               ],
@@ -94,7 +105,7 @@ class FilterChipRow extends StatelessWidget {
       ],
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+        padding: EdgeInsets.symmetric(horizontal: 18 * scale, vertical: 16 * scale),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -102,19 +113,21 @@ class FilterChipRow extends StatelessWidget {
         ),
         child: Row(
           children: [
-            const Icon(Icons.filter_list, color: AppTheme.primary, size: 20),
-            const SizedBox(width: 12),
+            Icon(Icons.filter_list, color: AppTheme.primary, size: 20 * scale),
+            SizedBox(width: 12 * scale),
             Expanded(
               child: Text(
                 selected,
-                style: const TextStyle(
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
                   color: AppTheme.darkGreen,
                   fontWeight: FontWeight.w800,
-                  fontSize: 15,
+                  fontSize: 15 * scale,
                 ),
               ),
             ),
-            const Icon(Icons.keyboard_arrow_down, color: AppTheme.darkGreen),
+            Icon(Icons.keyboard_arrow_down, color: AppTheme.darkGreen, size: 24 * scale),
           ],
         ),
       ),

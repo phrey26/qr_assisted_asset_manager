@@ -355,60 +355,81 @@ class _BottomNav extends StatelessWidget {
       (Icons.person_outline, Icons.person, 'Profile', kTabProfile),
     ];
 
+    // The bar used to be a fixed 88px tall regardless of device, with no
+    // regard for the bottom system inset (the on-screen 3-button nav bar
+    // or gesture-handle strip). On a phone with a tall system nav bar that
+    // left too little clearance above it — the buttons in this bar and
+    // the system's own nav buttons ended up close enough to visually
+    // collide, with icon/label sizes also identical on every phone
+    // regardless of how much width/height it actually had. `contentHeight`
+    // scales with the device, and the bottom system inset is added as its
+    // own SafeArea padding underneath the bar's content instead of being
+    // ignored.
+    final scale = Responsive.uiScale(context);
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    final contentHeight = Responsive.bottomNavContentHeight(context);
+    final scannerSize = 60 * scale;
+
     return BottomAppBar(
-      height: 88,
+      height: contentHeight + bottomInset,
       padding: EdgeInsets.zero,
-      child: Row(
-        children: items.map((item) {
-          final selected = index == item.$4;
-          if (item.$4 == kTabScanner) {
-            return Expanded(
-              child: Center(
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(40),
-                  onTap: () => onChanged(item.$4),
-                  child: Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.primary,
-                      shape: BoxShape.circle,
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: contentHeight,
+          child: Row(
+            children: items.map((item) {
+              final selected = index == item.$4;
+              if (item.$4 == kTabScanner) {
+                return Expanded(
+                  child: Center(
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(40),
+                      onTap: () => onChanged(item.$4),
+                      child: Container(
+                        width: scannerSize,
+                        height: scannerSize,
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primary,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(item.$1, color: Colors.white, size: 26 * scale),
+                      ),
                     ),
-                    child: Icon(item.$1, color: Colors.white, size: 26),
+                  ),
+                );
+              }
+              return Expanded(
+                child: InkWell(
+                  onTap: () => onChanged(item.$4),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        selected ? item.$2 : item.$1,
+                        size: 22 * scale,
+                        color: selected
+                            ? theme.colorScheme.primary
+                            : theme.colorScheme.onSurfaceVariant,
+                      ),
+                      SizedBox(height: 4 * scale),
+                      Text(
+                        item.$3,
+                        style: TextStyle(
+                          fontSize: 11 * scale,
+                          color: selected
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.onSurfaceVariant,
+                          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-            );
-          }
-          return Expanded(
-            child: InkWell(
-              onTap: () => onChanged(item.$4),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    selected ? item.$2 : item.$1,
-                    size: 22,
-                    color: selected
-                        ? theme.colorScheme.primary
-                        : theme.colorScheme.onSurfaceVariant,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    item.$3,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: selected
-                          ? theme.colorScheme.primary
-                          : theme.colorScheme.onSurfaceVariant,
-                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }).toList(),
+              );
+            }).toList(),
+          ),
+        ),
       ),
     );
   }

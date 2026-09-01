@@ -38,12 +38,13 @@ class StatusChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (background, foreground) = _colorsFor(status);
+    final scale = Responsive.uiScale(context);
     final pill = Container(
       padding: EdgeInsets.only(
-        left: 16,
-        right: onChanged == null ? 16 : 8,
-        top: 9,
-        bottom: 9,
+        left: 16 * scale,
+        right: (onChanged == null ? 16 : 8) * scale,
+        top: 9 * scale,
+        bottom: 9 * scale,
       ),
       decoration: BoxDecoration(
         color: background,
@@ -57,12 +58,12 @@ class StatusChip extends StatelessWidget {
             style: TextStyle(
               color: foreground,
               fontWeight: FontWeight.w800,
-              fontSize: 14,
+              fontSize: 14 * scale,
             ),
           ),
           if (onChanged != null) ...[
-            const SizedBox(width: 2),
-            Icon(Icons.arrow_drop_down, color: foreground, size: 20),
+            SizedBox(width: 2 * scale),
+            Icon(Icons.arrow_drop_down, color: foreground, size: 20 * scale),
           ],
         ],
       ),
@@ -124,6 +125,7 @@ class _StatusSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scale = Responsive.uiScale(context);
     return SafeArea(
       top: false,
       child: Container(
@@ -144,8 +146,8 @@ class _StatusSheet extends StatelessWidget {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-            const Padding(
-              padding: EdgeInsets.fromLTRB(20, 16, 20, 4),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
@@ -153,7 +155,7 @@ class _StatusSheet extends StatelessWidget {
                   style: TextStyle(
                     color: AppTheme.darkGreen,
                     fontWeight: FontWeight.w800,
-                    fontSize: 18,
+                    fontSize: 18 * scale,
                   ),
                 ),
               ),
@@ -193,14 +195,15 @@ class _StatusOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (background, foreground) = StatusChip._colorsFor(option);
+    final scale = Responsive.uiScale(context);
     return Material(
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-          margin: const EdgeInsets.symmetric(vertical: 3),
+          padding: EdgeInsets.symmetric(horizontal: 12 * scale, vertical: 14 * scale),
+          margin: EdgeInsets.symmetric(vertical: 3 * scale),
           decoration: BoxDecoration(
             color: selected ? background : Colors.transparent,
             borderRadius: BorderRadius.circular(16),
@@ -208,23 +211,23 @@ class _StatusOption extends StatelessWidget {
           child: Row(
             children: [
               Container(
-                width: 12,
-                height: 12,
+                width: 12 * scale,
+                height: 12 * scale,
                 decoration: BoxDecoration(color: foreground, shape: BoxShape.circle),
               ),
-              const SizedBox(width: 14),
+              SizedBox(width: 14 * scale),
               Expanded(
                 child: Text(
                   option.label,
                   style: TextStyle(
                     color: AppTheme.darkGreen,
                     fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                    fontSize: 16,
+                    fontSize: 16 * scale,
                   ),
                 ),
               ),
               if (selected)
-                const Icon(Icons.check_circle, color: AppTheme.primary, size: 20),
+                Icon(Icons.check_circle, color: AppTheme.primary, size: 20 * scale),
             ],
           ),
         ),

@@ -248,7 +248,7 @@ class InventoryScreenState extends State<InventoryScreen> {
           )
         else
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(28, 4, 28, 110),
+            padding: EdgeInsets.fromLTRB(28, 4, 28, Responsive.bottomScrollClearance(context)),
             sliver: SliverList.builder(
               itemCount: filtered.length,
               itemBuilder: (context, index) {

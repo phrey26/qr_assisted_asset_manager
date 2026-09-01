@@ -122,7 +122,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
             ),
           ),
         ),
-        const SliverToBoxAdapter(child: SizedBox(height: 110)),
+        SliverToBoxAdapter(child: SizedBox(height: Responsive.bottomScrollClearance(context))),
       ],
     );
   }
