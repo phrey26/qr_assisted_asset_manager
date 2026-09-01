@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/asset_request.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
+import '../widgets/image_viewer_screen.dart';
 import '../widgets/signature_line.dart';
 
 /// Full detail view for a single asset request. Shows every field the
@@ -249,10 +250,12 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     );
   }
 
-  /// The four "signature over printed name" blocks from the paper slip —
-  /// requester, adviser, principal/office head, and dean — laid out side
-  /// by side on desktop and two-per-row on mobile so they still resemble
-  /// a signature strip rather than a stacked list.
+  /// The four printed names from the paper slip — requester, adviser,
+  /// principal/office head, and dean — laid out side by side on desktop
+  /// and two-per-row on mobile, followed by the single attached photo/
+  /// scan of the signed CSDO Request Form itself (all four signatures
+  /// are visible on that one photo, so it's shown once here rather than
+  /// per person).
   Widget _signaturesCard(AssetRequest request, {bool desktop = false}) {
     final signatories = request.signatories;
     return Container(
@@ -278,13 +281,23 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                   ),
                 ),
               ),
-              Text(
-                '${request.signedCount}/${signatories.length} signed',
-                style: const TextStyle(
-                  color: AppTheme.muted,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                ),
+              Row(
+                children: [
+                  Icon(
+                    request.hasRequestForm ? Icons.check_circle : Icons.radio_button_unchecked,
+                    color: request.hasRequestForm ? AppTheme.primary : AppTheme.muted,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    request.hasRequestForm ? 'Form attached' : 'Form not yet attached',
+                    style: const TextStyle(
+                      color: AppTheme.muted,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -327,8 +340,77 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                     );
                   },
                 ),
+          const SizedBox(height: 18),
+          _requestFormAttachment(request),
         ],
       ),
+    );
+  }
+
+  /// The attached photo/scan of the filled-out, signed CSDO Request
+  /// Form — shown once here in place of a per-signatory signature image,
+  /// since all four signatures are already visible on this one photo.
+  /// Tapping the photo opens it full-screen (image viewing mode) so the
+  /// signatures can actually be read closely.
+  Widget _requestFormAttachment(AssetRequest request) {
+    final bytes = request.requestFormImageBytes;
+    const heroTag = 'request-form-image';
+    final image = ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        width: double.infinity,
+        height: 220,
+        color: const Color(0xFFF3FAF7),
+        child: bytes == null
+            ? const Center(
+                child: Text(
+                  'No CSDO Request Form photo attached',
+                  style: TextStyle(color: AppTheme.muted, fontSize: 13, fontStyle: FontStyle.italic),
+                ),
+              )
+            : Hero(tag: heroTag, child: Image.memory(bytes, fit: BoxFit.contain)),
+      ),
+    );
+
+    if (bytes == null) return image;
+
+    return Stack(
+      children: [
+        InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => ImageViewerScreen.open(
+            context,
+            imageBytes: bytes,
+            heroTag: heroTag,
+            title: 'CSDO Request Form',
+          ),
+          child: image,
+        ),
+        Positioned(
+          right: 10,
+          bottom: 10,
+          child: IgnorePointer(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.zoom_in, color: Colors.white, size: 14),
+                  SizedBox(width: 4),
+                  Text(
+                    'Tap to view',
+                    style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 

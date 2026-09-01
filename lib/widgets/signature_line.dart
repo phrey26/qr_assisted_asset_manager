@@ -3,10 +3,11 @@ import 'package:flutter/material.dart';
 import '../models/asset_request.dart';
 import '../theme/app_theme.dart';
 
-/// Read-only rendering of one "signature over printed name" block, the way
-/// it appears on the paper borrow slip: the scanned signature image sits
-/// above a ruled line, with the printed name and role underneath it.
-/// Shown with a dashed placeholder when that person hasn't signed yet.
+/// Read-only rendering of one "printed name" block from the paper borrow
+/// slip: the printed name and role. The actual signature is no longer
+/// shown per-person here — it lives on the single attached CSDO Request
+/// Form photo (see the form-attachment block on the request detail
+/// screen) — so this just lists who the slip is for.
 class SignatureLine extends StatelessWidget {
   const SignatureLine({super.key, required this.role, required this.signatory});
 
@@ -15,29 +16,9 @@ class SignatureLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final signed = signatory.hasSigned;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        SizedBox(
-          height: 56,
-          width: double.infinity,
-          child: signed
-              ? Image.memory(signatory.imageBytes!, fit: BoxFit.contain)
-              : Center(
-                  child: Text(
-                    'Not yet signed',
-                    style: const TextStyle(
-                      color: AppTheme.muted,
-                      fontSize: 12,
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                ),
-        ),
-        const SizedBox(height: 6),
-        Container(height: 1.5, color: AppTheme.border),
-        const SizedBox(height: 6),
         Text(
           signatory.name.isEmpty ? '—' : signatory.name,
           textAlign: TextAlign.center,
@@ -58,10 +39,6 @@ class SignatureLine extends StatelessWidget {
             letterSpacing: 0.2,
           ),
         ),
-        if (signed) ...[
-          const SizedBox(height: 4),
-          const Icon(Icons.check_circle, color: AppTheme.primary, size: 16),
-        ],
       ],
     );
   }

@@ -21,24 +21,16 @@ extension SignatoryRoleX on SignatoryRole {
   }
 }
 
-/// One signature block on the borrow slip: the printed name plus the
-/// scanned image of that person's actual signature (uploaded from the
-/// device gallery or camera in lieu of a wet-ink signature on paper).
+/// One signature block on the borrow slip: just the printed name for that
+/// role. The actual signature is no longer captured per-person — it's
+/// covered by the single photo of the whole signed CSDO Request Form
+/// (see [AssetRequest.requestFormImageBytes]).
 class Signatory {
-  const Signatory({required this.name, this.imageBytes});
+  const Signatory({required this.name});
 
   final String name;
 
-  /// Bytes of the uploaded/scanned signature image, or null if this
-  /// person hasn't signed yet.
-  final Uint8List? imageBytes;
-
-  bool get hasSigned => imageBytes != null;
-
-  Signatory copyWith({String? name, Uint8List? imageBytes}) => Signatory(
-        name: name ?? this.name,
-        imageBytes: imageBytes ?? this.imageBytes,
-      );
+  Signatory copyWith({String? name}) => Signatory(name: name ?? this.name);
 }
 
 extension RequestStatusX on RequestStatus {
@@ -86,6 +78,7 @@ class AssetRequest {
     Signatory? adviserSignature,
     Signatory? principalSignature,
     Signatory? deanSignature,
+    this.requestFormImageBytes,
   })  : requesterSignature = requesterSignature ?? Signatory(name: requester),
         adviserSignature = adviserSignature ?? const Signatory(name: ''),
         principalSignature = principalSignature ?? const Signatory(name: ''),
@@ -131,6 +124,14 @@ class AssetRequest {
   /// The dean's signature — the final approval on the paper slip.
   Signatory deanSignature;
 
+  /// A single scanned/photographed image of the filled-out, physically
+  /// signed CSDO Request Form — the printed names above are typed in for
+  /// reference, but all four wet-ink signatures live on this one photo.
+  Uint8List? requestFormImageBytes;
+
+  /// Whether the CSDO Request Form photo has been attached.
+  bool get hasRequestForm => requestFormImageBytes != null;
+
   /// All four signature blocks, in the order they appear on the paper
   /// slip: requester, adviser, principal/office head, dean.
   List<MapEntry<SignatoryRole, Signatory>> get signatories => [
@@ -139,9 +140,6 @@ class AssetRequest {
         MapEntry(SignatoryRole.principal, principalSignature),
         MapEntry(SignatoryRole.dean, deanSignature),
       ];
-
-  /// How many of the four required signatures have actually been signed.
-  int get signedCount => signatories.where((e) => e.value.hasSigned).length;
 
   /// Every logistics + equipment line combined, in that order.
   List<RequestedItem> get allItems => [...logistics, ...equipment];
@@ -183,8 +181,8 @@ class AssetRequest {
       borrowDate: 'Sep 15, 2026',
       returnDate: 'Sep 16, 2026',
       status: RequestStatus.approved,
-      // Shows what a fully-signed slip looks like; the actual signature
-      // images are left blank since samples ship without real scans, but
+      // Shows what a filled-out slip looks like; the CSDO Request Form
+      // photo is left blank since samples ship without a real scan, but
       // the printed names alone still demonstrate the four-signatory flow.
       adviserSignature: const Signatory(name: 'Prof. Liza Ramos'),
       principalSignature: const Signatory(name: 'Engr. Noel Ibañez'),

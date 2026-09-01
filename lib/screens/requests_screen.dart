@@ -9,7 +9,7 @@ import '../utils/responsive.dart';
 import '../widgets/filter_chip_row.dart';
 import '../widgets/page_header.dart';
 import '../widgets/request_date_range_field.dart';
-import '../widgets/signature_field.dart';
+import '../widgets/request_form_field.dart';
 import 'request_detail_screen.dart';
 
 /// Pushes [RequestDetailScreen] for the given request. Mirrors
@@ -581,18 +581,19 @@ class _NewRequestFormState extends State<NewRequestForm> {
   final logisticsRows = [_ItemFormRow()];
   final equipmentRows = [_ItemFormRow()];
 
-  // The four signature-over-printed-name blocks the paper slip always
-  // asks for. The requester's printed name mirrors requesterController
-  // so it doesn't have to be typed twice, but is kept as its own
-  // controller so it can still be edited independently (e.g. someone
-  // else fills out the form on the requester's behalf).
+  // The four signatory printed-name fields the paper slip always asks
+  // for. The requester's printed name mirrors requesterController so it
+  // doesn't have to be typed twice, but is kept as its own controller so
+  // it can still be edited independently (e.g. someone else fills out
+  // the form on the requester's behalf).
   final adviserNameController = TextEditingController();
   final principalNameController = TextEditingController();
   final deanNameController = TextEditingController();
-  Uint8List? requesterSignatureBytes;
-  Uint8List? adviserSignatureBytes;
-  Uint8List? principalSignatureBytes;
-  Uint8List? deanSignatureBytes;
+
+  // A single photo/scan of the filled-out, signed CSDO Request Form —
+  // all four signatures are visible on it, so there's no need to collect
+  // a separate image per signatory.
+  Uint8List? requestFormImageBytes;
 
   @override
   void dispose() {
@@ -709,22 +710,11 @@ class _NewRequestFormState extends State<NewRequestForm> {
         equipment: equipment,
         borrowDate: AssetItem.formatDate(borrowDate!),
         returnDate: AssetItem.formatDate(returnDate!),
-        requesterSignature: Signatory(
-          name: requesterName,
-          imageBytes: requesterSignatureBytes,
-        ),
-        adviserSignature: Signatory(
-          name: adviserNameController.text.trim(),
-          imageBytes: adviserSignatureBytes,
-        ),
-        principalSignature: Signatory(
-          name: principalNameController.text.trim(),
-          imageBytes: principalSignatureBytes,
-        ),
-        deanSignature: Signatory(
-          name: deanNameController.text.trim(),
-          imageBytes: deanSignatureBytes,
-        ),
+        requesterSignature: Signatory(name: requesterName),
+        adviserSignature: Signatory(name: adviserNameController.text.trim()),
+        principalSignature: Signatory(name: principalNameController.text.trim()),
+        deanSignature: Signatory(name: deanNameController.text.trim()),
+        requestFormImageBytes: requestFormImageBytes,
       ),
     );
   }
@@ -952,10 +942,11 @@ class _NewRequestFormState extends State<NewRequestForm> {
     );
   }
 
-  /// The "Signatures" section: one upload block per role on the paper
-  /// slip — requester, adviser, principal/office head, and dean — each
-  /// with a printed-name field and a scanned/photographed signature
-  /// image in lieu of a wet-ink signature.
+  /// The "Signatures" section: the printed name for each role on the
+  /// paper slip — requester, adviser, principal/office head, and dean —
+  /// followed by a single photo/scan attachment of the filled-out,
+  /// signed CSDO Request Form itself (all four signatures are visible on
+  /// that one photo, so there's no need to upload one per person).
   Widget _signaturesSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -966,34 +957,18 @@ class _NewRequestFormState extends State<NewRequestForm> {
         ),
         const SizedBox(height: 4),
         const Text(
-          'Upload a scanned or photographed signature for each approver, over their printed name — same as the paper form.',
+          'Enter each approver\'s printed name, then attach one photo or scan of the signed CSDO Request Form.',
           style: TextStyle(color: AppTheme.muted, fontSize: 12.5),
         ),
         const SizedBox(height: 10),
-        SignatureField(
-          role: SignatoryRole.requester,
-          nameController: requesterController,
-          nameHint: 'Your name',
-          imageBytes: requesterSignatureBytes,
-          onImageChanged: (bytes) => setState(() => requesterSignatureBytes = bytes),
-        ),
-        SignatureField(
-          role: SignatoryRole.adviser,
-          nameController: adviserNameController,
-          imageBytes: adviserSignatureBytes,
-          onImageChanged: (bytes) => setState(() => adviserSignatureBytes = bytes),
-        ),
-        SignatureField(
-          role: SignatoryRole.principal,
-          nameController: principalNameController,
-          imageBytes: principalSignatureBytes,
-          onImageChanged: (bytes) => setState(() => principalSignatureBytes = bytes),
-        ),
-        SignatureField(
-          role: SignatoryRole.dean,
-          nameController: deanNameController,
-          imageBytes: deanSignatureBytes,
-          onImageChanged: (bytes) => setState(() => deanSignatureBytes = bytes),
+        _field('Requester (printed name)', requesterController, hint: 'Your name'),
+        _field('Adviser (printed name)', adviserNameController),
+        _field('Principal / Office Head (printed name)', principalNameController),
+        _field('Dean (printed name)', deanNameController),
+        const SizedBox(height: 4),
+        RequestFormField(
+          imageBytes: requestFormImageBytes,
+          onImageChanged: (bytes) => setState(() => requestFormImageBytes = bytes),
         ),
       ],
     );
