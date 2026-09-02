@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/category.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
+import '../widgets/delete_category_dialog.dart';
 
 /// Full-page version of the "which category should I delete?" picker,
 /// used on mobile in place of [showSelectCategoryToDeleteDialog]'s fixed-
@@ -11,11 +12,14 @@ import '../utils/responsive.dart';
 /// [Responsive.uiScale] like the rest of the mobile UI, so it holds up
 /// from the smallest supported phone to the largest.
 ///
-/// Returns the selected [AssetCategory] via [Navigator.pop], or null if
-/// the admin backs out without picking one. Validation and the final
-/// "are you sure" confirmation both happen afterwards, back in
-/// [CategoriesScreenState] — this page is just the picker, same division
-/// of responsibility as the dialog it replaces.
+/// Returns the selected [AssetCategory] via [Navigator.pop] once the admin
+/// has picked one *and* the delete has cleared validation and been
+/// confirmed (via [validateAndConfirmCategoryDeletion]), or null if the
+/// admin backs out without picking one, picks one that can't be deleted,
+/// or declines the confirmation. Doing the whole warn/confirm flow here,
+/// before this page ever pops, is what avoids the mouse-tracker crash
+/// documented on [validateAndConfirmCategoryDeletion] — see that function
+/// for the full explanation.
 Future<AssetCategory?> showSelectCategoryToDeleteScreen(
   BuildContext context, {
   required List<AssetCategory> categories,
@@ -42,60 +46,99 @@ class SelectCategoryToDeleteScreen extends StatelessWidget {
   final List<AssetCategory> categories;
   final int Function(AssetCategory category) itemCountFor;
 
+  // Leaving this page (AppBar back button, system back gesture, or the
+  // hardware back button) while the "can't delete" SnackBar from a
+  // previous tap is still showing hit the exact same mouse-tracker crash
+  // documented on [validateAndConfirmCategoryDeletion]: the SnackBar's own
+  // exit animation was still running its overlay mutation while this
+  // page's pop transition started animating over it, and the two landed
+  // on the same frame's mouse-device update. `removeCurrentSnackBar()` —
+  // *not* `clearSnackBars()`, which despite the name still runs the
+  // SnackBar's normal reverse animation — is what actually removes it
+  // immediately with no animation to race the pop transition, so it's
+  // always called right before this page actually pops, whichever way
+  // that pop was triggered.
+  void _dismissSnackBarsThenPop(BuildContext context, [AssetCategory? result]) {
+    ScaffoldMessenger.of(context).removeCurrentSnackBar();
+    Navigator.pop(context, result);
+  }
+
   @override
   Widget build(BuildContext context) {
     final scale = Responsive.uiScale(context);
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Delete a category', style: TextStyle(fontWeight: FontWeight.w800)),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          tooltip: 'Back',
-          onPressed: () => Navigator.pop(context),
+    return PopScope(
+      // System back gesture / hardware back button also need to clear the
+      // SnackBar first — a plain Navigator.pop() call (as in the AppBar
+      // button below) bypasses PopScope entirely, but the system back
+      // gesture routes through it, so it needs its own handling here.
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _dismissSnackBarsThenPop(context);
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Delete a category', style: TextStyle(fontWeight: FontWeight.w800)),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            tooltip: 'Back',
+            onPressed: () => _dismissSnackBarsThenPop(context),
+          ),
         ),
-      ),
-      body: SafeArea(
-        top: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: EdgeInsets.fromLTRB(20 * scale, 16 * scale, 20 * scale, 4 * scale),
-              child: Row(
-                children: [
-                  Container(
-                    width: 44 * scale,
-                    height: 44 * scale,
-                    decoration: const BoxDecoration(color: AppTheme.redTint, shape: BoxShape.circle),
-                    child: Icon(Icons.delete_outline, color: Colors.redAccent, size: 22 * scale),
-                  ),
-                  SizedBox(width: 12 * scale),
-                  Expanded(
-                    child: Text(
-                      'Choose which category to remove.',
-                      style: TextStyle(color: AppTheme.muted, fontSize: 14 * scale),
+        body: SafeArea(
+          top: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: EdgeInsets.fromLTRB(20 * scale, 16 * scale, 20 * scale, 4 * scale),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 44 * scale,
+                      height: 44 * scale,
+                      decoration: const BoxDecoration(color: AppTheme.redTint, shape: BoxShape.circle),
+                      child: Icon(Icons.delete_outline, color: Colors.redAccent, size: 22 * scale),
                     ),
-                  ),
-                ],
+                    SizedBox(width: 12 * scale),
+                    Expanded(
+                      child: Text(
+                        'Choose which category to remove.',
+                        style: TextStyle(color: AppTheme.muted, fontSize: 14 * scale),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            Expanded(
-              child: ListView.separated(
-                padding: EdgeInsets.fromLTRB(20 * scale, 12 * scale, 20 * scale, 20 * scale),
-                itemCount: categories.length,
-                separatorBuilder: (_, __) => SizedBox(height: 10 * scale),
-                itemBuilder: (_, index) {
-                  final category = categories[index];
-                  return _CategoryTile(
-                    category: category,
-                    count: itemCountFor(category),
-                    scale: scale,
-                    onTap: () => Navigator.pop(context, category),
-                  );
-                },
+              Expanded(
+                child: ListView.separated(
+                  padding: EdgeInsets.fromLTRB(20 * scale, 12 * scale, 20 * scale, 20 * scale),
+                  itemCount: categories.length,
+                  separatorBuilder: (_, __) => SizedBox(height: 10 * scale),
+                  itemBuilder: (_, index) {
+                    final category = categories[index];
+                    final count = itemCountFor(category);
+                    return _CategoryTile(
+                      category: category,
+                      count: count,
+                      scale: scale,
+                      onTap: () async {
+                        final result = await validateAndConfirmCategoryDeletion(
+                          context,
+                          category,
+                          itemCount: count,
+                          totalCategoryCount: categories.length,
+                        );
+                        if (result != null && context.mounted) {
+                          _dismissSnackBarsThenPop(context, result);
+                        }
+                      },
+                    );
+                  },
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

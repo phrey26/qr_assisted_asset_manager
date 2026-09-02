@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/category.dart';
 import '../theme/app_theme.dart';
+import 'delete_category_dialog.dart';
 
 /// Shows a dialog listing every category so the admin can choose which one
 /// to delete. Replaces the old per-card delete button — deletion is now
@@ -9,11 +10,12 @@ import '../theme/app_theme.dart';
 /// toolbar button next to "Add category", or the mobile circular FAB),
 /// which needs the admin to pick a target category first.
 ///
-/// Returns the selected [AssetCategory], or null if the admin dismisses
-/// the dialog without picking one. Validation (blocking deletion of a
-/// category that still has assets, or the last remaining category) and the
-/// final "are you sure" confirmation both happen afterwards, back in
-/// [CategoriesScreenState] — this dialog is just the picker.
+/// Returns the selected [AssetCategory] once it has cleared validation
+/// (blocking deletion of a category that still has assets, or the last
+/// remaining category) and been confirmed via the "are you sure" dialog —
+/// see [validateAndConfirmCategoryDeletion] — or null if the admin
+/// dismisses the dialog without picking one, picks one that can't be
+/// deleted, or declines the confirmation.
 Future<AssetCategory?> showSelectCategoryToDeleteDialog(
   BuildContext context, {
   required List<AssetCategory> categories,
@@ -21,69 +23,102 @@ Future<AssetCategory?> showSelectCategoryToDeleteDialog(
 }) {
   return showDialog<AssetCategory>(
     context: context,
-    builder: (context) => AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      icon: Container(
-        width: 56,
-        height: 56,
-        decoration: const BoxDecoration(
-          color: AppTheme.redTint,
-          shape: BoxShape.circle,
+    builder: (context) => PopScope(
+      // Dismissing this dialog (barrier tap, system back gesture, or the
+      // Cancel button) while a "can't delete"/"last category" SnackBar
+      // from a previous tap is still showing hit the same mouse-tracker
+      // crash documented on [validateAndConfirmCategoryDeletion] — see
+      // [SelectCategoryToDeleteScreen] (the mobile equivalent of this
+      // dialog) for the full explanation. `removeCurrentSnackBar()` — *not*
+      // `clearSnackBars()`, which despite the name still runs the
+      // SnackBar's normal reverse animation — is what actually removes it
+      // immediately with no animation to race the dialog's own pop
+      // transition.
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        ScaffoldMessenger.of(context).removeCurrentSnackBar();
+        Navigator.pop(context);
+      },
+      child: AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        icon: Container(
+          width: 56,
+          height: 56,
+          decoration: const BoxDecoration(
+            color: AppTheme.redTint,
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 28),
         ),
-        child: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 28),
-      ),
-      title: const Text(
-        'Delete a category',
-        textAlign: TextAlign.center,
-        style: TextStyle(color: AppTheme.darkGreen, fontWeight: FontWeight.w800, fontSize: 20),
-      ),
-      content: SizedBox(
-        width: 360,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.only(bottom: 14),
-              child: Text(
-                'Choose which category to remove.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: AppTheme.muted, fontSize: 14),
-              ),
-            ),
-            Flexible(
-              child: ListView.separated(
-                shrinkWrap: true,
-                itemCount: categories.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
-                itemBuilder: (_, index) {
-                  final category = categories[index];
-                  return _CategoryTile(
-                    category: category,
-                    count: itemCountFor(category),
-                    onTap: () => Navigator.pop(context, category),
-                  );
-                },
-              ),
-            ),
-          ],
+        title: const Text(
+          'Delete a category',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: AppTheme.darkGreen, fontWeight: FontWeight.w800, fontSize: 20),
         ),
-      ),
-      actionsAlignment: MainAxisAlignment.center,
-      actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
-      actions: [
-        Expanded(
-          child: OutlinedButton(
-            onPressed: () => Navigator.pop(context),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppTheme.darkGreen,
-              side: const BorderSide(color: AppTheme.border, width: 2),
-              minimumSize: const Size(0, 48),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            ),
-            child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.w700)),
+        content: SizedBox(
+          width: 360,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(bottom: 14),
+                child: Text(
+                  'Choose which category to remove.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppTheme.muted, fontSize: 14),
+                ),
+              ),
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: categories.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (_, index) {
+                    final category = categories[index];
+                    final count = itemCountFor(category);
+                    return _CategoryTile(
+                      category: category,
+                      count: count,
+                      onTap: () async {
+                        final result = await validateAndConfirmCategoryDeletion(
+                          context,
+                          category,
+                          itemCount: count,
+                          totalCategoryCount: categories.length,
+                        );
+                        if (result != null && context.mounted) {
+                          ScaffoldMessenger.of(context).removeCurrentSnackBar();
+                          Navigator.pop(context, result);
+                        }
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
         ),
-      ],
+        actionsAlignment: MainAxisAlignment.center,
+        actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+        actions: [
+          Expanded(
+            child: OutlinedButton(
+              onPressed: () {
+                ScaffoldMessenger.of(context).removeCurrentSnackBar();
+                Navigator.pop(context);
+              },
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppTheme.darkGreen,
+                side: const BorderSide(color: AppTheme.border, width: 2),
+                minimumSize: const Size(0, 48),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+              child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.w700)),
+            ),
+          ),
+        ],
+      ),
     ),
   );
 }

@@ -5,7 +5,6 @@ import '../models/category.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/add_category_dialog.dart';
-import '../widgets/delete_category_dialog.dart';
 import '../widgets/page_header.dart';
 import '../widgets/select_category_to_delete_dialog.dart';
 import 'select_category_to_delete_screen.dart';
@@ -79,13 +78,15 @@ class CategoriesScreenState extends State<CategoriesScreen> {
     if (category != null) widget.onAddCategory!(category);
   }
 
-  /// Opens the "which category should I delete?" picker and, if the admin
-  /// selects one, runs it through the same validation/confirmation flow
-  /// as before ([_confirmAndDelete]). This is the single delete entry
-  /// point now — the desktop toolbar button and the mobile circular FAB
-  /// both call this instead of each card having its own delete button, so
-  /// there's one consistent "choose a category, then confirm" flow
-  /// regardless of platform.
+  /// Opens the "which category should I delete?" picker; the picker
+  /// itself runs the validation/confirmation flow
+  /// ([validateAndConfirmCategoryDeletion]) and only returns a category
+  /// once the admin has picked one that's actually deletable and
+  /// confirmed the removal. This is the single delete entry point now —
+  /// the desktop toolbar button and the mobile circular FAB both call
+  /// this instead of each card having its own delete button, so there's
+  /// one consistent "choose a category, then confirm" flow regardless of
+  /// platform.
   ///
   /// The picker itself differs by platform: desktop keeps the centered
   /// dialog (it's already comfortably sized there), while mobile pushes a
@@ -94,6 +95,11 @@ class CategoriesScreenState extends State<CategoriesScreen> {
   /// mobile UI on any screen size.
   Future<void> openDeleteCategoryDialog() async {
     if (widget.onDeleteCategory == null) return;
+    // Both pickers now run the full "can this be deleted?" validation and
+    // the "are you sure" confirmation themselves — see
+    // [validateAndConfirmCategoryDeletion] — before ever popping. So a
+    // non-null result here means the admin has already explicitly
+    // confirmed removing this category; there's nothing left to check.
     final category = Responsive.isDesktop(context)
         ? await showSelectCategoryToDeleteDialog(
             context,
@@ -106,53 +112,15 @@ class CategoriesScreenState extends State<CategoriesScreen> {
             itemCountFor: (c) => _countFor(c.value),
           );
     if (category == null) return;
-    // On mobile, the picker is a pushed page rather than a dialog, and its
-    // "pick a category" tap calls Navigator.pop from inside that same
-    // pointer-tap handler. The Future above resolves the instant pop is
-    // called — while the page's pop transition is still animating — so
-    // calling _confirmAndDelete (which can show a SnackBar immediately,
-    // e.g. the "still has assets" warning) synchronously right here was
-    // mutating the overlay mid-transition, inside the same pointer event
-    // still being processed by Flutter's mouse tracker. That's what threw
-    // "'!_debugDuringDeviceUpdate': is not true" and crashed the app right
-    // after the warning appeared. Deferring to the next frame (same fix
-    // as [AppShell._setIndex] elsewhere) lets the pop transition finish
-    // first, so the warning/confirmation flow itself is unchanged — just
-    // no longer racing the animation that revealed it.
+    // Still deferred to the next frame, same as [AppShell._setIndex]: this
+    // removes a card from the Categories grid, and on mobile the picker's
+    // pop transition may still be animating when we get here, so mutating
+    // the tree immediately risks the same mouse-tracker reentrancy that
+    // [validateAndConfirmCategoryDeletion]'s doc comment explains in
+    // detail. Waiting a frame lets that transition settle first.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _confirmAndDelete(category);
+      if (mounted) widget.onDeleteCategory?.call(category);
     });
-  }
-
-  /// Shows the "are you sure" confirmation dialog and, if the admin
-  /// confirms, forwards [category] to [CategoriesScreen.onDeleteCategory].
-  /// Refuses outright (with an explanatory snackbar, no confirmation
-  /// dialog) in two cases: if any assets are still filed under this
-  /// category — they'd need to be reassigned or removed first — or if
-  /// it's the last remaining category, since the Add Asset dropdown needs
-  /// at least one option.
-  Future<void> _confirmAndDelete(AssetCategory category) async {
-    final itemCount = _countFor(category.value);
-    if (itemCount > 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Can\'t delete "${category.displayName}" — $itemCount '
-            '${itemCount == 1 ? 'asset is' : 'assets are'} still filed under it. '
-            'Reassign or remove ${itemCount == 1 ? 'it' : 'them'} first.',
-          ),
-        ),
-      );
-      return;
-    }
-    if (widget.categories.length <= 1) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('At least one category is required.')),
-      );
-      return;
-    }
-    final confirmed = await confirmCategoryDeletion(context, category);
-    if (confirmed) widget.onDeleteCategory?.call(category);
   }
 
   @override
