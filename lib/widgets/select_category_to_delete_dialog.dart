@@ -102,7 +102,13 @@ Future<AssetCategory?> showSelectCategoryToDeleteDialog(
         actionsAlignment: MainAxisAlignment.center,
         actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
         actions: [
-          Expanded(
+          // `actions` is laid out by an internal OverflowBar, not a Row/Flex,
+          // so Expanded can't be a direct child here (that's what was
+          // throwing "Incorrect use of ParentDataWidget"). There's only one
+          // button, so just give it a fixed width instead of trying to
+          // expand it — SizedBox plays nicely with OverflowBar.
+          SizedBox(
+            width: 312, // matches content width (360) minus actionsPadding (24 * 2)
             child: OutlinedButton(
               onPressed: () {
                 ScaffoldMessenger.of(context).removeCurrentSnackBar();

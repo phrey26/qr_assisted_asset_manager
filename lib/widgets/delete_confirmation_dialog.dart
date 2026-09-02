@@ -40,31 +40,40 @@ Future<bool> confirmAssetDeletion(BuildContext context, AssetItem asset) async {
       actionsAlignment: MainAxisAlignment.center,
       actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
       actions: [
-        Expanded(
-          child: OutlinedButton(
-            onPressed: () => Navigator.pop(context, false),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppTheme.darkGreen,
-              side: const BorderSide(color: AppTheme.border, width: 2),
-              minimumSize: const Size(0, 48),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        // `actions` is laid out by an internal OverflowBar, not a Row/Flex,
+        // so Expanded can't be a direct child here (that's what was
+        // throwing "Incorrect use of ParentDataWidget"). Wrapping the
+        // buttons in an explicit Row gives Expanded the Flex ancestor it
+        // needs while still splitting the width evenly between them.
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => Navigator.pop(context, false),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppTheme.darkGreen,
+                  side: const BorderSide(color: AppTheme.border, width: 2),
+                  minimumSize: const Size(0, 48),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.w700)),
+              ),
             ),
-            child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.w700)),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.redAccent,
-              foregroundColor: Colors.white,
-              minimumSize: const Size(0, 48),
-              textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.redAccent,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(0, 48),
+                  textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                child: const Text('Remove'),
+              ),
             ),
-            child: const Text('Remove'),
-          ),
+          ],
         ),
       ],
     ),
