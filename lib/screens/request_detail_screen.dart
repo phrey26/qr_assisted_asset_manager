@@ -57,6 +57,8 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     final request = widget.request;
     return Scaffold(
       appBar: AppBar(
+        backgroundColor: AppTheme.primary,
+        foregroundColor: Colors.white,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.pop(context),
@@ -110,23 +112,80 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
         ),
       );
 
-  Widget _requestHeading(AssetRequest request, {bool desktop = false}) => Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Text(
-              request.title,
-              style: TextStyle(
-                color: AppTheme.darkGreen,
-                fontSize: desktop ? 32 : 26,
-                fontWeight: FontWeight.w800,
+  /// The tint/icon pair to show for [status] — the same tint colors as
+  /// [_RequestStatusPill], so the heading's avatar and the pill next to it
+  /// always agree on what a given status "looks like".
+  (Color, Color, IconData) _statusVisual(RequestStatus status) {
+    switch (status) {
+      case RequestStatus.pending:
+        return (AppTheme.cream, const Color(0xFF9A6512), Icons.hourglass_top_rounded);
+      case RequestStatus.approved:
+        return (AppTheme.mint, AppTheme.primary, Icons.check_circle_outline);
+      case RequestStatus.rejected:
+        return (AppTheme.redTint, const Color(0xFFC84040), Icons.highlight_off);
+    }
+  }
+
+  /// Desktop gets a full "hero" card — a soft, flat status-tinted wash
+  /// behind a larger status avatar, the request title, and the requester —
+  /// mirroring [AssetDetailScreen]'s desktop heading treatment. Mobile
+  /// keeps a plain background with just a compact avatar, so the two
+  /// platforms read as related but visually distinct rather than the same
+  /// row simply resized.
+  Widget _requestHeading(AssetRequest request, {bool desktop = false}) {
+    final (statusTint, statusColor, statusIcon) = _statusVisual(request.status);
+
+    final avatar = Container(
+      width: desktop ? 64 : 48,
+      height: desktop ? 64 : 48,
+      decoration: BoxDecoration(color: statusTint, shape: BoxShape.circle),
+      child: Icon(statusIcon, color: statusColor, size: desktop ? 28 : 22),
+    );
+
+    final row = Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        avatar,
+        SizedBox(width: desktop ? 20 : 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                request.title,
+                style: TextStyle(
+                  color: AppTheme.darkGreen,
+                  fontSize: desktop ? 32 : 24,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
-            ),
+              const SizedBox(height: 6),
+              Text(
+                request.requester,
+                style: const TextStyle(color: AppTheme.muted, fontSize: 15),
+              ),
+            ],
           ),
-          const SizedBox(width: 12),
-          _RequestStatusPill(status: request.status),
-        ],
-      );
+        ),
+        const SizedBox(width: 12),
+        _RequestStatusPill(status: request.status),
+      ],
+    );
+
+    if (!desktop) return row;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: statusTint,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppTheme.border, width: 2),
+      ),
+      child: row,
+    );
+  }
+
 
   Widget _infoCard(AssetRequest request, {bool desktop = false}) {
     return Container(

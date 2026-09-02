@@ -143,6 +143,8 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     final (categoryColor, categoryIcon) = _categoryVisual(asset.category);
     return Scaffold(
       appBar: AppBar(
+        backgroundColor: AppTheme.primary,
+        foregroundColor: Colors.white,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.pop(context),
@@ -184,7 +186,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
 
   /// The mobile presentation remains a single column; this keeps its cards
   /// comfortably readable on a phone without desktop-only whitespace. It
-  /// keeps the category avatar compact (no gradient hero banner) — that
+  /// keeps the category avatar compact (no hero banner) — that
   /// richer treatment is desktop-only, in [_desktopBody] — so the two
   /// platforms carry a related but distinctly different look, not just a
   /// different column count.
@@ -217,7 +219,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
 
   /// Desktop uses a deliberately constrained, two-column layout rather than
   /// allowing the phone-sized information and QR cards to span the window.
-  /// The heading also gets a soft category-tinted gradient "hero" treatment
+  /// The heading also gets a soft category-tinted "hero" treatment
   /// here that mobile intentionally skips (see [_mobileBody]).
   Widget _desktopBody(AssetItem asset, Color categoryColor, IconData categoryIcon) =>
       SingleChildScrollView(
@@ -293,7 +295,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     );
   }
 
-  /// Desktop gets a full gradient "hero" card — a soft category-tinted
+  /// Desktop gets a full "hero" card — a soft, flat category-tinted
   /// wash behind a larger category avatar, the name, and the tag ID —
   /// while mobile keeps a plain background with just a compact avatar, so
   /// the two platforms read as related but visually distinct rather than
@@ -354,11 +356,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [categoryColor.withValues(alpha: 0.65), Colors.white],
-        ),
+        color: categoryColor,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: AppTheme.border, width: 2),
       ),
