@@ -105,7 +105,23 @@ class CategoriesScreenState extends State<CategoriesScreen> {
             categories: widget.categories,
             itemCountFor: (c) => _countFor(c.value),
           );
-    if (category != null) await _confirmAndDelete(category);
+    if (category == null) return;
+    // On mobile, the picker is a pushed page rather than a dialog, and its
+    // "pick a category" tap calls Navigator.pop from inside that same
+    // pointer-tap handler. The Future above resolves the instant pop is
+    // called — while the page's pop transition is still animating — so
+    // calling _confirmAndDelete (which can show a SnackBar immediately,
+    // e.g. the "still has assets" warning) synchronously right here was
+    // mutating the overlay mid-transition, inside the same pointer event
+    // still being processed by Flutter's mouse tracker. That's what threw
+    // "'!_debugDuringDeviceUpdate': is not true" and crashed the app right
+    // after the warning appeared. Deferring to the next frame (same fix
+    // as [AppShell._setIndex] elsewhere) lets the pop transition finish
+    // first, so the warning/confirmation flow itself is unchanged — just
+    // no longer racing the animation that revealed it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _confirmAndDelete(category);
+    });
   }
 
   /// Shows the "are you sure" confirmation dialog and, if the admin

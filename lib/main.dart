@@ -143,11 +143,27 @@ class _AppShellState extends State<AppShell> {
     if (asset != null) _addAsset(asset);
   }
 
+  /// Switches the active tab. Deferred to the next frame (rather than
+  /// mutating state directly inside the tap handler) because `pages`
+  /// rebuilds every tab's widget tree on each `build()`, and [IndexedStack]
+  /// keeps all five tabs (including the asset/request lists' many
+  /// InkWell-driven hover regions) mounted at once. Doing that rebuild
+  /// synchronously inside the bottom-nav/sidebar tap — itself still being
+  /// processed by Flutter's mouse tracker — is what was throwing
+  /// "'!_debugDuringDeviceUpdate': is not true" and crashing the app right
+  /// as the Inventory/Requests tabs opened.
+  void _setIndex(int value) {
+    if (value == _index) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _index = value);
+    });
+  }
+
   /// Switches to the Inventory tab with [category] already selected in its
   /// filter chips. Wired up to [CategoriesScreen]'s category cards.
   void _openCategoryInInventory(String category) {
     _inventoryKey.currentState?.setFilter(category);
-    setState(() => _index = kTabInventory);
+    _setIndex(kTabInventory);
   }
 
   @override
@@ -180,7 +196,7 @@ class _AppShellState extends State<AppShell> {
           children: [
             _DesktopSidebar(
               index: _index,
-              onChanged: (value) => setState(() => _index = value),
+              onChanged: _setIndex,
             ),
             Expanded(
               child: ColoredBox(
@@ -234,7 +250,7 @@ class _AppShellState extends State<AppShell> {
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: _BottomNav(
         index: _index,
-        onChanged: (value) => setState(() => _index = value),
+        onChanged: _setIndex,
       ),
     );
   }
@@ -254,6 +270,17 @@ class _AddFab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return FloatingActionButton(
+      // Without an explicit tag, every [FloatingActionButton] falls back to
+      // the same shared default hero tag. This FAB and [_DeleteCategoryFab]
+      // below are both mounted at once on mobile (this one lives in
+      // Scaffold's own floatingActionButton slot; that one sits in the
+      // body's Stack, always present and just fading/scaling out when not
+      // on the Categories tab) — so with no tag, the two collided and
+      // Flutter's Hero controller threw "multiple heroes that share the
+      // same tag" the moment a route was pushed (opening an asset/request
+      // detail screen) while both were in the tree. Distinct tags give
+      // each FAB its own identity instead.
+      heroTag: 'app-add-fab',
       onPressed: onPressed,
       backgroundColor: Colors.transparent,
       elevation: 4,
@@ -343,6 +370,11 @@ class _DeleteCategoryFabState extends State<_DeleteCategoryFab>
         child: RotationTransition(
           turns: _turns,
           child: FloatingActionButton(
+            // See the matching note on [_AddFab.heroTag] — this FAB is
+            // always mounted (just visually hidden via IgnorePointer +
+            // animation, not removed from the tree), so it needs its own
+            // distinct tag rather than colliding with _AddFab's default.
+            heroTag: 'app-delete-category-fab',
             onPressed: widget.onPressed,
             backgroundColor: Colors.redAccent,
             elevation: 4,
