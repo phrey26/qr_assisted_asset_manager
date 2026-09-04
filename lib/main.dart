@@ -10,6 +10,7 @@ import 'screens/profile_screen.dart';
 import 'screens/qr_scanner_screen.dart';
 import 'screens/register_screen.dart';
 import 'screens/requests_screen.dart';
+import 'services/api_service.dart';
 import 'theme/app_theme.dart';
 import 'utils/responsive.dart';
 import 'widgets/add_asset_dialog.dart';
@@ -46,7 +47,13 @@ const int kTabRequests = 3;
 const int kTabProfile = 4;
 
 class AppShell extends StatefulWidget {
-  const AppShell({super.key});
+  const AppShell({super.key, required this.user});
+
+  /// The signed-in user's row from `user` (as returned by
+  /// `csdo_api/login.php`) — `employee_id`, `full_name`, `email`,
+  /// `department`. Threaded down to [ProfileScreen] and used to prefill new
+  /// requests.
+  final Map<String, dynamic> user;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -54,13 +61,90 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   int _index = kTabHome;
-  final List<AssetItem> _assets = AssetItem.samples;
+  List<AssetItem> _assets = [];
 
   // The list of asset categories, shared by the Categories tab (cards),
   // the Inventory tab (filter chips), and the Add Asset form (dropdown).
-  // Starts with the app's built-in categories; the admin can add more
-  // from the Categories tab via [_addCategory].
-  final List<AssetCategory> _categories = List.of(AssetCategory.defaults);
+  // Loaded from the backend in [_loadInitialData]; the built-in categories
+  // are seeded into the `categories` table the first time the app runs
+  // against an empty database. The admin can add more from the Categories
+  // tab via [_addCategory].
+  List<AssetCategory> _categories = [];
+
+  // categories.php's `value` -> database id, so [_addAsset] can resolve the
+  // `category_id` foreign key the backend needs (the AssetCategory/AssetItem
+  // models themselves only carry the category's string `value`).
+  final Map<String, int> _categoryIds = {};
+
+  bool _loading = true;
+  String? _loadError;
+
+  @override
+  void initState() {
+    super.initState();
+    // _loadInitialData's first statement calls setState before its first
+    // `await`; called straight from initState (itself invoked while the
+    // parent is still building) that would run synchronously during the
+    // current build and throw "setState() or markNeedsBuild() called
+    // during build". Deferring to the next frame — the same fix
+    // [_setIndex] below uses for the same underlying reason — sidesteps
+    // that entirely.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadInitialData();
+    });
+  }
+
+  /// Loads categories and assets from the backend. If the `categories`
+  /// table is empty (a fresh database), seeds it with the app's four
+  /// built-in categories first so their icon/color values always match
+  /// Flutter's IconData/Color encoding exactly instead of a hand-typed
+  /// guess in schema.sql.
+  Future<void> _loadInitialData() async {
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
+    try {
+      var categoryRows = await ApiService.fetchCategories();
+      if (categoryRows.isEmpty) {
+        for (final category in AssetCategory.defaults) {
+          await ApiService.addCategory(category.toJson());
+        }
+        categoryRows = await ApiService.fetchCategories();
+      }
+
+      final assetRows = await ApiService.fetchAssets();
+
+      final categories = <AssetCategory>[];
+      _categoryIds.clear();
+      for (final row in categoryRows) {
+        categories.add(AssetCategory.fromJson(row));
+        _categoryIds[row['value'] as String] = row['id'] as int;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _categories = categories;
+        _assets = assetRows.map(AssetItem.fromJson).toList();
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadError = 'Could not load data from the server: $e';
+        _loading = false;
+      });
+    }
+  }
+
+  /// Shows a brief error message without interrupting whatever the admin
+  /// was doing — used after an optimistic local update's matching API call
+  /// fails, since the local UI has already moved on by the time the
+  /// response comes back.
+  void _showSyncError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
 
   // Lets the shared circular FAB trigger [RequestsScreenState.openNewRequest]
   // without lifting the requests list up into AppShell the way assets are —
@@ -80,24 +164,55 @@ class _AppShellState extends State<AppShell> {
   // [_inventoryKey] above.
   final _categoriesKey = GlobalKey<CategoriesScreenState>();
 
-  void _addAsset(AssetItem asset) {
-    setState(() => _assets.insert(0, asset));
+  /// Saves a new asset to the backend, then (once the insert succeeds)
+  /// drops it into the local list — the tag ID and category are already
+  /// generated/chosen locally, but showing the asset before the insert is
+  /// confirmed risks an inventory list that disagrees with the database if
+  /// the request fails.
+  Future<void> _addAsset(AssetItem asset) async {
+    final categoryId = _categoryIds[asset.category];
+    if (categoryId == null) {
+      _showSyncError('Unknown category "${asset.category}" — could not save the asset.');
+      return;
+    }
+    try {
+      final body = asset.toJson()..['category_id'] = categoryId;
+      await ApiService.addAsset(body);
+      if (!mounted) return;
+      setState(() => _assets.insert(0, asset));
+    } catch (e) {
+      _showSyncError('Could not save the new asset: $e');
+    }
   }
 
   /// Adds a new category, created by the admin via the "Add new category"
   /// dialog on the Categories tab. Immediately available as an Inventory
   /// filter chip and an Add Asset dropdown option, since all three read
   /// from this same list.
-  void _addCategory(AssetCategory category) {
-    setState(() => _categories.add(category));
+  Future<void> _addCategory(AssetCategory category) async {
+    try {
+      final id = await ApiService.addCategory(category.toJson());
+      _categoryIds[category.value] = id;
+      if (!mounted) return;
+      setState(() => _categories.add(category));
+    } catch (e) {
+      _showSyncError('Could not save the new category: $e');
+    }
   }
 
   /// Removes a category, once the admin confirms via the "are you sure"
   /// dialog shown by [CategoriesScreen]. Only ever called for a category
   /// with no assets currently filed under it — [CategoriesScreen] blocks
   /// the delete before it gets here otherwise.
-  void _deleteCategory(AssetCategory category) {
-    setState(() => _categories.remove(category));
+  Future<void> _deleteCategory(AssetCategory category) async {
+    try {
+      await ApiService.deleteCategory(category.value);
+      _categoryIds.remove(category.value);
+      if (!mounted) return;
+      setState(() => _categories.remove(category));
+    } catch (e) {
+      _showSyncError('Could not delete the category: $e');
+    }
   }
 
   /// Removes an asset from the inventory. Called only after the admin
@@ -105,8 +220,14 @@ class _AppShellState extends State<AppShell> {
   /// [AssetDetailScreen] — e.g. once an asset is broken or otherwise no
   /// longer usable. tagId is unique per asset, so it's used to identify
   /// which one to remove.
-  void _deleteAsset(AssetItem asset) {
-    setState(() => _assets.removeWhere((item) => item.tagId == asset.tagId));
+  Future<void> _deleteAsset(AssetItem asset) async {
+    try {
+      await ApiService.deleteAsset(asset.tagId);
+      if (!mounted) return;
+      setState(() => _assets.removeWhere((item) => item.tagId == asset.tagId));
+    } catch (e) {
+      _showSyncError('Could not delete the asset: $e');
+    }
   }
 
   /// Changes an asset's status — e.g. flagging it as under maintenance, or
@@ -114,12 +235,19 @@ class _AppShellState extends State<AppShell> {
   /// chip's menu on the inventory page (list, table, and detail views all
   /// share this one handler). tagId is unique per asset, so it's used to
   /// find the matching item in [_assets] rather than relying on object
-  /// identity, which the widgets that call this don't guarantee.
-  void _updateAssetStatus(AssetItem asset, AssetStatus status) {
-    setState(() {
-      final match = _assets.firstWhere((item) => item.tagId == asset.tagId);
-      match.status = status;
-    });
+  /// identity, which the widgets that call this don't guarantee. Applied
+  /// locally right away (the chip's own menu already closed by the time
+  /// this runs) and rolled back if the backend rejects it.
+  Future<void> _updateAssetStatus(AssetItem asset, AssetStatus status) async {
+    final match = _assets.firstWhere((item) => item.tagId == asset.tagId);
+    final previousStatus = match.status;
+    setState(() => match.status = status);
+    try {
+      await ApiService.updateAssetStatus(tagId: asset.tagId, status: status.apiValue);
+    } catch (e) {
+      setState(() => match.status = previousStatus);
+      _showSyncError('Could not update the asset\'s status: $e');
+    }
   }
 
   Future<void> _openAddAsset() async {
@@ -168,6 +296,31 @@ class _AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (_loadError != null) {
+      return Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _loadError!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: AppTheme.muted),
+                ),
+                const SizedBox(height: 20),
+                ElevatedButton(onPressed: _loadInitialData, child: const Text('Try again')),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     final pages = [
       CategoriesScreen(
         key: _categoriesKey,
@@ -186,8 +339,8 @@ class _AppShellState extends State<AppShell> {
         onUpdateStatus: _updateAssetStatus,
       ),
       QrScannerScreen(assets: _assets),
-      RequestsScreen(key: _requestsKey),
-      const ProfileScreen(),
+      RequestsScreen(key: _requestsKey, currentUser: widget.user),
+      ProfileScreen(user: widget.user),
     ];
 
     if (Responsive.isDesktop(context)) {

@@ -36,6 +36,23 @@ class AssetCategory {
   /// elsewhere in the app.
   bool matches(String category) => category.toLowerCase() == value.toLowerCase();
 
+  /// Builds an [AssetCategory] from a `categories` row returned by
+  /// `csdo_api/categories.php` (GET).
+  factory AssetCategory.fromJson(Map<String, dynamic> json) => AssetCategory(
+        displayName: json['display_name'] as String,
+        value: json['value'] as String,
+        icon: IconData(json['icon_code_point'] as int, fontFamily: 'MaterialIcons'),
+        color: Color(json['color_value'] as int),
+      );
+
+  /// The fields `csdo_api/categories.php` (POST) expects in its request body.
+  Map<String, dynamic> toJson() => {
+        'display_name': displayName,
+        'value': value,
+        'icon_code_point': icon.codePoint,
+        'color_value': color.toARGB32(),
+      };
+
   /// The categories the app ships with.
   static const defaults = <AssetCategory>[
     AssetCategory(

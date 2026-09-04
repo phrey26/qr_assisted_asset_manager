@@ -6,12 +6,17 @@ import '../widgets/brand_mark.dart';
 import '../widgets/page_header.dart';
 
 class ProfileScreen extends StatelessWidget {
-  const ProfileScreen({super.key});
+  const ProfileScreen({super.key, required this.user});
 
-  static const _name = 'Juan Dela Cruz';
-  static const _employeeId = 'CSDO-00214';
-  static const _department = 'Campus Services (CSDO)';
-  static const _email = 'jdelacruz@hau.edu.ph';
+  /// The signed-in user's row from `user` (as returned by
+  /// `csdo_api/login.php`) — `employee_id`, `full_name`, `email`,
+  /// `department`.
+  final Map<String, dynamic> user;
+
+  String get _name => (user['full_name'] as String?) ?? '';
+  String get _employeeId => (user['employee_id'] as String?) ?? '';
+  String get _department => (user['department'] as String?) ?? '';
+  String get _email => (user['email'] as String?) ?? '';
 
   void _logOut(BuildContext context) {
     Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
@@ -37,18 +42,18 @@ class ProfileScreen extends StatelessWidget {
               children: [
                 const BrandMark(size: 100),
                 const SizedBox(height: 22),
-                const Text(
+                Text(
                   _name,
-                  style: TextStyle(
+                  style: const TextStyle(
                     color: AppTheme.darkGreen,
                     fontSize: 28,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
                 const SizedBox(height: 5),
-                const Text(
+                Text(
                   _employeeId,
-                  style: TextStyle(color: AppTheme.muted, fontSize: 17),
+                  style: const TextStyle(color: AppTheme.muted, fontSize: 17),
                 ),
                 const SizedBox(height: 42),
                 _item(Icons.badge_outlined, 'Employee ID', _employeeId),
@@ -190,19 +195,19 @@ class ProfileScreen extends StatelessWidget {
         children: [
           const BrandMark(size: 88),
           const SizedBox(height: 20),
-          const Text(
+          Text(
             _name,
             textAlign: TextAlign.center,
-            style: TextStyle(
+            style: const TextStyle(
               color: AppTheme.darkGreen,
               fontSize: 20,
               fontWeight: FontWeight.w800,
             ),
           ),
           const SizedBox(height: 6),
-          const Text(
+          Text(
             _employeeId,
-            style: TextStyle(color: AppTheme.muted, fontSize: 14),
+            style: const TextStyle(color: AppTheme.muted, fontSize: 14),
           ),
           const SizedBox(height: 14),
           Container(
@@ -211,10 +216,10 @@ class ProfileScreen extends StatelessWidget {
               color: AppTheme.mint,
               borderRadius: BorderRadius.circular(999),
             ),
-            child: const Text(
+            child: Text(
               _department,
               textAlign: TextAlign.center,
-              style: TextStyle(
+              style: const TextStyle(
                 color: AppTheme.darkGreen,
                 fontSize: 12.5,
                 fontWeight: FontWeight.w700,

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -12,6 +13,30 @@ extension AssetStatusX on AssetStatus {
         return 'In use';
       case AssetStatus.maintenance:
         return 'Maintenance';
+    }
+  }
+
+  /// The value stored in the `assets.status` column / sent to
+  /// `csdo_api/assets.php`.
+  String get apiValue {
+    switch (this) {
+      case AssetStatus.available:
+        return 'available';
+      case AssetStatus.inUse:
+        return 'in_use';
+      case AssetStatus.maintenance:
+        return 'maintenance';
+    }
+  }
+
+  static AssetStatus fromApiValue(String value) {
+    switch (value) {
+      case 'in_use':
+        return AssetStatus.inUse;
+      case 'maintenance':
+        return AssetStatus.maintenance;
+      default:
+        return AssetStatus.available;
     }
   }
 }
@@ -66,6 +91,35 @@ class AssetItem {
     );
     return DateTime.now().isAfter(limit);
   }
+
+  /// Builds an [AssetItem] from an `assets` row returned by
+  /// `csdo_api/assets.php` (GET) — `category` is filled in from the joined
+  /// `category_value` field so it matches an [AssetCategory.value] exactly.
+  factory AssetItem.fromJson(Map<String, dynamic> json) => AssetItem(
+        name: json['name'] as String,
+        tagId: json['tag_id'] as String,
+        category: json['category_value'] as String,
+        description: (json['description'] as String?) ?? '',
+        status: AssetStatusX.fromApiValue(json['status'] as String? ?? 'available'),
+        purchaseDate: DateTime.parse(json['purchase_date'] as String),
+        imageBytes: (json['image_base64'] as String?) == null
+            ? null
+            : base64Decode(json['image_base64'] as String),
+      );
+
+  /// The fields `csdo_api/assets.php` (POST) expects in its request body.
+  Map<String, dynamic> toJson() => {
+        'tag_id': tagId,
+        'name': name,
+        'category_id': null, // filled in by the caller, which knows the id
+        'description': description,
+        'status': status.apiValue,
+        'purchase_date':
+            '${purchaseDate.year.toString().padLeft(4, '0')}-'
+            '${purchaseDate.month.toString().padLeft(2, '0')}-'
+            '${purchaseDate.day.toString().padLeft(2, '0')}',
+        'image_base64': imageBytes == null ? null : base64Encode(imageBytes!),
+      };
 
   static List<AssetItem> samples = [
     AssetItem(

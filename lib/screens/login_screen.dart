@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../main.dart';
+import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/brand_mark.dart';
@@ -16,9 +17,15 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final idController = TextEditingController(text: 'CSDO-00214');
-  final passwordController = TextEditingController(text: 'password123');
+  final idController = TextEditingController();
+  final passwordController = TextEditingController();
   bool obscure = true;
+  bool _loggingIn = false;
+
+  /// Shown inline on the form (in addition to a snackbar) so a failed —
+  /// or, before the request timeout was added, silently hung — login
+  /// attempt is never mistaken for "the button did nothing".
+  String? _errorMessage;
 
   @override
   void dispose() {
@@ -27,11 +34,38 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _login() {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => const AppShell()),
-    );
+  Future<void> _login() async {
+    if (_loggingIn) return;
+    final employeeId = idController.text.trim();
+    final password = passwordController.text;
+    if (employeeId.isEmpty || password.isEmpty) {
+      setState(() => _errorMessage = 'Please enter your employee ID and password.');
+      return;
+    }
+
+    setState(() {
+      _loggingIn = true;
+      _errorMessage = null;
+    });
+    try {
+      final user = await ApiService.login(employeeId: employeeId, password: password);
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => AppShell(user: user)),
+      );
+    } catch (e) {
+      // Printed to the console too — visible when running via `flutter
+      // run`, and the one place the full, untruncated error is guaranteed
+      // to show up even if a snackbar gets missed or dismissed instantly.
+      debugPrint('Login failed: $e');
+      if (!mounted) return;
+      final message = e.toString().replaceFirst('Exception: ', '');
+      setState(() => _errorMessage = message);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    } finally {
+      if (mounted) setState(() => _loggingIn = false);
+    }
   }
 
   @override
@@ -45,6 +79,8 @@ class _LoginScreenState extends State<LoginScreen> {
         obscure: obscure,
         onToggleObscure: () => setState(() => obscure = !obscure),
         onLogin: _login,
+        loading: _loggingIn,
+        errorMessage: _errorMessage,
       );
     }
 
@@ -81,6 +117,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     obscure: obscure,
                     onToggleObscure: () => setState(() => obscure = !obscure),
                     onLogin: _login,
+                    loading: _loggingIn,
+                    errorMessage: _errorMessage,
                   ),
                 ),
               ),
@@ -102,6 +140,8 @@ class _MobileLoginForm extends StatelessWidget {
     required this.obscure,
     required this.onToggleObscure,
     required this.onLogin,
+    required this.loading,
+    required this.errorMessage,
   });
 
   final TextEditingController idController;
@@ -109,6 +149,14 @@ class _MobileLoginForm extends StatelessWidget {
   final bool obscure;
   final VoidCallback onToggleObscure;
   final VoidCallback onLogin;
+
+  /// True while a login request is in flight — disables the button and
+  /// swaps its label for a spinner, so a slow/hung request is visibly
+  /// different from a dead button.
+  final bool loading;
+
+  /// The most recent login error, if any, shown inline above the button.
+  final String? errorMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -173,9 +221,17 @@ class _MobileLoginForm extends StatelessWidget {
                   ),
                 ),
               ),
+              if (errorMessage != null) ...[
+                const SizedBox(height: 16),
+                Text(
+                  errorMessage!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Color(0xFFC84040), fontWeight: FontWeight.w600),
+                ),
+              ],
               const SizedBox(height: 20),
               ElevatedButton(
-                onPressed: onLogin,
+                onPressed: loading ? null : onLogin,
                 style: ElevatedButton.styleFrom(
                   minimumSize: const Size.fromHeight(64),
                   textStyle: const TextStyle(
@@ -183,7 +239,13 @@ class _MobileLoginForm extends StatelessWidget {
                     fontWeight: FontWeight.w800,
                   ),
                 ),
-                child: const Text('Log in'),
+                child: loading
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
+                      )
+                    : const Text('Log in'),
               ),
               const SizedBox(height: 24),
               TextButton(
@@ -228,6 +290,8 @@ class _DesktopLoginView extends StatelessWidget {
     required this.obscure,
     required this.onToggleObscure,
     required this.onLogin,
+    required this.loading,
+    required this.errorMessage,
   });
 
   final TextEditingController idController;
@@ -235,6 +299,8 @@ class _DesktopLoginView extends StatelessWidget {
   final bool obscure;
   final VoidCallback onToggleObscure;
   final VoidCallback onLogin;
+  final bool loading;
+  final String? errorMessage;
 
   static const _brandPanelMinWidth = 1080.0;
 
@@ -257,6 +323,8 @@ class _DesktopLoginView extends StatelessWidget {
                     obscure: obscure,
                     onToggleObscure: onToggleObscure,
                     onLogin: onLogin,
+                    loading: loading,
+                    errorMessage: errorMessage,
                   ),
                 ),
               ],
@@ -418,6 +486,8 @@ class _FormPanel extends StatelessWidget {
     required this.obscure,
     required this.onToggleObscure,
     required this.onLogin,
+    required this.loading,
+    required this.errorMessage,
   });
 
   final TextEditingController idController;
@@ -425,6 +495,8 @@ class _FormPanel extends StatelessWidget {
   final bool obscure;
   final VoidCallback onToggleObscure;
   final VoidCallback onLogin;
+  final bool loading;
+  final String? errorMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -490,12 +562,28 @@ class _FormPanel extends StatelessWidget {
                           ),
                         ),
                       ),
+                      if (errorMessage != null) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          errorMessage!,
+                          style: const TextStyle(color: Color(0xFFC84040), fontWeight: FontWeight.w600),
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: onLogin,
-                          child: const Text('Log in'),
+                          onPressed: loading ? null : onLogin,
+                          child: loading
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Text('Log in'),
                         ),
                       ),
                       const SizedBox(height: 24),

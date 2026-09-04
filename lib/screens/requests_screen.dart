@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/asset.dart';
 import '../models/asset_request.dart';
+import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/filter_chip_row.dart';
@@ -34,7 +35,12 @@ void _openRequestDetail(
 }
 
 class RequestsScreen extends StatefulWidget {
-  const RequestsScreen({super.key});
+  const RequestsScreen({super.key, this.currentUser});
+
+  /// The signed-in user's row from `user` (as returned by
+  /// `csdo_api/login.php`) — used to prefill "Requested by"/"Department" on
+  /// [NewRequestForm]. Null falls back to the form's own blank defaults.
+  final Map<String, dynamic>? currentUser;
 
   @override
   State<RequestsScreen> createState() => RequestsScreenState();
@@ -44,8 +50,44 @@ class RequestsScreen extends StatefulWidget {
 /// trigger it from the shared circular FAB, the same way it drives
 /// [InventoryScreen]'s "add asset" flow.
 class RequestsScreenState extends State<RequestsScreen> {
-  final List<AssetRequest> requests = AssetRequest.samples;
+  List<AssetRequest> requests = [];
   String filter = 'All';
+  bool _loading = true;
+  String? _loadError;
+
+  @override
+  void initState() {
+    super.initState();
+    // Deferred to the next frame for the same reason [AppShell] does this
+    // in main.dart: _loadRequests calls setState before its first `await`,
+    // and calling that synchronously from initState (itself invoked while
+    // the parent is still building) throws "setState() or markNeedsBuild()
+    // called during build".
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadRequests();
+    });
+  }
+
+  Future<void> _loadRequests() async {
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
+    try {
+      final rows = await ApiService.fetchRequests();
+      if (!mounted) return;
+      setState(() {
+        requests = rows.map(AssetRequest.fromJson).toList();
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadError = 'Could not load requests from the server: $e';
+        _loading = false;
+      });
+    }
+  }
 
   List<AssetRequest> get filtered {
     if (filter == 'All') return requests;
@@ -55,24 +97,56 @@ class RequestsScreenState extends State<RequestsScreen> {
   int get pendingCount =>
       requests.where((r) => r.status == RequestStatus.pending).length;
 
-  void _setStatus(AssetRequest request, RequestStatus status) {
+  /// Applies [status] locally right away, then syncs it to the backend;
+  /// reverted (with an error snackbar) if that call fails.
+  Future<void> _setStatus(AssetRequest request, RequestStatus status) async {
+    final previousStatus = request.status;
     setState(() => request.status = status);
+    if (request.id == null) return;
+    try {
+      await ApiService.updateRequestStatus(id: request.id!, status: status.apiValue);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => request.status = previousStatus);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not update the request\'s status: $e')),
+      );
+    }
   }
 
   Future<void> openNewRequest() async {
+    final user = widget.currentUser;
     final AssetRequest? created;
     if (Responsive.isMobile(context)) {
       created = await Navigator.of(context).push<AssetRequest>(
-        MaterialPageRoute(builder: (_) => const NewRequestForm(fullPage: true)),
+        MaterialPageRoute(
+          builder: (_) => NewRequestForm(
+            fullPage: true,
+            initialRequester: user?['full_name'] as String?,
+            initialDepartment: user?['department'] as String?,
+          ),
+        ),
       );
     } else {
       created = await showDialog<AssetRequest>(
         context: context,
-        builder: (_) => const NewRequestForm(),
+        builder: (_) => NewRequestForm(
+          initialRequester: user?['full_name'] as String?,
+          initialDepartment: user?['department'] as String?,
+        ),
       );
     }
-    if (created != null) {
-      setState(() => requests.insert(0, created!));
+    if (created == null) return;
+
+    try {
+      final id = await ApiService.addRequest(created.toJson());
+      if (!mounted) return;
+      setState(() => requests.insert(0, AssetRequest.fromJson({...created!.toJson(), 'id': id})));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not submit the request: $e')),
+      );
     }
   }
 
@@ -83,6 +157,25 @@ class RequestsScreenState extends State<RequestsScreen> {
     // more columns than the inventory table) has room to breathe without
     // horizontal scrolling on typical desktop widths.
     final maxWidth = isDesktop ? 1120.0 : double.infinity;
+
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_loadError != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(_loadError!, textAlign: TextAlign.center, style: const TextStyle(color: AppTheme.muted)),
+              const SizedBox(height: 20),
+              ElevatedButton(onPressed: _loadRequests, child: const Text('Try again')),
+            ],
+          ),
+        ),
+      );
+    }
 
     return CustomScrollView(
       slivers: [
@@ -560,9 +653,19 @@ class _RequestCard extends StatelessWidget {
 /// date everything is needed, and then logistics and equipment as
 /// separate lists of items with amounts (e.g. "Foldable chairs" × 120).
 class NewRequestForm extends StatefulWidget {
-  const NewRequestForm({super.key, this.fullPage = false});
+  const NewRequestForm({
+    super.key,
+    this.fullPage = false,
+    this.initialRequester,
+    this.initialDepartment,
+  });
 
   final bool fullPage;
+
+  /// Prefills "Requested by"/"Department / org" with the signed-in user's
+  /// own name/department, when known.
+  final String? initialRequester;
+  final String? initialDepartment;
 
   @override
   State<NewRequestForm> createState() => _NewRequestFormState();
@@ -570,8 +673,8 @@ class NewRequestForm extends StatefulWidget {
 
 class _NewRequestFormState extends State<NewRequestForm> {
   final titleController = TextEditingController();
-  final requesterController = TextEditingController();
-  final departmentController = TextEditingController();
+  late final requesterController = TextEditingController(text: widget.initialRequester ?? '');
+  late final departmentController = TextEditingController(text: widget.initialDepartment ?? '');
   final venueController = TextEditingController();
   DateTime? borrowDate;
   DateTime? returnDate;

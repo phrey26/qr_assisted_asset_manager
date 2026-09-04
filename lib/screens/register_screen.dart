@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/brand_mark.dart';
@@ -15,12 +16,12 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
-  final nameController = TextEditingController(text: 'Juan Dela Cruz');
-  final emailController = TextEditingController(text: 'jdelacruz@hau.edu.ph');
-  final departmentController =
-      TextEditingController(text: 'Campus Services (CSDO)');
-  final employeeController = TextEditingController(text: 'CSDO-00214');
-  final passwordController = TextEditingController(text: 'password123');
+  final nameController = TextEditingController();
+  final emailController = TextEditingController();
+  final departmentController = TextEditingController();
+  final employeeController = TextEditingController();
+  final passwordController = TextEditingController();
+  bool _registering = false;
 
   @override
   void dispose() {
@@ -36,11 +37,43 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  void _createAccount() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Account created successfully.')),
-    );
-    Navigator.pushReplacementNamed(context, LoginScreen.routeName);
+  Future<void> _createAccount() async {
+    if (_registering) return;
+    final name = nameController.text.trim();
+    final email = emailController.text.trim();
+    final department = departmentController.text.trim();
+    final employeeId = employeeController.text.trim();
+    final password = passwordController.text;
+
+    if (name.isEmpty || email.isEmpty || department.isEmpty || employeeId.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please fill in every field.')),
+      );
+      return;
+    }
+
+    setState(() => _registering = true);
+    try {
+      await ApiService.register(
+        employeeId: employeeId,
+        fullName: name,
+        email: email,
+        department: department,
+        password: password,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Account created successfully.')),
+      );
+      Navigator.pushReplacementNamed(context, LoginScreen.routeName);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+      );
+    } finally {
+      if (mounted) setState(() => _registering = false);
+    }
   }
 
   @override

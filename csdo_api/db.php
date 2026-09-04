@@ -8,7 +8,7 @@
  */
 
 const DB_HOST = 'localhost';
-const DB_NAME = 'csdo_asset_manager';
+const DB_NAME = 'csdo_asset_db';
 const DB_USER = 'root';
 const DB_PASS = '';
 
