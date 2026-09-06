@@ -41,9 +41,20 @@ class AssetCategory {
   factory AssetCategory.fromJson(Map<String, dynamic> json) => AssetCategory(
         displayName: json['display_name'] as String,
         value: json['value'] as String,
-        icon: IconData(json['icon_code_point'] as int, fontFamily: 'MaterialIcons'),
+        icon: _iconForCodePoint(json['icon_code_point'] as int),
         color: Color(json['color_value'] as int),
       );
+
+  /// Resolves a stored code point back to one of the curated [iconChoices].
+  /// Returning a `const` [IconData] (rather than building one on the fly)
+  /// keeps `flutter build --tree-shake-icons` able to see which glyphs are
+  /// used, and also satisfies the analyzer's const-argument warning.
+  static IconData _iconForCodePoint(int codePoint) {
+    for (final icon in iconChoices) {
+      if (icon.codePoint == codePoint) return icon;
+    }
+    return Icons.category_outlined;
+  }
 
   /// The fields `csdo_api/categories.php` (POST) expects in its request body.
   Map<String, dynamic> toJson() => {
