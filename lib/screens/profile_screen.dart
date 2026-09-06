@@ -5,14 +5,20 @@ import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/brand_mark.dart';
 import '../widgets/page_header.dart';
+import 'edit_profile_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
-  const ProfileScreen({super.key, required this.user});
+  const ProfileScreen({super.key, required this.user, this.onProfileUpdated});
 
   /// The signed-in user's row from `user` (as returned by
   /// `csdo_api/login.php`) — `employee_id`, `full_name`, `email`,
   /// `department`.
   final Map<String, dynamic> user;
+
+  /// Called with the refreshed user map after the admin saves changes on
+  /// [EditProfileScreen]. [AppShell] uses it to update the shared user and
+  /// re-persist the "stay logged in" session.
+  final ValueChanged<Map<String, dynamic>>? onProfileUpdated;
 
   String get _name => (user['full_name'] as String?) ?? '';
   String get _employeeId => (user['employee_id'] as String?) ?? '';
@@ -25,6 +31,13 @@ class ProfileScreen extends StatelessWidget {
     await SessionStore.clear();
     if (!context.mounted) return;
     Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+  }
+
+  Future<void> _editProfile(BuildContext context) async {
+    final updated = await Navigator.of(context).push<Map<String, dynamic>>(
+      MaterialPageRoute(builder: (_) => EditProfileScreen(user: user)),
+    );
+    if (updated != null) onProfileUpdated?.call(updated);
   }
 
   @override
@@ -65,6 +78,20 @@ class ProfileScreen extends StatelessWidget {
                 _item(Icons.business_outlined, 'Department', _department),
                 _item(Icons.email_outlined, 'Work email', _email),
                 const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () => _editProfile(context),
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(58),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
+                    ),
+                    icon: const Icon(Icons.edit_outlined, size: 20),
+                    label: const Text('Edit profile'),
+                  ),
+                ),
+                const SizedBox(height: 12),
                 SizedBox(
                   width: double.infinity,
                   // The default OutlinedButton has no global theme override
@@ -155,6 +182,19 @@ class ProfileScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 16),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: ElevatedButton.icon(
+                      onPressed: () => _editProfile(context),
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      label: const Text('Edit profile'),
+                      style: ElevatedButton.styleFrom(
+                        minimumSize: const Size(0, 48),
+                        textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
                   Padding(
                     padding: const EdgeInsets.only(top: 6),
                     child: OutlinedButton.icon(

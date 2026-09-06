@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qr_assisted_asset_management/main.dart';
 import 'package:qr_assisted_asset_management/models/asset.dart';
+import 'package:qr_assisted_asset_management/screens/edit_profile_screen.dart';
 import 'package:qr_assisted_asset_management/screens/login_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -88,6 +89,30 @@ void main() {
       find.text('Please use a Gmail, Yahoo, or Outlook email address.'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('edit profile prefills fields and locks employee ID', (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(1400, 1600);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(const MaterialApp(
+      home: EditProfileScreen(user: {
+        'employee_id': 'EMP-42',
+        'full_name': 'Ada Admin',
+        'department': 'CSDO',
+        'email': 'ada@gmail.com',
+        'email_verified': 1,
+      }),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Ada Admin'), findsOneWidget);
+    expect(find.text('ada@gmail.com'), findsOneWidget);
+    expect(find.text('EMP-42'), findsOneWidget);
+    expect(find.text("Employee ID can't be changed."), findsOneWidget);
+    expect(find.text('Save changes'), findsOneWidget);
   });
 
   test('login route name is defined', () {

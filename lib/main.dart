@@ -95,6 +95,11 @@ class _AppShellState extends State<AppShell> {
   int _index = kTabHome;
   List<AssetItem> _assets = [];
 
+  // The signed-in user. Seeded from [AppShell.user] and swapped out when the
+  // admin edits their profile ([_handleProfileUpdated]) so [ProfileScreen]
+  // and new-request prefill both stay current.
+  late Map<String, dynamic> _user = widget.user;
+
   // The list of asset categories, shared by the Categories tab (cards),
   // the Inventory tab (filter chips), and the Add Asset form (dropdown).
   // Loaded from the backend in [_loadInitialData]; the built-in categories
@@ -326,6 +331,14 @@ class _AppShellState extends State<AppShell> {
     _setIndex(kTabInventory);
   }
 
+  /// Applies the refreshed user returned by [EditProfileScreen] and
+  /// re-persists the "stay logged in" session so the next launch shows the
+  /// updated details too.
+  void _handleProfileUpdated(Map<String, dynamic> user) {
+    setState(() => _user = user);
+    SessionStore.save(user);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -371,8 +384,8 @@ class _AppShellState extends State<AppShell> {
         onUpdateStatus: _updateAssetStatus,
       ),
       QrScannerScreen(assets: _assets),
-      RequestsScreen(key: _requestsKey, currentUser: widget.user),
-      ProfileScreen(user: widget.user),
+      RequestsScreen(key: _requestsKey, currentUser: _user),
+      ProfileScreen(user: _user, onProfileUpdated: _handleProfileUpdated),
     ];
 
     if (Responsive.isDesktop(context)) {

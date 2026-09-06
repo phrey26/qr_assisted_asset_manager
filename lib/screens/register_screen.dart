@@ -2,26 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/email_domains.dart';
 import '../utils/responsive.dart';
 import '../widgets/brand_mark.dart';
 import 'login_screen.dart';
 import 'verify_email_screen.dart';
-
-/// Email providers an account may be created with. Must stay in sync with
-/// `ALLOWED_EMAIL_DOMAINS` in `csdo_api/db.php` — the backend enforces the
-/// same list; this copy just gives a faster, friendlier error.
-const _allowedEmailDomains = {
-  'gmail.com', 'googlemail.com',
-  'yahoo.com', 'yahoo.com.ph', 'ymail.com', 'rocketmail.com',
-  'outlook.com', 'outlook.ph', 'hotmail.com', 'live.com', 'msn.com',
-  'hau.edu.ph',
-};
-
-bool _isAllowedEmailProvider(String email) {
-  final at = email.lastIndexOf('@');
-  if (at == -1) return false;
-  return _allowedEmailDomains.contains(email.substring(at + 1).toLowerCase());
-}
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -75,9 +60,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       setState(() => _errorMessage = 'Please enter a valid email address.');
       return;
     }
-    if (!_isAllowedEmailProvider(email)) {
-      setState(() => _errorMessage =
-          'Please use a Gmail, Yahoo, or Outlook email address.');
+    if (!isAllowedEmailProvider(email)) {
+      setState(() => _errorMessage = allowedEmailProvidersError);
       return;
     }
     if (password.length < 8) {
@@ -163,7 +147,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   _field('Full name', nameController),
                   _field('Work email', emailController,
                       keyboard: TextInputType.emailAddress,
-                      hint: 'Gmail, Yahoo, or Outlook address'),
+                      hint: allowedEmailProvidersHint),
                   _field('Department', departmentController),
                   _field('Employee ID', employeeController),
                   _field('Password', passwordController, obscure: true),
@@ -518,7 +502,7 @@ class _RegisterFormPanel extends StatelessWidget {
                       _field('Full name', nameController),
                       _field('Work email', emailController,
                           keyboard: TextInputType.emailAddress,
-                          hint: 'Gmail, Yahoo, or Outlook address'),
+                          hint: allowedEmailProvidersHint),
                       _field('Department', departmentController),
                       _field('Employee ID', employeeController),
                       _field('Password', passwordController, obscure: true),

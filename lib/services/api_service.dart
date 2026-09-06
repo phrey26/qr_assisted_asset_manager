@@ -206,6 +206,35 @@ class ApiService {
     return AuthCodeResult.fromBody(body, 'If that email has an account, a code has been sent.');
   }
 
+  /// Updates the signed-in admin's own profile (name, department, email).
+  /// The account is identified by its unchanged [employeeId]. Returns the
+  /// refreshed user map (same shape as [login]).
+  static Future<Map<String, dynamic>> updateProfile({
+    required String employeeId,
+    required String fullName,
+    required String department,
+    required String email,
+  }) async {
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/update_profile.php'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'employee_id': employeeId,
+            'full_name': fullName,
+            'department': department,
+            'email': email,
+          }),
+        )
+        .timeout(_timeout, onTimeout: _timeoutError);
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode == 200) {
+      return body['user'] as Map<String, dynamic>;
+    }
+    throw Exception(body['error'] ?? 'Could not update the profile');
+  }
+
   /// Completes a password reset with the emailed code and a new password.
   static Future<void> resetPassword({
     required String email,
