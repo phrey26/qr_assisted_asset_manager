@@ -17,7 +17,7 @@ if (strlen($newPassword) < 8) {
     fail(400, 'Password must be at least 8 characters.');
 }
 
-$stmt = $mysqli->prepare('SELECT id FROM user WHERE email = ? LIMIT 1');
+$stmt = $mysqli->prepare('SELECT id FROM admin_user WHERE email = ? LIMIT 1');
 $stmt->bind_param('s', $email);
 $stmt->execute();
 $user = $stmt->get_result()->fetch_assoc();
@@ -35,7 +35,7 @@ $hash = password_hash($newPassword, PASSWORD_DEFAULT);
 
 // Resetting via a code emailed to the address also proves ownership, so
 // clear any pending verification block at the same time.
-$stmt = $mysqli->prepare('UPDATE user SET password = ?, email_verified = 1 WHERE id = ?');
+$stmt = $mysqli->prepare('UPDATE admin_user SET password = ?, email_verified = 1 WHERE id = ?');
 $stmt->bind_param('si', $hash, $user['id']);
 if (!$stmt->execute()) {
     $stmt->close();

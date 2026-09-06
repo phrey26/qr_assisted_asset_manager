@@ -26,7 +26,7 @@ if (strlen($password) < 8) {
 }
 
 // Employee ID taken?
-$stmt = $mysqli->prepare('SELECT id FROM user WHERE employee_id = ? LIMIT 1');
+$stmt = $mysqli->prepare('SELECT id FROM admin_user WHERE employee_id = ? LIMIT 1');
 $stmt->bind_param('s', $employeeId);
 $stmt->execute();
 if ($stmt->get_result()->fetch_assoc()) {
@@ -36,7 +36,7 @@ if ($stmt->get_result()->fetch_assoc()) {
 $stmt->close();
 
 // Email taken?
-$stmt = $mysqli->prepare('SELECT id FROM user WHERE email = ? LIMIT 1');
+$stmt = $mysqli->prepare('SELECT id FROM admin_user WHERE email = ? LIMIT 1');
 $stmt->bind_param('s', $email);
 $stmt->execute();
 if ($stmt->get_result()->fetch_assoc()) {
@@ -48,7 +48,7 @@ $stmt->close();
 $hash = password_hash($password, PASSWORD_DEFAULT);
 
 $stmt = $mysqli->prepare(
-    'INSERT INTO user (employee_id, full_name, email, department, password, email_verified) ' .
+    'INSERT INTO admin_user (employee_id, full_name, email, department, password, email_verified) ' .
     'VALUES (?, ?, ?, ?, ?, 0)'
 );
 $stmt->bind_param('sssss', $employeeId, $fullName, $email, $department, $hash);

@@ -22,7 +22,7 @@ if ($identifier === '' || $password === '') {
 $normalisedEmail = strtolower($identifier);
 $stmt = $mysqli->prepare(
     'SELECT id, employee_id, full_name, email, department, password, email_verified ' .
-    'FROM user WHERE LOWER(email) = ? OR employee_id = ? LIMIT 1'
+    'FROM admin_user WHERE LOWER(email) = ? OR employee_id = ? LIMIT 1'
 );
 $stmt->bind_param('ss', $normalisedEmail, $identifier);
 $stmt->execute();

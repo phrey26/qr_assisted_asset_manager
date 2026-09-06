@@ -15,7 +15,7 @@ if ($email === '' || $code === '') {
 
 $stmt = $mysqli->prepare(
     'SELECT id, employee_id, full_name, email, department, email_verified ' .
-    'FROM user WHERE email = ? LIMIT 1'
+    'FROM admin_user WHERE email = ? LIMIT 1'
 );
 $stmt->bind_param('s', $email);
 $stmt->execute();
@@ -37,7 +37,7 @@ if (!verify_auth_code($mysqli, $email, AUTH_PURPOSE_VERIFY, $code)) {
     fail(400, 'That code is incorrect or has expired. Request a new one and try again.');
 }
 
-$stmt = $mysqli->prepare('UPDATE user SET email_verified = 1 WHERE id = ?');
+$stmt = $mysqli->prepare('UPDATE admin_user SET email_verified = 1 WHERE id = ?');
 $stmt->bind_param('i', $user['id']);
 if (!$stmt->execute()) {
     $stmt->close();

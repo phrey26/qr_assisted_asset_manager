@@ -24,7 +24,7 @@ if (!email_domain_allowed($email)) {
     fail(400, 'Please use a Gmail, Yahoo, or Outlook email address.');
 }
 
-$stmt = $mysqli->prepare('SELECT id FROM user WHERE employee_id = ? LIMIT 1');
+$stmt = $mysqli->prepare('SELECT id FROM admin_user WHERE employee_id = ? LIMIT 1');
 $stmt->bind_param('s', $employeeId);
 $stmt->execute();
 $row = $stmt->get_result()->fetch_assoc();
@@ -35,7 +35,7 @@ if (!$row) {
 $userId = (int) $row['id'];
 
 // New email must not belong to a different account.
-$stmt = $mysqli->prepare('SELECT id FROM user WHERE email = ? AND id <> ? LIMIT 1');
+$stmt = $mysqli->prepare('SELECT id FROM admin_user WHERE email = ? AND id <> ? LIMIT 1');
 $stmt->bind_param('si', $email, $userId);
 $stmt->execute();
 if ($stmt->get_result()->fetch_assoc()) {
@@ -45,7 +45,7 @@ if ($stmt->get_result()->fetch_assoc()) {
 $stmt->close();
 
 $stmt = $mysqli->prepare(
-    'UPDATE user SET full_name = ?, department = ?, email = ? WHERE id = ?'
+    'UPDATE admin_user SET full_name = ?, department = ?, email = ? WHERE id = ?'
 );
 $stmt->bind_param('sssi', $fullName, $department, $email, $userId);
 if (!$stmt->execute()) {
@@ -57,7 +57,7 @@ $stmt->close();
 // Return the fresh row in the same shape as login.php.
 $stmt = $mysqli->prepare(
     'SELECT id, employee_id, full_name, email, department, email_verified ' .
-    'FROM user WHERE id = ? LIMIT 1'
+    'FROM admin_user WHERE id = ? LIMIT 1'
 );
 $stmt->bind_param('i', $userId);
 $stmt->execute();

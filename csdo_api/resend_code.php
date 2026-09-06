@@ -16,7 +16,7 @@ if ($purpose !== AUTH_PURPOSE_VERIFY && $purpose !== AUTH_PURPOSE_RESET) {
     fail(400, 'Unknown code purpose.');
 }
 
-$stmt = $mysqli->prepare('SELECT id, email_verified FROM user WHERE email = ? LIMIT 1');
+$stmt = $mysqli->prepare('SELECT id, email_verified FROM admin_user WHERE email = ? LIMIT 1');
 $stmt->bind_param('s', $email);
 $stmt->execute();
 $user = $stmt->get_result()->fetch_assoc();

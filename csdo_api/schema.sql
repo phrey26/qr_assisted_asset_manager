@@ -3,7 +3,11 @@
 -- column names line up exactly with what csdo_api/*.php reads and writes.
 -- Safe to re-run: every statement is IF NOT EXISTS.
 
-CREATE TABLE IF NOT EXISTS user (
+-- Every account in this project is an admin, hence the table name. If you
+-- have an older database where this table is still called `user`, rename it
+-- once (indexes move with it, nothing has a foreign key to it):
+--   RENAME TABLE `user` TO `admin_user`;
+CREATE TABLE IF NOT EXISTS admin_user (
   id INT AUTO_INCREMENT PRIMARY KEY,
   employee_id VARCHAR(50) NOT NULL UNIQUE,
   full_name VARCHAR(150) NOT NULL,
@@ -17,12 +21,12 @@ CREATE TABLE IF NOT EXISTS user (
 
 -- Upgrading a database created before email verification / email login:
 -- these are MariaDB (XAMPP) syntax and are safe to re-run.
-ALTER TABLE user ADD COLUMN IF NOT EXISTS email_verified TINYINT(1) NOT NULL DEFAULT 0;
-ALTER TABLE user ADD UNIQUE INDEX IF NOT EXISTS uq_user_email (email);
+ALTER TABLE admin_user ADD COLUMN IF NOT EXISTS email_verified TINYINT(1) NOT NULL DEFAULT 0;
+ALTER TABLE admin_user ADD UNIQUE INDEX IF NOT EXISTS uq_user_email (email);
 -- If the ADD UNIQUE INDEX fails with "Duplicate entry", two accounts share an
 -- email; fix those rows by hand, then re-run this line. To let existing
 -- accounts keep signing in without re-verifying, run once:
---   UPDATE user SET email_verified = 1;
+--   UPDATE admin_user SET email_verified = 1;
 
 -- Short-lived 6-digit codes for email verification and password reset.
 CREATE TABLE IF NOT EXISTS auth_codes (

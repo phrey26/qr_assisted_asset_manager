@@ -15,7 +15,7 @@ if (!valid_email($email)) {
     fail(400, 'Please enter a valid email address.');
 }
 
-$stmt = $mysqli->prepare('SELECT id FROM user WHERE email = ? LIMIT 1');
+$stmt = $mysqli->prepare('SELECT id FROM admin_user WHERE email = ? LIMIT 1');
 $stmt->bind_param('s', $email);
 $stmt->execute();
 $user = $stmt->get_result()->fetch_assoc();
