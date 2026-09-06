@@ -2,6 +2,36 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
+/// Thrown by [ApiService.login] when the account exists and the password is
+/// correct but the email address hasn't been verified yet. Carries the
+/// address so the caller can send the user straight to the code-entry
+/// screen.
+class EmailNotVerifiedException implements Exception {
+  EmailNotVerifiedException(this.email);
+
+  final String email;
+
+  @override
+  String toString() => 'Please verify your email address before signing in.';
+}
+
+/// Result of an endpoint that emails a 6-digit code (register / resend /
+/// forgot password). [devCode] is only populated when the backend is in
+/// mail dev mode (no SMTP configured) — it lets the app show the code
+/// during development instead of digging through `csdo_api/_mail_outbox/`.
+class AuthCodeResult {
+  AuthCodeResult({required this.message, this.devCode});
+
+  final String message;
+  final String? devCode;
+
+  factory AuthCodeResult.fromBody(Map<String, dynamic> body, String fallback) =>
+      AuthCodeResult(
+        message: (body['message'] as String?) ?? fallback,
+        devCode: body['dev_code'] as String?,
+      );
+}
+
 /// Talks to the csdo_api PHP backend.
 ///
 /// Base URL notes:
@@ -52,10 +82,13 @@ class ApiService {
         'is set correctly for how you\'re running the app.',
       );
 
-  /// Logs in with employee ID + password.
-  /// Returns the user map on success, throws on failure.
+  /// Logs in with an email address *or* employee ID, plus password.
+  /// Returns the user map on success.
+  ///
+  /// Throws [EmailNotVerifiedException] if the credentials are valid but the
+  /// email still needs verifying, and a plain [Exception] for anything else.
   static Future<Map<String, dynamic>> login({
-    required String employeeId,
+    required String identifier,
     required String password,
   }) async {
     final response = await http
@@ -63,7 +96,7 @@ class ApiService {
           Uri.parse('$baseUrl/login.php'),
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode({
-            'employee_id': employeeId,
+            'identifier': identifier,
             'password': password,
           }),
         )
@@ -72,13 +105,19 @@ class ApiService {
     final body = jsonDecode(response.body);
     if (response.statusCode == 200) {
       return body['user'] as Map<String, dynamic>;
-    } else {
-      throw Exception(body['error'] ?? 'Login failed');
     }
+    if (response.statusCode == 403 && body['code'] == 'email_not_verified') {
+      throw EmailNotVerifiedException(
+        (body['email'] as String?) ?? identifier,
+      );
+    }
+    throw Exception(body['error'] ?? 'Login failed');
   }
 
-  /// Registers a new account.
-  static Future<void> register({
+  /// Registers a new account. The backend creates it unverified and emails a
+  /// 6-digit verification code; the returned [AuthCodeResult] carries the
+  /// address the code went to.
+  static Future<AuthCodeResult> register({
     required String employeeId,
     required String fullName,
     required String email,
@@ -99,9 +138,95 @@ class ApiService {
         )
         .timeout(_timeout, onTimeout: _timeoutError);
 
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode != 201) {
-      final body = jsonDecode(response.body);
       throw Exception(body['error'] ?? 'Registration failed');
+    }
+    return AuthCodeResult.fromBody(body, 'Account created. Check your email.');
+  }
+
+  /// Confirms an email-verification code. Returns the now-active user map
+  /// (same shape as [login]), so the caller can sign the user straight in.
+  static Future<Map<String, dynamic>> verifyEmail({
+    required String email,
+    required String code,
+  }) async {
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/verify_email.php'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'email': email, 'code': code}),
+        )
+        .timeout(_timeout, onTimeout: _timeoutError);
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode == 200) {
+      return body['user'] as Map<String, dynamic>;
+    }
+    throw Exception(body['error'] ?? 'Verification failed');
+  }
+
+  /// Asks the backend to email a fresh code. [purpose] is `'verify'` or
+  /// `'reset'`.
+  static Future<AuthCodeResult> resendCode({
+    required String email,
+    String purpose = 'verify',
+  }) async {
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/resend_code.php'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'email': email, 'purpose': purpose}),
+        )
+        .timeout(_timeout, onTimeout: _timeoutError);
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode != 200) {
+      throw Exception(body['error'] ?? 'Could not send a new code');
+    }
+    return AuthCodeResult.fromBody(body, 'A new code has been sent.');
+  }
+
+  /// Starts a password reset — the backend emails a 6-digit reset code.
+  static Future<AuthCodeResult> requestPasswordReset({
+    required String email,
+  }) async {
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/forgot_password.php'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'email': email}),
+        )
+        .timeout(_timeout, onTimeout: _timeoutError);
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode != 200) {
+      throw Exception(body['error'] ?? 'Could not start the password reset');
+    }
+    return AuthCodeResult.fromBody(body, 'If that email has an account, a code has been sent.');
+  }
+
+  /// Completes a password reset with the emailed code and a new password.
+  static Future<void> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/reset_password.php'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'email': email,
+            'code': code,
+            'new_password': newPassword,
+          }),
+        )
+        .timeout(_timeout, onTimeout: _timeoutError);
+
+    if (response.statusCode != 200) {
+      final body = jsonDecode(response.body);
+      throw Exception(body['error'] ?? 'Could not reset the password');
     }
   }
 

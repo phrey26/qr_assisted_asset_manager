@@ -46,3 +46,7 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Backend mail: real SMTP credentials and the dev outbox never get committed
+csdo_api/mail_config.php
+csdo_api/_mail_outbox/

@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../main.dart';
 import '../services/api_service.dart';
+import '../services/session_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/brand_mark.dart';
+import 'forgot_password_screen.dart';
 import 'register_screen.dart';
+import 'verify_email_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -36,10 +39,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _login() async {
     if (_loggingIn) return;
-    final employeeId = idController.text.trim();
+    final identifier = idController.text.trim();
     final password = passwordController.text;
-    if (employeeId.isEmpty || password.isEmpty) {
-      setState(() => _errorMessage = 'Please enter your employee ID and password.');
+    if (identifier.isEmpty || password.isEmpty) {
+      setState(() => _errorMessage = 'Please enter your email (or employee ID) and password.');
       return;
     }
 
@@ -48,11 +51,26 @@ class _LoginScreenState extends State<LoginScreen> {
       _errorMessage = null;
     });
     try {
-      final user = await ApiService.login(employeeId: employeeId, password: password);
+      final user = await ApiService.login(identifier: identifier, password: password);
+      // "Stay logged in" — persist the session so the next launch skips
+      // this screen (see _RootGate in main.dart).
+      await SessionStore.save(user);
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => AppShell(user: user)),
+      );
+    } on EmailNotVerifiedException catch (e) {
+      if (!mounted) return;
+      setState(() => _errorMessage = null);
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => VerifyEmailScreen(
+            email: e.email,
+            infoMessage: 'This email still needs to be verified before you can sign in.',
+          ),
+        ),
       );
     } catch (e) {
       // Printed to the console too — visible when running via `flutter
@@ -188,10 +206,13 @@ class _MobileLoginForm extends StatelessWidget {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 50),
-              _FormLabel('Employee ID', fontSize: 20),
+              _FormLabel('Email or Employee ID', fontSize: 20),
               TextField(
                 controller: idController,
                 textInputAction: TextInputAction.next,
+                keyboardType: TextInputType.emailAddress,
+                autocorrect: false,
+                enableSuggestions: false,
               ),
               const SizedBox(height: 30),
               _FormLabel('Password', fontSize: 20),
@@ -210,7 +231,14 @@ class _MobileLoginForm extends StatelessWidget {
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
-                  onPressed: () {},
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ForgotPasswordScreen(
+                        initialEmail: idController.text.trim(),
+                      ),
+                    ),
+                  ),
                   child: Text(
                     'Forgot password?',
                     style: TextStyle(
@@ -529,10 +557,13 @@ class _FormPanel extends StatelessWidget {
                         style: TextStyle(color: AppTheme.muted, fontSize: 16),
                       ),
                       const SizedBox(height: 40),
-                      _FormLabel('Employee ID', fontSize: 15),
+                      _FormLabel('Email or Employee ID', fontSize: 15),
                       TextField(
                         controller: idController,
                         textInputAction: TextInputAction.next,
+                        keyboardType: TextInputType.emailAddress,
+                        autocorrect: false,
+                        enableSuggestions: false,
                       ),
                       const SizedBox(height: 22),
                       _FormLabel('Password', fontSize: 15),
@@ -551,7 +582,14 @@ class _FormPanel extends StatelessWidget {
                       Align(
                         alignment: Alignment.centerRight,
                         child: TextButton(
-                          onPressed: () {},
+                          onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => ForgotPasswordScreen(
+                                initialEmail: idController.text.trim(),
+                              ),
+                            ),
+                          ),
                           child: Text(
                             'Forgot password?',
                             style: TextStyle(

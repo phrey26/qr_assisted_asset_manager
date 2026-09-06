@@ -4,6 +4,7 @@ import 'models/asset.dart';
 import 'models/category.dart';
 import 'screens/add_asset_screen.dart';
 import 'screens/categories_screen.dart';
+import 'screens/forgot_password_screen.dart';
 import 'screens/inventory_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/profile_screen.dart';
@@ -11,6 +12,7 @@ import 'screens/qr_scanner_screen.dart';
 import 'screens/register_screen.dart';
 import 'screens/requests_screen.dart';
 import 'services/api_service.dart';
+import 'services/session_store.dart';
 import 'theme/app_theme.dart';
 import 'utils/responsive.dart';
 import 'widgets/add_asset_dialog.dart';
@@ -29,10 +31,40 @@ class AssetManagementApp extends StatelessWidget {
       title: 'QR Asset Management',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
-      initialRoute: LoginScreen.routeName,
+      home: const _RootGate(),
       routes: {
         LoginScreen.routeName: (_) => const LoginScreen(),
         RegisterScreen.routeName: (_) => const RegisterScreen(),
+        ForgotPasswordScreen.routeName: (_) => const ForgotPasswordScreen(),
+      },
+    );
+  }
+}
+
+/// Decides the first screen: if a session was saved ("stay logged in"),
+/// go straight to [AppShell]; otherwise show [LoginScreen]. Runs once at
+/// startup while [SessionStore.read] resolves.
+class _RootGate extends StatefulWidget {
+  const _RootGate();
+
+  @override
+  State<_RootGate> createState() => _RootGateState();
+}
+
+class _RootGateState extends State<_RootGate> {
+  late final Future<Map<String, dynamic>?> _session = SessionStore.read();
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: _session,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
+        final user = snapshot.data;
+        if (user != null) return AppShell(user: user);
+        return const LoginScreen();
       },
     );
   }

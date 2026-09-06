@@ -5,6 +5,23 @@ import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/brand_mark.dart';
 import 'login_screen.dart';
+import 'verify_email_screen.dart';
+
+/// Email providers an account may be created with. Must stay in sync with
+/// `ALLOWED_EMAIL_DOMAINS` in `csdo_api/db.php` — the backend enforces the
+/// same list; this copy just gives a faster, friendlier error.
+const _allowedEmailDomains = {
+  'gmail.com', 'googlemail.com',
+  'yahoo.com', 'yahoo.com.ph', 'ymail.com', 'rocketmail.com',
+  'outlook.com', 'outlook.ph', 'hotmail.com', 'live.com', 'msn.com',
+  'hau.edu.ph',
+};
+
+bool _isAllowedEmailProvider(String email) {
+  final at = email.lastIndexOf('@');
+  if (at == -1) return false;
+  return _allowedEmailDomains.contains(email.substring(at + 1).toLowerCase());
+}
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -22,6 +39,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final employeeController = TextEditingController();
   final passwordController = TextEditingController();
   bool _registering = false;
+
+  /// Shown inline on the form (in addition to a snackbar) so a failed —
+  /// or slow/hung — attempt is never mistaken for "the button did
+  /// nothing". Mirrors the login screen.
+  String? _errorMessage;
 
   @override
   void dispose() {
@@ -46,15 +68,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final password = passwordController.text;
 
     if (name.isEmpty || email.isEmpty || department.isEmpty || employeeId.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill in every field.')),
-      );
+      setState(() => _errorMessage = 'Please fill in every field.');
+      return;
+    }
+    if (!email.contains('@') || !email.contains('.')) {
+      setState(() => _errorMessage = 'Please enter a valid email address.');
+      return;
+    }
+    if (!_isAllowedEmailProvider(email)) {
+      setState(() => _errorMessage =
+          'Please use a Gmail, Yahoo, or Outlook email address.');
+      return;
+    }
+    if (password.length < 8) {
+      setState(() => _errorMessage = 'Password must be at least 8 characters.');
       return;
     }
 
-    setState(() => _registering = true);
+    setState(() {
+      _registering = true;
+      _errorMessage = null;
+    });
     try {
-      await ApiService.register(
+      final result = await ApiService.register(
         employeeId: employeeId,
         fullName: name,
         email: email,
@@ -62,15 +98,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
         password: password,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Account created successfully.')),
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => VerifyEmailScreen(email: email, devCode: result.devCode),
+        ),
       );
-      Navigator.pushReplacementNamed(context, LoginScreen.routeName);
     } catch (e) {
+      // Printed to the console too — the one place the full, untruncated
+      // error is guaranteed to show up even if a snackbar is missed.
+      debugPrint('Registration failed: $e');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
-      );
+      setState(() => _errorMessage = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _registering = false);
     }
@@ -88,6 +127,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
         employeeController: employeeController,
         passwordController: passwordController,
         onCreateAccount: _createAccount,
+        registering: _registering,
+        errorMessage: _errorMessage,
       );
     }
 
@@ -121,16 +162,37 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   const SizedBox(height: 50),
                   _field('Full name', nameController),
                   _field('Work email', emailController,
-                      keyboard: TextInputType.emailAddress),
+                      keyboard: TextInputType.emailAddress,
+                      hint: 'Gmail, Yahoo, or Outlook address'),
                   _field('Department', departmentController),
                   _field('Employee ID', employeeController),
                   _field('Password', passwordController, obscure: true),
+                  if (_errorMessage != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      _errorMessage!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Color(0xFFC84040),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 18),
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: _createAccount,
-                      child: const Text('Create account'),
+                      onPressed: _registering ? null : _createAccount,
+                      child: _registering
+                          ? const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text('Create account'),
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -170,6 +232,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     TextEditingController controller, {
     bool obscure = false,
     TextInputType? keyboard,
+    String? hint,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 28),
@@ -189,6 +252,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             controller: controller,
             obscureText: obscure,
             keyboardType: keyboard,
+            decoration: InputDecoration(hintText: hint),
           ),
         ],
       ),
@@ -209,6 +273,8 @@ class _DesktopRegisterView extends StatelessWidget {
     required this.employeeController,
     required this.passwordController,
     required this.onCreateAccount,
+    required this.registering,
+    required this.errorMessage,
   });
 
   final TextEditingController nameController;
@@ -217,6 +283,8 @@ class _DesktopRegisterView extends StatelessWidget {
   final TextEditingController employeeController;
   final TextEditingController passwordController;
   final VoidCallback onCreateAccount;
+  final bool registering;
+  final String? errorMessage;
 
   static const _brandPanelMinWidth = 1080.0;
 
@@ -240,6 +308,8 @@ class _DesktopRegisterView extends StatelessWidget {
                     employeeController: employeeController,
                     passwordController: passwordController,
                     onCreateAccount: onCreateAccount,
+                    registering: registering,
+                    errorMessage: errorMessage,
                   ),
                 ),
               ],
@@ -401,6 +471,8 @@ class _RegisterFormPanel extends StatelessWidget {
     required this.employeeController,
     required this.passwordController,
     required this.onCreateAccount,
+    required this.registering,
+    required this.errorMessage,
   });
 
   final TextEditingController nameController;
@@ -409,6 +481,8 @@ class _RegisterFormPanel extends StatelessWidget {
   final TextEditingController employeeController;
   final TextEditingController passwordController;
   final VoidCallback onCreateAccount;
+  final bool registering;
+  final String? errorMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -443,16 +517,36 @@ class _RegisterFormPanel extends StatelessWidget {
                       const SizedBox(height: 36),
                       _field('Full name', nameController),
                       _field('Work email', emailController,
-                          keyboard: TextInputType.emailAddress),
+                          keyboard: TextInputType.emailAddress,
+                          hint: 'Gmail, Yahoo, or Outlook address'),
                       _field('Department', departmentController),
                       _field('Employee ID', employeeController),
                       _field('Password', passwordController, obscure: true),
+                      if (errorMessage != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          errorMessage!,
+                          style: const TextStyle(
+                            color: Color(0xFFC84040),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 8),
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: onCreateAccount,
-                          child: const Text('Create account'),
+                          onPressed: registering ? null : onCreateAccount,
+                          child: registering
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Text('Create account'),
                         ),
                       ),
                       const SizedBox(height: 24),
@@ -496,6 +590,7 @@ class _RegisterFormPanel extends StatelessWidget {
     TextEditingController controller, {
     bool obscure = false,
     TextInputType? keyboard,
+    String? hint,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 20),
@@ -515,6 +610,7 @@ class _RegisterFormPanel extends StatelessWidget {
             controller: controller,
             obscureText: obscure,
             keyboardType: keyboard,
+            decoration: InputDecoration(hintText: hint),
           ),
         ],
       ),

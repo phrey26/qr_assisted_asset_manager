@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../services/session_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/brand_mark.dart';
@@ -18,7 +19,11 @@ class ProfileScreen extends StatelessWidget {
   String get _department => (user['department'] as String?) ?? '';
   String get _email => (user['email'] as String?) ?? '';
 
-  void _logOut(BuildContext context) {
+  Future<void> _logOut(BuildContext context) async {
+    // Drop the persisted "stay logged in" session so the next launch lands
+    // on the login screen.
+    await SessionStore.clear();
+    if (!context.mounted) return;
     Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
   }
 

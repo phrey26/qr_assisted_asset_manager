@@ -10,7 +10,31 @@ CREATE TABLE IF NOT EXISTS user (
   email VARCHAR(150) NOT NULL,
   department VARCHAR(150) NOT NULL,
   password VARCHAR(255) NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  email_verified TINYINT(1) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_user_email (email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Upgrading a database created before email verification / email login:
+-- these are MariaDB (XAMPP) syntax and are safe to re-run.
+ALTER TABLE user ADD COLUMN IF NOT EXISTS email_verified TINYINT(1) NOT NULL DEFAULT 0;
+ALTER TABLE user ADD UNIQUE INDEX IF NOT EXISTS uq_user_email (email);
+-- If the ADD UNIQUE INDEX fails with "Duplicate entry", two accounts share an
+-- email; fix those rows by hand, then re-run this line. To let existing
+-- accounts keep signing in without re-verifying, run once:
+--   UPDATE user SET email_verified = 1;
+
+-- Short-lived 6-digit codes for email verification and password reset.
+CREATE TABLE IF NOT EXISTS auth_codes (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  email VARCHAR(150) NOT NULL,
+  code_hash VARCHAR(255) NOT NULL,
+  purpose VARCHAR(20) NOT NULL,            -- 'verify' or 'reset'
+  expires_at DATETIME NOT NULL,
+  consumed_at DATETIME NULL,
+  attempts INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_auth_codes_lookup (email, purpose, consumed_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS categories (

@@ -1,0 +1,28 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "qr_assisted_asset_manager (Windows)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "windows",
+      "args": ["--dart-define=API_HOST=localhost"]
+    },
+    {
+      "name": "qr_assisted_asset_manager (Chrome)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "chrome",
+      "args": ["--dart-define=API_HOST=localhost"]
+    },
+    {
+      "name": "qr_assisted_asset_manager (Android emulator)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "args": ["--dart-define=API_HOST=10.0.2.2"]
+    }
+  ]
+}
