@@ -21,6 +21,16 @@ dependencies:
   image_picker: ^1.1.2
   http: ^1.6.0
   shared_preferences: ^2.3.2
+  # Camera photo capture + the Windows QR-scanner fallback. mobile_scanner
+  # has no Windows implementation, so on Windows the scanner uses `camera`
+  # for the preview and decodes frames in Dart with `zxing2` (`image`
+  # turns each captured still into pixels for it). `camera` 0.12 dropped
+  # its Windows federation, so `camera_windows` is pulled in explicitly to
+  # restore it.
+  camera: ^0.12.1
+  camera_windows: ^0.2.6+5
+  zxing2: ^0.2.4
+  image: ^4.9.2
 
 dev_dependencies:
   flutter_test:

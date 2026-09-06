@@ -3,94 +3,100 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../models/asset.dart';
 import '../theme/app_theme.dart';
+import '../utils/camera_support.dart';
 import '../utils/responsive.dart';
+import '../widgets/camera_qr_view.dart';
 import '../widgets/status_chip.dart';
 import 'qr_scan_result_screen.dart';
 
 class QrScannerScreen extends StatefulWidget {
-  const QrScannerScreen({super.key, required this.assets});
+  const QrScannerScreen({super.key, required this.assets, this.isActive = true});
 
   /// The current inventory, including assets created during this session.
   final List<AssetItem> assets;
+
+  /// Whether the Scanner tab is the one currently on screen. This screen
+  /// lives in [AppShell]'s IndexedStack, which keeps every tab mounted at
+  /// once, so it can't just start the camera in initState — that would pop
+  /// the OS permission prompt at app launch. The live-camera widget is
+  /// only mounted while this is true (the admin actually opening the tab),
+  /// and unmounting it when this goes false releases the camera.
+  final bool isActive;
 
   @override
   State<QrScannerScreen> createState() => _QrScannerScreenState();
 }
 
-class _QrScannerScreenState extends State<QrScannerScreen> with WidgetsBindingObserver {
-  // autoStart is off so we can request/check camera access ourselves and
-  // show a clear message instead of a blank camera preview when it fails.
-  final controller = MobileScannerController(autoStart: false);
+class _QrScannerScreenState extends State<QrScannerScreen>
+    with WidgetsBindingObserver {
+  // Which scanning backend this platform can use. mobile_scanner covers
+  // Android/iOS/macOS/web; Windows has no mobile_scanner implementation so
+  // it falls back to the camera + zxing2 decoder in [CameraQrView]; if
+  // neither is available only manual tag entry is offered.
+  late final bool _useMobileScanner = mobileScannerSupported;
+  late final bool _useCameraFallback =
+      !_useMobileScanner && nativeCameraSupported;
+
+  // Only created on platforms that can actually use it. autoStart lets the
+  // MobileScanner widget itself start the camera when it mounts and stop
+  // it when it unmounts, so simply not rendering that widget (tab inactive,
+  // or a result on screen) is what keeps the camera off.
+  MobileScannerController? _scannerController;
+
   final tagController = TextEditingController();
-  bool torchOn = false;
 
   // True while a scan result is being shown (the desktop mini window, or
-  // the mobile result page). Guards against the camera's onDetect firing
-  // repeatedly for the same code — which it does many times a second while
-  // the tag is in frame — from opening several dialogs/pages at once.
+  // the mobile result page). Guards against onDetect firing repeatedly for
+  // the same code — which it does many times a second while the tag is in
+  // frame — from opening several dialogs/pages at once, and drops the
+  // camera preview while the result is up.
   bool _isShowingResult = false;
-
-  // Camera access state. This works the same way regardless of platform
-  // (Android, iOS, desktop, or web) since mobile_scanner requests the
-  // native/browser camera permission under the hood when controller.start()
-  // is called; we just react to whether that succeeded.
-  bool _checkingPermission = true;
-  bool _cameraGranted = false;
-  String? _cameraError;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _requestCameraAccess();
+    if (_useMobileScanner) {
+      _scannerController = MobileScannerController(
+        detectionSpeed: DetectionSpeed.noDuplicates,
+      );
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    controller.dispose();
+    _scannerController?.dispose();
     tagController.dispose();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // If the admin left the app to grant camera access from device
-    // Settings and comes back, retry automatically instead of making them
-    // tap "Try again".
-    if (state == AppLifecycleState.resumed && !_cameraGranted && !_checkingPermission) {
-      _requestCameraAccess();
+    // [CameraQrView] handles its own lifecycle. For the mobile_scanner
+    // path we own the controller (so the widget doesn't observe lifecycle
+    // itself), so release the camera when the app is backgrounded and
+    // bring it back on resume.
+    final controller = _scannerController;
+    if (controller == null || !widget.isActive || _isShowingResult) return;
+    switch (state) {
+      case AppLifecycleState.resumed:
+        _safe(controller.start);
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+        _safe(controller.stop);
+      case AppLifecycleState.detached:
+        break;
     }
   }
 
-  Future<void> _requestCameraAccess() async {
-    setState(() {
-      _checkingPermission = true;
-      _cameraError = null;
-    });
+  Future<void> _safe(Future<void> Function() action) async {
     try {
-      // Starting the controller is what actually triggers the OS/browser
-      // camera permission prompt the first time this runs.
-      await controller.start();
-      if (!mounted) return;
-      setState(() {
-        _cameraGranted = true;
-        _checkingPermission = false;
-      });
-    } on MobileScannerException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _cameraGranted = false;
-        _checkingPermission = false;
-        _cameraError = _messageFor(e);
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _cameraGranted = false;
-        _checkingPermission = false;
-        _cameraError = 'Could not access the camera on this device.';
-      });
+      await action();
+    } catch (_) {
+      // start()/stop() races (already started / already stopped) are
+      // surfaced through MobileScanner's own errorBuilder instead.
     }
   }
 
@@ -103,6 +109,12 @@ class _QrScannerScreenState extends State<QrScannerScreen> with WidgetsBindingOb
       return 'This device does not have a usable camera for scanning.';
     }
     return 'Could not access the camera. Please check your camera permission and try again.';
+  }
+
+  void _onBarcode(BarcodeCapture capture) {
+    final code =
+        capture.barcodes.isEmpty ? null : capture.barcodes.first.rawValue;
+    if (code != null) _handleTag(code);
   }
 
   /// Looks up [value] against the current inventory and shows the result —
@@ -224,6 +236,8 @@ class _QrScannerScreenState extends State<QrScannerScreen> with WidgetsBindingOb
     );
   }
 
+  bool get _canScan => _useMobileScanner || _useCameraFallback;
+
   Widget _scanColumn() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -233,19 +247,17 @@ class _QrScannerScreenState extends State<QrScannerScreen> with WidgetsBindingOb
           child: SizedBox(
             height: 340,
             width: double.infinity,
-            child: _checkingPermission
-                ? _cameraLoading()
-                : _cameraGranted
-                    ? _cameraPreview()
-                    : _cameraAccessNeeded(),
+            // Only mount the live-camera widget once the tab is open — see
+            // [QrScannerScreen.isActive].
+            child: widget.isActive ? _cameraArea() : _cameraLoading(),
           ),
         ),
         const SizedBox(height: 20),
         Center(
           child: Text(
-            _cameraGranted
+            _canScan
                 ? 'Align the QR tag within the frame'
-                : 'Camera unavailable — you can still enter the tag ID below',
+                : 'Enter the asset tag ID below to look one up',
             textAlign: TextAlign.center,
             style: const TextStyle(color: AppTheme.darkGreen, fontSize: 16),
           ),
@@ -289,44 +301,70 @@ class _QrScannerScreenState extends State<QrScannerScreen> with WidgetsBindingOb
     );
   }
 
-  Widget _cameraPreview() {
+  /// Picks the right camera backend for this platform, or the manual-only
+  /// notice when there's no camera path at all.
+  Widget _cameraArea() {
+    if (_useMobileScanner) return _mobileScannerArea();
+    if (_useCameraFallback) {
+      return CameraQrView(
+        onDetect: _handleTag,
+        paused: _isShowingResult,
+        overlay: CustomPaint(painter: _ScannerOverlayPainter()),
+      );
+    }
+    return _manualOnlyNotice();
+  }
+
+  Widget _mobileScannerArea() {
+    final controller = _scannerController!;
+    // While a result is on screen the MobileScanner widget is dropped so
+    // the camera is released; it restarts (autoStart) when it remounts.
+    if (_isShowingResult) {
+      return const ColoredBox(color: AppTheme.mint);
+    }
+    return MobileScanner(
+      controller: controller,
+      onDetect: _onBarcode,
+      placeholderBuilder: (context, child) => _cameraLoading(),
+      errorBuilder: (context, error, child) =>
+          _cameraAccessNeeded(_messageFor(error)),
+      overlayBuilder: (context, constraints) => _scannerOverlay(controller),
+    );
+  }
+
+  Widget _scannerOverlay(MobileScannerController controller) {
     return Stack(
       fit: StackFit.expand,
       children: [
-        MobileScanner(
-          controller: controller,
-          onDetect: (capture) {
-            final barcodes = capture.barcodes;
-            final code = barcodes.isEmpty ? null : barcodes.first.rawValue;
-            if (code != null) _handleTag(code);
-          },
-        ),
-        IgnorePointer(
-          child: CustomPaint(painter: _ScannerOverlayPainter()),
-        ),
+        IgnorePointer(child: CustomPaint(painter: _ScannerOverlayPainter())),
         Positioned(
           top: 16,
           right: 16,
-          child: IconButton.filled(
-            style: IconButton.styleFrom(
-              backgroundColor: Colors.black54,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () async {
-              await controller.toggleTorch();
-              setState(() => torchOn = !torchOn);
+          child: ValueListenableBuilder<MobileScannerState>(
+            valueListenable: controller,
+            builder: (context, state, _) {
+              if (state.torchState == TorchState.unavailable) {
+                return const SizedBox.shrink();
+              }
+              final on = state.torchState == TorchState.on;
+              return IconButton.filled(
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.black54,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () => _safe(controller.toggleTorch),
+                icon: Icon(on ? Icons.flash_on : Icons.flash_off),
+              );
             },
-            icon: Icon(torchOn ? Icons.flash_on : Icons.flash_off),
           ),
         ),
       ],
     );
   }
 
-  /// Shown whenever the camera isn't available — most commonly because the
-  /// admin hasn't granted camera permission yet, or denied it. Reminds
-  /// them to enable it and offers a one-tap retry once they have.
-  Widget _cameraAccessNeeded() {
+  /// Shown by [MobileScanner]'s errorBuilder — most commonly camera
+  /// permission not granted / denied. Offers a one-tap retry.
+  Widget _cameraAccessNeeded(String message) {
     return Container(
       color: AppTheme.redTint,
       padding: const EdgeInsets.all(24),
@@ -335,7 +373,8 @@ class _QrScannerScreenState extends State<QrScannerScreen> with WidgetsBindingOb
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.no_photography_outlined, color: Color(0xFFC84040), size: 40),
+            const Icon(Icons.no_photography_outlined,
+                color: Color(0xFFC84040), size: 40),
             const SizedBox(height: 14),
             const Text(
               'Camera access needed',
@@ -348,7 +387,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> with WidgetsBindingOb
             ),
             const SizedBox(height: 8),
             Text(
-              _cameraError ?? 'Please allow camera access to scan asset tags.',
+              message,
               textAlign: TextAlign.center,
               style: const TextStyle(color: AppTheme.muted, fontSize: 14),
             ),
@@ -356,17 +395,52 @@ class _QrScannerScreenState extends State<QrScannerScreen> with WidgetsBindingOb
             const Text(
               'Check your device or browser settings for this app\'s camera permission, then try again.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppTheme.muted, fontSize: 12, fontStyle: FontStyle.italic),
+              style: TextStyle(
+                  color: AppTheme.muted,
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic),
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
-              onPressed: _requestCameraAccess,
+              onPressed: () => _safe(_scannerController!.start),
               icon: const Icon(Icons.refresh),
               label: const Text('Try again'),
               style: ElevatedButton.styleFrom(minimumSize: const Size(0, 48)),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// No camera backend on this platform (e.g. Linux) — manual tag entry
+  /// only. Neutral styling, not the red "access needed" panel.
+  Widget _manualOnlyNotice() {
+    return Container(
+      color: AppTheme.mint,
+      padding: const EdgeInsets.all(24),
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: const [
+          Icon(Icons.keyboard_alt_outlined, color: AppTheme.primary, size: 40),
+          SizedBox(height: 14),
+          Text(
+            'Camera scanning isn\'t available on this platform',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: AppTheme.darkGreen,
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Enter the asset tag ID in the field below instead.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppTheme.muted, fontSize: 13),
+          ),
+        ],
       ),
     );
   }

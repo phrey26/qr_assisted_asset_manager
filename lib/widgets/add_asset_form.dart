@@ -5,7 +5,9 @@ import 'package:image_picker/image_picker.dart';
 
 import '../models/asset.dart';
 import '../models/category.dart';
+import '../screens/camera_capture_screen.dart';
 import '../theme/app_theme.dart';
+import '../utils/camera_support.dart';
 
 /// The actual "add asset" form fields, shared between [AddAssetScreen]
 /// (full page, used on mobile) and the desktop modal dialog. Keeping the
@@ -95,6 +97,22 @@ class _AddAssetFormState extends State<AddAssetForm> {
         );
       }
     }
+  }
+
+  /// "Take photo": uses `image_picker`'s camera UI on Android/iOS, and the
+  /// in-app [CameraCaptureScreen] (camera package) on desktop where
+  /// `image_picker` can't reach a camera.
+  Future<void> _takePhoto() async {
+    if (imagePickerCameraSupported) {
+      await _pickImage(ImageSource.camera);
+      return;
+    }
+    final bytes = await Navigator.of(context).push<Uint8List>(
+      MaterialPageRoute(
+        builder: (_) => const CameraCaptureScreen(title: 'Asset photo'),
+      ),
+    );
+    if (bytes != null && mounted) setState(() => imageBytes = bytes);
   }
 
   void _save() {
@@ -269,11 +287,12 @@ class _AddAssetFormState extends State<AddAssetForm> {
           spacing: 10,
           runSpacing: 8,
           children: [
-            OutlinedButton.icon(
-              onPressed: () => _pickImage(ImageSource.camera),
-              icon: const Icon(Icons.camera_alt_outlined),
-              label: const Text('Take photo'),
-            ),
+            if (cameraCaptureSupported)
+              OutlinedButton.icon(
+                onPressed: _takePhoto,
+                icon: const Icon(Icons.camera_alt_outlined),
+                label: const Text('Take photo'),
+              ),
             OutlinedButton.icon(
               onPressed: () => _pickImage(ImageSource.gallery),
               icon: const Icon(Icons.upload_file_outlined),

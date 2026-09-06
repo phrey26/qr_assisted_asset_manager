@@ -383,7 +383,13 @@ class _AppShellState extends State<AppShell> {
         onDeleteAsset: _deleteAsset,
         onUpdateStatus: _updateAssetStatus,
       ),
-      QrScannerScreen(assets: _assets),
+      // isActive tells the scanner whether its tab is the one on screen.
+      // Every tab in this IndexedStack is mounted at once, so without this
+      // the scanner's initState would fire controller.start() — and the OS
+      // camera-permission prompt with it — the moment the app opens, long
+      // before the admin ever taps the Scanner tab. It now only asks when
+      // this flips true, and releases the camera when it flips back.
+      QrScannerScreen(assets: _assets, isActive: _index == kTabScanner),
       RequestsScreen(key: _requestsKey, currentUser: _user),
       ProfileScreen(user: _user, onProfileUpdated: _handleProfileUpdated),
     ];

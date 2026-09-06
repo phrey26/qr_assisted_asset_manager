@@ -3,7 +3,9 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../screens/camera_capture_screen.dart';
 import '../theme/app_theme.dart';
+import '../utils/camera_support.dart';
 
 /// Attachment block for a single photo or scan of the filled-out, signed
 /// CSDO Request Form. Replaces asking for four separate signature images —
@@ -43,6 +45,21 @@ class _RequestFormFieldState extends State<RequestFormField> {
         );
       }
     }
+  }
+
+  /// "Capture": `image_picker`'s camera on Android/iOS, the in-app
+  /// [CameraCaptureScreen] on desktop where `image_picker` has no camera.
+  Future<void> _capturePhoto() async {
+    if (imagePickerCameraSupported) {
+      await _pickImage(ImageSource.camera);
+      return;
+    }
+    final bytes = await Navigator.of(context).push<Uint8List>(
+      MaterialPageRoute(
+        builder: (_) => const CameraCaptureScreen(title: 'Request form'),
+      ),
+    );
+    if (bytes != null) widget.onImageChanged(bytes);
   }
 
   @override
@@ -92,16 +109,17 @@ class _RequestFormFieldState extends State<RequestFormField> {
             spacing: 8,
             runSpacing: 6,
             children: [
-              OutlinedButton.icon(
-                onPressed: () => _pickImage(ImageSource.camera),
-                icon: const Icon(Icons.camera_alt_outlined, size: 18),
-                label: const Text('Capture'),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(0, 40),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  textStyle: const TextStyle(fontSize: 13),
+              if (cameraCaptureSupported)
+                OutlinedButton.icon(
+                  onPressed: _capturePhoto,
+                  icon: const Icon(Icons.camera_alt_outlined, size: 18),
+                  label: const Text('Capture'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 40),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    textStyle: const TextStyle(fontSize: 13),
+                  ),
                 ),
-              ),
               OutlinedButton.icon(
                 onPressed: () => _pickImage(ImageSource.gallery),
                 icon: const Icon(Icons.upload_file_outlined, size: 18),
