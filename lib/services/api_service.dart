@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 /// Thrown by [ApiService.login] when the account exists and the password is
@@ -41,22 +42,32 @@ class AuthCodeResult {
 /// - Flutter web/desktop (run from the same machine): localhost works as-is
 class ApiService {
   // Set at build/run time with --dart-define, so you don't have to hand-edit
-  // this file every time you switch devices. Falls back to the Android
-  // emulator address (10.0.2.2) if nothing is passed.
+  // this file every time you switch devices. When nothing is passed, the
+  // default is chosen per-platform (see [_host]) so a plain `flutter run`
+  // reaches this machine's localhost from wherever the app is running.
   //
   // Examples:
-  //   Android emulator (default, no flag needed):
+  //   Android emulator, Windows/macOS/Linux desktop, Flutter web, iOS
+  //   simulator — all run from this PC (no flag needed):
   //     flutter run
-  //   Windows/macOS/Linux desktop, or Flutter web on your PC:
-  //     flutter run -d windows --dart-define=API_HOST=localhost
-  //   Physical phone / iOS simulator on your LAN:
+  //   Physical phone on your LAN (only case that still needs the flag):
   //     flutter run --dart-define=API_HOST=192.168.1.23
   //   Using ngrok or a real domain:
   //     flutter run --dart-define=API_HOST=https://a1b2c3.ngrok-free.app --dart-define=API_SCHEME=
-  static const String _host = String.fromEnvironment(
-    'API_HOST',
-    defaultValue: '10.0.2.2',
-  );
+  static const bool _hostFromEnv = bool.hasEnvironment('API_HOST');
+  static const String _hostEnv = String.fromEnvironment('API_HOST');
+
+  /// The host to talk to. An explicit `--dart-define=API_HOST=` always wins;
+  /// otherwise the Android emulator needs the `10.0.2.2` alias to reach the
+  /// host loopback, while desktop, web and the iOS simulator can use
+  /// `localhost` directly.
+  static String get _host {
+    if (_hostFromEnv && _hostEnv.isNotEmpty) return _hostEnv;
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return '10.0.2.2';
+    }
+    return 'localhost';
+  }
 
   // Lets a full https:// URL (ngrok, real domain) be passed via API_HOST
   // without doubling up the scheme. Leave API_SCHEME as-is for plain LAN IPs.
@@ -68,18 +79,18 @@ class ApiService {
   static String get baseUrl =>
       _host.startsWith('http') ? '$_host/csdo_api' : '$_scheme$_host/csdo_api';
 
-  // Without a timeout, a request to an unreachable/wrong host (e.g. the
-  // 10.0.2.2 default used from a desktop build instead of an Android
-  // emulator) just hangs forever with no error and no visible feedback —
-  // it looks exactly like a dead button. Bounding every request means a
-  // bad host/server always surfaces as a clear, catchable error instead.
+  // Without a timeout, a request to an unreachable/wrong host (e.g.
+  // localhost from a physical phone that isn't on this machine) just hangs
+  // forever with no error and no visible feedback — it looks exactly like a
+  // dead button. Bounding every request means a bad host/server always
+  // surfaces as a clear, catchable error instead.
   static const _timeout = Duration(seconds: 12);
 
   static Never _timeoutError() => throw Exception(
         'Could not reach the server at $baseUrl (timed out after '
         '${_timeout.inSeconds}s). Check that XAMPP\'s Apache/MySQL are '
-        'running, that csdo_api/ was copied to htdocs, and that API_HOST '
-        'is set correctly for how you\'re running the app.',
+        'running and that csdo_api/ is in htdocs. On a physical phone, pass '
+        '--dart-define=API_HOST=<your PC\'s LAN IP>.',
       );
 
   /// Logs in with an email address *or* employee ID, plus password.
