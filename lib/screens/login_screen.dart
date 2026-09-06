@@ -104,31 +104,28 @@ class _LoginScreenState extends State<LoginScreen> {
 
     return Scaffold(
       backgroundColor: Colors.white,
-      // The keyboard would otherwise shrink the available height and
-      // trigger the same "not everything fits" problem this screen is
-      // built to avoid. The form fields are simple enough that nothing is
-      // lost by leaving the layout as-is and letting the OS handle the
-      // keyboard overlay instead of resizing the body.
-      resizeToAvoidBottomInset: false,
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            // Mobile: instead of scrolling (or guessing at a scale factor
-            // that still overflows on very short phones), lay the content
-            // out at its natural/full size inside a fixed-size canvas,
-            // then let FittedBox scale that whole canvas down (or up) as
-            // one unit to exactly fit whatever height/width is actually
-            // available. This guarantees every element — logo down to the
-            // "Register" link — is on screen with no scrolling, on any
-            // phone size.
-            const designWidth = 400.0;
-            const designHeight = 760.0;
-            return Center(
-              child: FittedBox(
-                fit: BoxFit.contain,
-                child: SizedBox(
-                  width: designWidth,
-                  height: designHeight,
+            // A plain scrollable, constraint-driven layout that adapts to
+            // any phone: the form sits at its natural size (itself scaled to
+            // the device via Responsive.uiScale in _MobileLoginForm),
+            // vertically centred when there's room and scrolling when there
+            // isn't, width-capped so it stays tidy on foldables/large
+            // phones. The Scaffold resizes for the keyboard (the default),
+            // so a focused field scrolls clear of it.
+            //
+            // This replaces an earlier FittedBox that scaled a fixed
+            // 400x760 canvas as one unit — that wrapped the TextFields in a
+            // live transform, which is what tripped the mouse-tracker
+            // "'!_debugDuringDeviceUpdate': is not true" assertion during
+            // the login -> home transition.
+            return SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: ConstrainedBox(
+                constraints:
+                    BoxConstraints(minHeight: constraints.maxHeight - 48),
+                child: Center(
                   child: _MobileLoginForm(
                     idController: idController,
                     passwordController: passwordController,
@@ -148,9 +145,10 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-/// The mobile login form, laid out at full/natural size. The parent
-/// `FittedBox` (in `_LoginScreenState.build`) takes care of scaling this
-/// down to fit any phone without ever needing to scroll.
+/// The mobile login form. Sizes itself to the device via
+/// `Responsive.uiScale` and is width-capped for large/foldable phones; the
+/// parent `SingleChildScrollView` (in `_LoginScreenState.build`) absorbs any
+/// overflow on short screens and keeps a focused field clear of the keyboard.
 class _MobileLoginForm extends StatelessWidget {
   const _MobileLoginForm({
     required this.idController,
@@ -178,35 +176,41 @@ class _MobileLoginForm extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The app-wide device-size multiplier (width- and usable-height-aware),
+    // the same one the rest of the app sizes against. Every metric below is
+    // expressed through it so the form is tuned to the actual phone — a
+    // ~320px handset scales down, a large/foldable one is reined in by the
+    // maxWidth cap instead of blowing up.
+    final scale = Responsive.uiScale(context);
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 28, 28, 28),
+      padding: EdgeInsets.symmetric(horizontal: 28 * scale, vertical: 12),
       child: Center(
         child: Container(
           width: double.infinity,
-          constraints: const BoxConstraints(maxWidth: 650),
+          constraints: const BoxConstraints(maxWidth: 480),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const BrandMark(size: 120),
-              const SizedBox(height: 40),
+              BrandMark(size: 108 * scale),
+              SizedBox(height: 36 * scale),
               Text(
                 'Welcome back',
                 style: TextStyle(
-                  fontSize: 36,
+                  fontSize: 32 * scale,
                   fontWeight: FontWeight.w800,
                   color: AppTheme.darkGreen,
                 ),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 6),
+              SizedBox(height: 6 * scale),
               Text(
                 'Sign in to manage campus assets',
-                style: TextStyle(color: AppTheme.muted, fontSize: 20),
+                style: TextStyle(color: AppTheme.muted, fontSize: 16 * scale),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 50),
-              _FormLabel('Email or Employee ID', fontSize: 20),
+              SizedBox(height: 40 * scale),
+              _FormLabel('Email or Employee ID', fontSize: 15 * scale),
               TextField(
                 controller: idController,
                 textInputAction: TextInputAction.next,
@@ -214,16 +218,20 @@ class _MobileLoginForm extends StatelessWidget {
                 autocorrect: false,
                 enableSuggestions: false,
               ),
-              const SizedBox(height: 30),
-              _FormLabel('Password', fontSize: 20),
+              SizedBox(height: 22 * scale),
+              _FormLabel('Password', fontSize: 15 * scale),
               TextField(
                 controller: passwordController,
                 obscureText: obscure,
+                textInputAction: TextInputAction.go,
+                onSubmitted: (_) => onLogin(),
                 decoration: InputDecoration(
                   suffixIcon: IconButton(
                     onPressed: onToggleObscure,
                     icon: Icon(
-                      obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                      obscure
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
                     ),
                   ),
                 ),
@@ -244,46 +252,55 @@ class _MobileLoginForm extends StatelessWidget {
                     style: TextStyle(
                       color: AppTheme.primary,
                       fontWeight: FontWeight.w800,
-                      fontSize: 17,
+                      fontSize: 14 * scale,
                     ),
                   ),
                 ),
               ),
               if (errorMessage != null) ...[
-                const SizedBox(height: 16),
+                SizedBox(height: 12 * scale),
                 Text(
                   errorMessage!,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Color(0xFFC84040), fontWeight: FontWeight.w600),
-                ),
-              ],
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: loading ? null : onLogin,
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(64),
-                  textStyle: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
+                  style: const TextStyle(
+                    color: Color(0xFFC84040),
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-                child: loading
-                    ? const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
-                      )
-                    : const Text('Log in'),
-              ),
-              const SizedBox(height: 24),
-              TextButton(
-                onPressed: () => Navigator.pushNamed(
-                  context,
-                  RegisterScreen.routeName,
+              ],
+              SizedBox(height: 20 * scale),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: loading ? null : onLogin,
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: Size.fromHeight(52 * scale),
+                    textStyle: TextStyle(
+                      fontSize: 17 * scale,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  child: loading
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('Log in'),
                 ),
+              ),
+              SizedBox(height: 18 * scale),
+              TextButton(
+                onPressed: () =>
+                    Navigator.pushNamed(context, RegisterScreen.routeName),
                 child: RichText(
+                  textAlign: TextAlign.center,
                   text: TextSpan(
-                    style: TextStyle(color: AppTheme.muted, fontSize: 18),
+                    style:
+                        TextStyle(color: AppTheme.muted, fontSize: 15 * scale),
                     children: [
                       const TextSpan(text: 'Need an account? '),
                       TextSpan(
@@ -291,7 +308,7 @@ class _MobileLoginForm extends StatelessWidget {
                         style: TextStyle(
                           color: AppTheme.primary,
                           fontWeight: FontWeight.w800,
-                          fontSize: 18,
+                          fontSize: 15 * scale,
                         ),
                       ),
                     ],
