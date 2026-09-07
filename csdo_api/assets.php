@@ -57,6 +57,13 @@ if ($method === 'POST') {
     $newId = $stmt->insert_id;
     $stmt->close();
 
+    log_asset_event(
+        $mysqli,
+        (int) $newId,
+        'added',
+        $status === 'in_stock' ? 'Added as a stock item' : 'Added to active inventory'
+    );
+
     http_response_code(201);
     echo json_encode(['id' => $newId, 'tag_id' => $tagId]);
     exit;
@@ -68,6 +75,20 @@ if ($method === 'PUT') {
     $status = trim($body['status'] ?? '');
     if ($tagId === '' || $status === '') fail(400, 'tag_id and status are required.');
 
+    // Read the current row first so a "change" to the status it already has
+    // is a no-op — no needless write, and nothing added to the timeline.
+    $cur = $mysqli->prepare('SELECT id, status FROM assets WHERE tag_id = ?');
+    $cur->bind_param('s', $tagId);
+    $cur->execute();
+    $assetRow = $cur->get_result()->fetch_assoc();
+    $cur->close();
+    if (!$assetRow) fail(404, 'No asset with that tag_id.');
+
+    if ($assetRow['status'] === $status) {
+        echo json_encode(['message' => 'Asset unchanged.']);
+        exit;
+    }
+
     $stmt = $mysqli->prepare('UPDATE assets SET status = ? WHERE tag_id = ?');
     $stmt->bind_param('ss', $status, $tagId);
     if (!$stmt->execute()) {
@@ -75,6 +96,12 @@ if ($method === 'PUT') {
         fail(500, 'Failed to update asset: ' . $mysqli->error);
     }
     $stmt->close();
+
+    // Timeline entry for the manual status change (this endpoint only ever
+    // handles the hand-set statuses — 'available', 'maintenance',
+    // 'in_stock'; 'in_use' is driven through requests.php instead).
+    log_asset_event($mysqli, (int) $assetRow['id'], $status);
+
     echo json_encode(['message' => 'Asset updated.']);
     exit;
 }

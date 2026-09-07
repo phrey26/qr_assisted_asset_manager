@@ -12,6 +12,7 @@ import '../widgets/page_header.dart';
 import '../widgets/sort_dropdown.dart';
 import '../widgets/status_chip.dart';
 import 'asset_detail_screen.dart';
+import 'stock_items_screen.dart';
 
 /// Sort orders available for the inventory list, selectable via the
 /// "Sort by" dropdown.
@@ -134,6 +135,25 @@ class InventoryScreenState extends State<InventoryScreen> {
     searchController.addListener(() => setState(() {}));
   }
 
+  /// Opens the backup "stock items" list. Forwards the same delete and
+  /// status handlers so an item can be activated (moved back into the main
+  /// inventory) or removed straight from there.
+  Future<void> _openStockItems(BuildContext context) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StockItemsScreen(
+          assets: widget.assets,
+          onDeleteAsset: widget.onDeleteAsset,
+          onUpdateStatus: widget.onUpdateStatus,
+        ),
+      ),
+    );
+    // The stock screen mutates the shared asset list in place; rebuild so
+    // the inventory count / list pick up anything that was activated.
+    if (mounted) setState(() {});
+  }
+
   @override
   void didUpdateWidget(InventoryScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -152,9 +172,17 @@ class InventoryScreenState extends State<InventoryScreen> {
     super.dispose();
   }
 
+  /// Only the active, borrowable assets. "Stock items" (backups) are kept
+  /// out of the main inventory and shown on their own screen instead — see
+  /// [StockItemsScreen].
+  List<AssetItem> get _activeAssets =>
+      widget.assets.where((asset) => !asset.isInStock).toList();
+
+  int get _stockCount => widget.assets.length - _activeAssets.length;
+
   List<AssetItem> get filtered {
     final query = searchController.text.toLowerCase();
-    final results = widget.assets.where((asset) {
+    final results = _activeAssets.where((asset) {
       final matchesQuery = asset.name.toLowerCase().contains(query) ||
           asset.tagId.toLowerCase().contains(query);
       final matchesFilter =
@@ -194,12 +222,39 @@ class InventoryScreenState extends State<InventoryScreen> {
                     Expanded(
                       child: PageHeader(
                         title: 'Inventory',
-                        subtitle: '${widget.assets.length} assets tracked',
+                        subtitle: '${_activeAssets.length} active '
+                            '${_activeAssets.length == 1 ? 'asset' : 'assets'}',
                         showMark: false,
                       ),
                     ),
+                    const SizedBox(width: 16),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: OutlinedButton.icon(
+                        onPressed: () => _openStockItems(context),
+                        icon: const Icon(Icons.archive_outlined, size: 20),
+                        label: Text(
+                          isDesktop
+                              ? 'Stock items ($_stockCount)'
+                              : 'Stock ($_stockCount)',
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.primary,
+                          side: const BorderSide(color: AppTheme.primary, width: 2),
+                          minimumSize: const Size(0, 48),
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          textStyle: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    ),
                     if (isDesktop && widget.onAddAsset != null) ...[
-                      const SizedBox(width: 16),
+                      const SizedBox(width: 12),
                       Padding(
                         padding: const EdgeInsets.only(top: 6),
                         child: ElevatedButton.icon(

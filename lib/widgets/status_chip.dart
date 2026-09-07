@@ -24,6 +24,19 @@ class StatusChip extends StatelessWidget {
   /// different one from the menu. Passing this makes the chip tappable.
   final ValueChanged<AssetStatus>? onChanged;
 
+  /// The statuses an admin can set by hand from this chip's menu.
+  ///
+  /// [AssetStatus.inUse] is deliberately absent: an asset only becomes
+  /// "In use" by being assigned to a request on approval (see the asset
+  /// picker in `asset_assignment_sheet.dart`), and is freed automatically
+  /// when that approval is cancelled or the request is rejected. So a chip
+  /// showing "In use" is always read-only, regardless of [onChanged].
+  static const selectableStatuses = <AssetStatus>[
+    AssetStatus.available,
+    AssetStatus.maintenance,
+    AssetStatus.inStock,
+  ];
+
   /// Background/foreground tint pair for [status], shared with the detail
   /// row on [AssetDetailScreen] so a status reads with the same color
   /// there as it does on this chip.
@@ -35,6 +48,8 @@ class StatusChip extends StatelessWidget {
         return (AppTheme.cream, const Color(0xFF9A6512));
       case AssetStatus.maintenance:
         return (AppTheme.redTint, const Color(0xFFC84040));
+      case AssetStatus.inStock:
+        return (AppTheme.slateTint, AppTheme.muted);
     }
   }
 
@@ -42,10 +57,13 @@ class StatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final (background, foreground) = colorsFor(status);
     final scale = Responsive.uiScale(context);
+    // "In use" is request-driven and can't be changed from here — treat the
+    // chip as a plain label even if a handler was passed in.
+    final editable = onChanged != null && status != AssetStatus.inUse;
     final pill = Container(
       padding: EdgeInsets.only(
         left: 16 * scale,
-        right: (onChanged == null ? 16 : 8) * scale,
+        right: (editable ? 8 : 16) * scale,
         top: 9 * scale,
         bottom: 9 * scale,
       ),
@@ -64,7 +82,7 @@ class StatusChip extends StatelessWidget {
               fontSize: 14 * scale,
             ),
           ),
-          if (onChanged != null) ...[
+          if (editable) ...[
             SizedBox(width: 2 * scale),
             Icon(Icons.arrow_drop_down, color: foreground, size: 20 * scale),
           ],
@@ -72,16 +90,20 @@ class StatusChip extends StatelessWidget {
       ),
     );
 
-    if (onChanged == null) return pill;
+    if (!editable) return pill;
 
     if (Responsive.isDesktop(context)) {
       return PopupMenuButton<AssetStatus>(
         tooltip: 'Change status',
         initialValue: status,
-        onSelected: onChanged,
+        // Picking the current status changes nothing — swallow it so it
+        // doesn't hit the backend or land on the asset's timeline.
+        onSelected: (picked) {
+          if (picked != status) onChanged!(picked);
+        },
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         itemBuilder: (context) => [
-          for (final option in AssetStatus.values)
+          for (final option in selectableStatuses)
             PopupMenuItem(
               value: option,
               child: Row(
@@ -114,7 +136,9 @@ class StatusChip extends StatelessWidget {
       isScrollControlled: true,
       builder: (context) => _StatusSheet(status: status),
     );
-    if (selected != null) onChanged!(selected);
+    // Ignore a tap on the status it already has — no backend write, no
+    // timeline entry.
+    if (selected != null && selected != status) onChanged!(selected);
   }
 }
 
@@ -168,7 +192,7 @@ class _StatusSheet extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
               child: Column(
                 children: [
-                  for (final option in AssetStatus.values)
+                  for (final option in StatusChip.selectableStatuses)
                     _StatusOption(
                       option: option,
                       selected: option == status,

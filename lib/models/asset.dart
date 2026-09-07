@@ -2,7 +2,13 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
-enum AssetStatus { available, inUse, maintenance }
+/// The lifecycle state of an asset.
+///
+/// [inStock] is special: it marks an asset that's kept purely as a backup
+/// and is **not** part of the borrowable pool. Stock items are listed on
+/// their own "Stock items" screen rather than the main inventory, and are
+/// promoted to [available] when they're put into active service.
+enum AssetStatus { available, inUse, maintenance, inStock }
 
 extension AssetStatusX on AssetStatus {
   String get label {
@@ -13,6 +19,8 @@ extension AssetStatusX on AssetStatus {
         return 'In use';
       case AssetStatus.maintenance:
         return 'Maintenance';
+      case AssetStatus.inStock:
+        return 'In stock';
     }
   }
 
@@ -26,8 +34,13 @@ extension AssetStatusX on AssetStatus {
         return 'in_use';
       case AssetStatus.maintenance:
         return 'maintenance';
+      case AssetStatus.inStock:
+        return 'in_stock';
     }
   }
+
+  /// Whether an asset in this state is a backup only and can't be borrowed.
+  bool get isStock => this == AssetStatus.inStock;
 
   static AssetStatus fromApiValue(String value) {
     switch (value) {
@@ -35,6 +48,8 @@ extension AssetStatusX on AssetStatus {
         return AssetStatus.inUse;
       case 'maintenance':
         return AssetStatus.maintenance;
+      case 'in_stock':
+        return AssetStatus.inStock;
       default:
         return AssetStatus.available;
     }
@@ -78,6 +93,10 @@ class AssetItem {
   /// Whether this asset belongs to the IT equipment category. Matched
   /// case-insensitively since category is free text elsewhere in the app.
   bool get isItEquipment => category.toLowerCase() == 'it equipment';
+
+  /// Whether this asset is a backup ("stock") item — kept off the main
+  /// inventory and not available to be borrowed until it's activated.
+  bool get isInStock => status.isStock;
 
   /// Whether this asset is IT equipment that is past its
   /// [itEquipmentLifespanYears]-year expected lifespan, based on

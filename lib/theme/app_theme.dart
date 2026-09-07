@@ -8,6 +8,9 @@ class AppTheme {
   static const redTint = Color(0xFFFBE5E4);
   static const muted = Color(0xFF78909C);
   static const border = Color(0xFFDCE7E3);
+  // Slate tint used for the "In stock" status (a backup item that's not
+  // part of the borrowable pool), paired with [muted] as its foreground.
+  static const slateTint = Color(0xFFE7ECEF);
 
   static ThemeData get light {
     final scheme = ColorScheme.fromSeed(

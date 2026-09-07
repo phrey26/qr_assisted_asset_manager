@@ -5,6 +5,7 @@ import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/image_viewer_screen.dart';
 import '../widgets/signature_line.dart';
+import '../widgets/status_chip.dart';
 
 /// Full detail view for a single asset request. Shows every field the
 /// requester entered, plus the approve/reject/cancel actions that used to
@@ -15,15 +16,23 @@ class RequestDetailScreen extends StatefulWidget {
     super.key,
     required this.request,
     this.onApprove,
+    this.onMarkReturned,
     this.onReject,
     this.onCancel,
   });
 
   final AssetRequest request;
 
-  /// Invoked when the admin approves a pending request. When null, no
-  /// approve action is shown (mirrors [onReject]/[onCancel]).
-  final VoidCallback? onApprove;
+  /// Invoked when the admin approves a pending request. Opens the asset
+  /// picker and completes once the request has been approved (or the admin
+  /// backed out). When null, no approve action is shown (mirrors
+  /// [onReject]/[onCancel]).
+  final Future<void> Function()? onApprove;
+
+  /// Invoked when the admin marks an approved request's borrowed assets as
+  /// returned — freeing them and closing the loan. Completes once the
+  /// backend has been updated.
+  final Future<void> Function()? onMarkReturned;
 
   /// Invoked when the admin rejects a pending request.
   final VoidCallback? onReject;
@@ -37,9 +46,14 @@ class RequestDetailScreen extends StatefulWidget {
 }
 
 class _RequestDetailScreenState extends State<RequestDetailScreen> {
-  void _approve() {
-    widget.onApprove?.call();
-    setState(() {});
+  Future<void> _approve() async {
+    await widget.onApprove?.call();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _markReturned() async {
+    await widget.onMarkReturned?.call();
+    if (mounted) setState(() {});
   }
 
   void _reject() {
@@ -121,6 +135,8 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
         return (AppTheme.cream, const Color(0xFF9A6512), Icons.hourglass_top_rounded);
       case RequestStatus.approved:
         return (AppTheme.mint, AppTheme.primary, Icons.check_circle_outline);
+      case RequestStatus.returned:
+        return (AppTheme.slateTint, AppTheme.muted, Icons.assignment_turned_in_outlined);
       case RequestStatus.rejected:
         return (AppTheme.redTint, const Color(0xFFC84040), Icons.highlight_off);
     }
@@ -231,6 +247,11 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
           ],
           if (request.logistics.isNotEmpty) _itemsRow('Logistics', request.logistics),
           if (request.equipment.isNotEmpty) _itemsRow('Equipment', request.equipment),
+          if (request.assignedAssets.isNotEmpty)
+            _assignedAssetsRow(
+              request.assignedAssets,
+              returned: request.status == RequestStatus.returned,
+            ),
           _detailRow('Status', request.status.label, isLast: true),
         ],
       ),
@@ -301,6 +322,78 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                       fontSize: 15,
                     ),
                   ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// The real inventory assets handed out for this request (picked by the
+  /// admin on approval). Each shows its name and tag ID, plus its current
+  /// status while the loan is active — or a plain "Returned" tag once the
+  /// loan is closed, since by then the assets are back in the pool (and may
+  /// even be out on a different loan).
+  Widget _assignedAssetsRow(List<AssignedAsset> assets, {required bool returned}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Assigned assets',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.darkGreen,
+              letterSpacing: 0.3,
+            ),
+          ),
+          const SizedBox(height: 8),
+          for (final asset in assets)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          asset.name,
+                          style: const TextStyle(color: AppTheme.muted, fontSize: 16),
+                        ),
+                        Text(
+                          asset.tagId,
+                          style: const TextStyle(
+                            color: AppTheme.muted,
+                            fontFamily: 'monospace',
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  if (returned)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: AppTheme.slateTint,
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                      child: const Text(
+                        'Returned',
+                        style: TextStyle(
+                          color: AppTheme.muted,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                        ),
+                      ),
+                    )
+                  else
+                    StatusChip(status: asset.status),
                 ],
               ),
             ),
@@ -549,6 +642,17 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
       return _desktopActionsBar([reject, const SizedBox(width: 12), approve]);
     }
     if (request.status == RequestStatus.approved) {
+      final markReturned = ElevatedButton.icon(
+        onPressed: widget.onMarkReturned == null ? null : _markReturned,
+        style: desktop
+            ? ElevatedButton.styleFrom(
+                minimumSize: _desktopMinSize,
+                padding: _desktopButtonPadding,
+              )
+            : null,
+        icon: const Icon(Icons.assignment_turned_in_outlined, size: 20),
+        label: const Text('Mark as returned'),
+      );
       final cancel = FilledButton.icon(
         onPressed: widget.onCancel == null ? null : _cancel,
         style: _cancelStyle(desktop: desktop),
@@ -556,9 +660,46 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
         label: const Text('Cancel approval'),
       );
       if (!desktop) {
-        return SizedBox(width: double.infinity, child: cancel);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            markReturned,
+            const SizedBox(height: 10),
+            cancel,
+            const SizedBox(height: 10),
+            const Text(
+              'Marking as returned frees the assigned assets and closes this loan.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppTheme.muted, fontSize: 13),
+            ),
+          ],
+        );
       }
-      return _desktopActionsBar([cancel]);
+      return _desktopActionsBar([cancel, const SizedBox(width: 12), markReturned]);
+    }
+    if (request.status == RequestStatus.returned) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppTheme.slateTint,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.border, width: 2),
+        ),
+        child: const Row(
+          children: [
+            Icon(Icons.assignment_turned_in_outlined, color: AppTheme.muted, size: 20),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'The borrowed assets have been returned and are available again. '
+                'This loan is closed.',
+                style: TextStyle(color: AppTheme.darkGreen, fontSize: 13, height: 1.4),
+              ),
+            ),
+          ],
+        ),
+      );
     }
     return const SizedBox.shrink();
   }
@@ -598,6 +739,9 @@ class _RequestStatusPill extends StatelessWidget {
       case RequestStatus.approved:
         background = AppTheme.mint;
         foreground = AppTheme.primary;
+      case RequestStatus.returned:
+        background = AppTheme.slateTint;
+        foreground = AppTheme.muted;
       case RequestStatus.rejected:
         background = AppTheme.redTint;
         foreground = const Color(0xFFC84040);

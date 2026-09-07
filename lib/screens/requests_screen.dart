@@ -7,6 +7,7 @@ import '../models/asset_request.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
+import '../widgets/asset_assignment_sheet.dart';
 import '../widgets/filter_chip_row.dart';
 import '../widgets/page_header.dart';
 import '../widgets/request_date_range_field.dart';
@@ -16,9 +17,15 @@ import 'request_detail_screen.dart';
 /// Pushes [RequestDetailScreen] for the given request. Mirrors
 /// `_openAssetDetail` on the inventory page so tapping a request card
 /// behaves the same way as tapping an asset card.
+///
+/// [onApprove] opens the asset picker and, once assets are chosen, approves
+/// the request; [onSetStatus] handles the reject/cancel transitions (which
+/// take no assets and just release whatever the request was holding).
 void _openRequestDetail(
   BuildContext context,
   AssetRequest request, {
+  required Future<void> Function(AssetRequest request) onApprove,
+  required Future<void> Function(AssetRequest request) onMarkReturned,
   required void Function(AssetRequest request, RequestStatus status) onSetStatus,
 }) {
   Navigator.push(
@@ -26,7 +33,8 @@ void _openRequestDetail(
     MaterialPageRoute(
       builder: (_) => RequestDetailScreen(
         request: request,
-        onApprove: () => onSetStatus(request, RequestStatus.approved),
+        onApprove: () => onApprove(request),
+        onMarkReturned: () => onMarkReturned(request),
         onReject: () => onSetStatus(request, RequestStatus.rejected),
         onCancel: () => onSetStatus(request, RequestStatus.pending),
       ),
@@ -35,12 +43,27 @@ void _openRequestDetail(
 }
 
 class RequestsScreen extends StatefulWidget {
-  const RequestsScreen({super.key, this.currentUser});
+  const RequestsScreen({
+    super.key,
+    this.currentUser,
+    required this.assets,
+    required this.onApplyAssetStatuses,
+  });
 
   /// The signed-in user's row from `user` (as returned by
   /// `csdo_api/login.php`) — used to prefill "Requested by"/"Department" on
   /// [NewRequestForm]. Null falls back to the form's own blank defaults.
   final Map<String, dynamic>? currentUser;
+
+  /// The live inventory list, owned by `AppShell`. Shown in the asset
+  /// picker when approving a request; the same mutable [AssetItem] objects
+  /// the Inventory tab renders, so status changes made here show up there.
+  final List<AssetItem> assets;
+
+  /// Mirrors an asset status change (already persisted by the backend
+  /// during a request status update) into `AppShell`'s inventory list, so
+  /// the Inventory tab stays in sync without a reload.
+  final void Function(Iterable<String> tagIds, AssetStatus status) onApplyAssetStatuses;
 
   @override
   State<RequestsScreen> createState() => RequestsScreenState();
@@ -99,17 +122,139 @@ class RequestsScreenState extends State<RequestsScreen> {
 
   /// Applies [status] locally right away, then syncs it to the backend;
   /// reverted (with an error snackbar) if that call fails.
+  ///
+  /// Only handles the transitions that carry no asset assignment —
+  /// rejecting a pending request, or cancelling an approval. Both release
+  /// whatever assets the request was holding (back to `available`);
+  /// approving goes through [_approveRequest] instead, since it has to
+  /// collect the assets first.
   Future<void> _setStatus(AssetRequest request, RequestStatus status) async {
     final previousStatus = request.status;
-    setState(() => request.status = status);
+    final previousAssigned = List<AssignedAsset>.from(request.assignedAssets);
+    final freedTags = previousAssigned.map((a) => a.tagId).toList();
+
+    setState(() {
+      request.status = status;
+      request.assignedAssets = const [];
+    });
+    if (freedTags.isNotEmpty) {
+      widget.onApplyAssetStatuses(freedTags, AssetStatus.available);
+    }
     if (request.id == null) return;
     try {
       await ApiService.updateRequestStatus(id: request.id!, status: status.apiValue);
     } catch (e) {
       if (!mounted) return;
-      setState(() => request.status = previousStatus);
+      setState(() {
+        request.status = previousStatus;
+        request.assignedAssets = previousAssigned;
+      });
+      if (freedTags.isNotEmpty) {
+        widget.onApplyAssetStatuses(freedTags, AssetStatus.inUse);
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not update the request\'s status: $e')),
+      );
+    }
+  }
+
+  /// Approve flow: the admin must pick the assets to hand out before the
+  /// request can be approved. On confirm, those assets are marked `inUse`
+  /// (locally and on the backend, in one transaction); any assets that
+  /// were assigned before but dropped from the new selection are freed.
+  Future<void> _approveRequest(AssetRequest request) async {
+    final previousAssignedTags =
+        request.assignedAssets.map((a) => a.tagId).toList();
+
+    final picked = await showAssetAssignmentPicker(
+      context,
+      assets: widget.assets,
+      request: request,
+      preselectedTagIds: previousAssignedTags,
+    );
+    if (!mounted || picked == null || picked.isEmpty) return;
+
+    final previousStatus = request.status;
+    final previousAssigned = List<AssignedAsset>.from(request.assignedAssets);
+    final newTags = picked.map((a) => a.tagId).toList();
+    final freed = previousAssignedTags.toSet().difference(newTags.toSet());
+
+    setState(() {
+      request.status = RequestStatus.approved;
+      request.assignedAssets = picked.map(AssignedAsset.fromAsset).toList();
+    });
+    if (freed.isNotEmpty) {
+      widget.onApplyAssetStatuses(freed, AssetStatus.available);
+    }
+    widget.onApplyAssetStatuses(newTags, AssetStatus.inUse);
+
+    if (request.id == null) return;
+    try {
+      await ApiService.updateRequestStatus(
+        id: request.id!,
+        status: RequestStatus.approved.apiValue,
+        assetTagIds: newTags,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        request.status = previousStatus;
+        request.assignedAssets = previousAssigned;
+      });
+      // Roll the local inventory back: the ones we just marked in-use go
+      // back to available, and anything that was assigned before is
+      // in-use again.
+      widget.onApplyAssetStatuses(newTags, AssetStatus.available);
+      if (previousAssignedTags.isNotEmpty) {
+        widget.onApplyAssetStatuses(previousAssignedTags, AssetStatus.inUse);
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not approve the request: $e')),
+      );
+    }
+  }
+
+  /// Return flow: the borrowed assets have come back. Frees every assigned
+  /// asset to `available` again and moves the request to the terminal
+  /// [RequestStatus.returned] state — the assignment record is kept so the
+  /// request still shows what was lent.
+  Future<void> _markReturned(AssetRequest request) async {
+    final previousStatus = request.status;
+    final previousAssigned = List<AssignedAsset>.from(request.assignedAssets);
+    final tags = previousAssigned.map((a) => a.tagId).toList();
+
+    setState(() {
+      request.status = RequestStatus.returned;
+      // Keep the list, but show the assets as freed now.
+      request.assignedAssets = previousAssigned
+          .map((a) => AssignedAsset(
+                tagId: a.tagId,
+                name: a.name,
+                category: a.category,
+                status: AssetStatus.available,
+              ))
+          .toList();
+    });
+    if (tags.isNotEmpty) {
+      widget.onApplyAssetStatuses(tags, AssetStatus.available);
+    }
+    if (request.id == null) return;
+    try {
+      await ApiService.updateRequestStatus(
+        id: request.id!,
+        status: RequestStatus.returned.apiValue,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        request.status = previousStatus;
+        request.assignedAssets = previousAssigned;
+      });
+      if (tags.isNotEmpty) {
+        widget.onApplyAssetStatuses(tags, AssetStatus.inUse);
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not mark the request as returned: $e')),
       );
     }
   }
@@ -244,19 +389,32 @@ class RequestsScreenState extends State<RequestsScreen> {
                     onOpen: (request) => _openRequestDetail(
                       context,
                       request,
+                      onApprove: _approveRequest,
+                      onMarkReturned: _markReturned,
                       onSetStatus: _setStatus,
                     ),
                     onApprove: (request) => _openRequestDetail(
                       context,
                       request,
+                      onApprove: _approveRequest,
+                      onMarkReturned: _markReturned,
                       onSetStatus: _setStatus,
                     ),
                     onReject: (request) => _openRequestDetail(
                       context,
                       request,
+                      onApprove: _approveRequest,
+                      onMarkReturned: _markReturned,
                       onSetStatus: _setStatus,
                     ),
                     onCancel: (request) => _setStatus(request, RequestStatus.pending),
+                    onReturn: (request) => _openRequestDetail(
+                      context,
+                      request,
+                      onApprove: _approveRequest,
+                      onMarkReturned: _markReturned,
+                      onSetStatus: _setStatus,
+                    ),
                   ),
                 ),
               ),
@@ -280,6 +438,8 @@ class RequestsScreenState extends State<RequestsScreen> {
                     onTap: () => _openRequestDetail(
                       context,
                       filtered[index],
+                      onApprove: _approveRequest,
+                      onMarkReturned: _markReturned,
                       onSetStatus: _setStatus,
                     ),
                   ),
@@ -292,7 +452,7 @@ class RequestsScreenState extends State<RequestsScreen> {
   }
 
   Widget _filters() {
-    const filters = ['All', 'Pending', 'Approved', 'Rejected'];
+    const filters = ['All', 'Pending', 'Approved', 'Returned', 'Rejected'];
     return FilterChipRow(
       options: filters,
       selected: filter,
@@ -317,6 +477,9 @@ class _RequestStatusPill extends StatelessWidget {
       case RequestStatus.approved:
         background = AppTheme.mint;
         foreground = AppTheme.primary;
+      case RequestStatus.returned:
+        background = AppTheme.slateTint;
+        foreground = AppTheme.muted;
       case RequestStatus.rejected:
         background = AppTheme.redTint;
         foreground = const Color(0xFFC84040);
@@ -355,6 +518,7 @@ class _RequestsTable extends StatelessWidget {
     required this.onApprove,
     required this.onReject,
     required this.onCancel,
+    required this.onReturn,
   });
 
   final List<AssetRequest> requests;
@@ -362,6 +526,7 @@ class _RequestsTable extends StatelessWidget {
   final void Function(AssetRequest request) onApprove;
   final void Function(AssetRequest request) onReject;
   final void Function(AssetRequest request) onCancel;
+  final void Function(AssetRequest request) onReturn;
 
   // Fixed widths for the columns that hold a pill or icon buttons rather
   // than free text, so they never get squeezed. The rest of the row's
@@ -515,14 +680,28 @@ class _RequestsTable extends StatelessWidget {
       );
     }
     if (request.status == RequestStatus.approved) {
-      return IconButton(
-        onPressed: () => onCancel(request),
-        icon: const Icon(Icons.undo),
-        color: AppTheme.muted,
-        tooltip: 'Cancel approval',
-        iconSize: 20,
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            onPressed: () => onReturn(request),
+            icon: const Icon(Icons.assignment_turned_in_outlined),
+            color: AppTheme.primary,
+            tooltip: 'Review to mark returned',
+            iconSize: 20,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+          ),
+          IconButton(
+            onPressed: () => onCancel(request),
+            icon: const Icon(Icons.undo),
+            color: AppTheme.muted,
+            tooltip: 'Cancel approval',
+            iconSize: 20,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+          ),
+        ],
       );
     }
     return const SizedBox.shrink();

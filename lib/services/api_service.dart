@@ -335,6 +335,22 @@ class ApiService {
     }
   }
 
+  /// Fetches an asset's timeline (newest event first), as returned by
+  /// `asset_events.php`. Each map is `{id, event_type, detail, request_id,
+  /// created_at}` — see [AssetEvent.fromJson].
+  static Future<List<Map<String, dynamic>>> fetchAssetEvents(String tagId) async {
+    final response = await http
+        .get(Uri.parse('$baseUrl/asset_events.php?tag_id=${Uri.encodeQueryComponent(tagId)}'))
+        .timeout(_timeout, onTimeout: _timeoutError);
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = jsonDecode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    }
+    final body = jsonDecode(response.body);
+    throw Exception(body['error'] ?? 'Failed to load the asset timeline');
+  }
+
   /// Fetches all asset categories.
   static Future<List<Map<String, dynamic>>> fetchCategories() async {
     final response = await http
@@ -412,15 +428,26 @@ class ApiService {
   }
 
   /// Updates a request's status (pending/approved/rejected).
+  ///
+  /// When [status] is `approved`, [assetTagIds] must list the tag IDs of
+  /// the assets being handed out — the backend links them to the request
+  /// and flips each to `in_use` in the same transaction. For any other
+  /// status the backend releases whatever assets the request was holding,
+  /// so [assetTagIds] can be omitted.
   static Future<void> updateRequestStatus({
     required int id,
     required String status,
+    List<String>? assetTagIds,
   }) async {
     final response = await http
         .put(
           Uri.parse('$baseUrl/requests.php'),
           headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({'id': id, 'status': status}),
+          body: jsonEncode({
+            'id': id,
+            'status': status,
+            if (assetTagIds != null) 'asset_tag_ids': assetTagIds,
+          }),
         )
         .timeout(_timeout, onTimeout: _timeoutError);
 

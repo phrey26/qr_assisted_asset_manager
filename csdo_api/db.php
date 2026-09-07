@@ -31,6 +31,24 @@ if ($mysqli->connect_errno) {
 }
 $mysqli->set_charset('utf8mb4');
 
+/**
+ * Appends a row to an asset's timeline (see the `asset_events` table and
+ * lib/models/asset_event.dart). $eventType is a short slug the app knows how
+ * to render: 'added', 'available', 'maintenance', 'in_stock', 'borrowed',
+ * 'returned', 'released'. $detail is optional context (e.g. a request
+ * title); $requestId is informational. Best-effort — a logging failure is
+ * swallowed so it never breaks the caller.
+ */
+function log_asset_event(mysqli $mysqli, int $assetId, string $eventType, ?string $detail = null, ?int $requestId = null): void {
+    $stmt = $mysqli->prepare(
+        'INSERT INTO asset_events (asset_id, event_type, detail, request_id) VALUES (?, ?, ?, ?)'
+    );
+    if ($stmt === false) return;
+    $stmt->bind_param('issi', $assetId, $eventType, $detail, $requestId);
+    @$stmt->execute();
+    $stmt->close();
+}
+
 /** Reads and JSON-decodes the request body as an assoc array (empty array if none/invalid). */
 function read_json_body(): array {
     $raw = file_get_contents('php://input');

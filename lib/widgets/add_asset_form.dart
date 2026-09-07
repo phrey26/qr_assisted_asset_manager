@@ -53,6 +53,12 @@ class _AddAssetFormState extends State<AddAssetForm> {
   DateTime? purchaseDate;
   Uint8List? imageBytes;
 
+  /// Where this asset goes once saved. `false` -> an active asset that can
+  /// be borrowed (status `available`); `true` -> a backup "stock item"
+  /// that's kept off the borrowable pool (status `in_stock`). Defaults to
+  /// an active asset.
+  bool toStock = false;
+
   @override
   void initState() {
     super.initState();
@@ -134,7 +140,7 @@ class _AddAssetFormState extends State<AddAssetForm> {
         tagId: tagController.text.trim(),
         category: category,
         description: descriptionController.text.trim(),
-        status: AssetStatus.available,
+        status: toStock ? AssetStatus.inStock : AssetStatus.available,
         purchaseDate: purchaseDate!,
         imageBytes: imageBytes,
       ),
@@ -190,6 +196,9 @@ class _AddAssetFormState extends State<AddAssetForm> {
           ],
           onChanged: (value) => setState(() => category = value!),
         ),
+        SizedBox(height: gap),
+        _label('Add to'),
+        _destinationSelector(),
         SizedBox(height: gap),
         _label('Date of purchase'),
         InkWell(
@@ -264,6 +273,95 @@ class _AddAssetFormState extends State<AddAssetForm> {
           ),
         ),
       );
+
+  /// Two-way selector letting the admin file a new asset either as an
+  /// active, borrowable asset or as a backup "stock item" that stays off
+  /// the borrowable pool. Persisted to the backend via the asset's
+  /// `status` (`available` vs `in_stock`).
+  Widget _destinationSelector() {
+    return Row(
+      children: [
+        Expanded(
+          child: _destinationOption(
+            selected: !toStock,
+            icon: Icons.inventory_2_outlined,
+            title: 'Active asset',
+            subtitle: 'Can be borrowed',
+            onTap: () => setState(() => toStock = false),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _destinationOption(
+            selected: toStock,
+            icon: Icons.archive_outlined,
+            title: 'Stock item',
+            subtitle: 'Backup, not borrowable',
+            onTap: () => setState(() => toStock = true),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _destinationOption({
+    required bool selected,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          decoration: BoxDecoration(
+            color: selected ? AppTheme.mint : Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: selected ? AppTheme.primary : AppTheme.border,
+              width: 2,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    icon,
+                    size: 20,
+                    color: selected ? AppTheme.primary : AppTheme.muted,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        color: selected ? AppTheme.primary : AppTheme.darkGreen,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
+                  if (selected)
+                    const Icon(Icons.check_circle, size: 18, color: AppTheme.primary),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _photoPicker() {
     final preview = imageBytes == null

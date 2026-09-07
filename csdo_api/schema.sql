@@ -56,6 +56,11 @@ CREATE TABLE IF NOT EXISTS assets (
   name VARCHAR(150) NOT NULL,
   category_id INT NOT NULL,
   description TEXT,
+  -- One of: 'available', 'in_use', 'maintenance', 'in_stock'.
+  -- 'in_stock' marks a backup item that is NOT part of the borrowable
+  -- pool; the app lists those on a separate "Stock items" screen. The
+  -- column stays a plain VARCHAR (no ENUM/CHECK) so the app can evolve
+  -- this set without a migration.
   status VARCHAR(20) NOT NULL DEFAULT 'available',
   purchase_date DATE NOT NULL,
   image_base64 LONGTEXT NULL,
@@ -71,6 +76,10 @@ CREATE TABLE IF NOT EXISTS requests (
   venue VARCHAR(150) NULL,
   borrow_date VARCHAR(50) NOT NULL,
   return_date VARCHAR(50) NOT NULL,
+  -- One of: 'pending', 'approved', 'rejected', 'returned'. 'returned' is a
+  -- terminal state for an approved request whose assets have been brought
+  -- back (they're freed to 'available', but the request_assets link rows
+  -- are kept as a record of what was lent). Plain VARCHAR, no ENUM/CHECK.
   status VARCHAR(20) NOT NULL DEFAULT 'pending',
   requester_signature VARCHAR(150),
   adviser_signature VARCHAR(150),
@@ -87,6 +96,41 @@ CREATE TABLE IF NOT EXISTS request_items (
   name VARCHAR(150) NOT NULL,
   quantity INT NOT NULL DEFAULT 1,
   CONSTRAINT fk_request_items_request FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- The actual assets handed out to fulfil an approved request. The app makes
+-- the admin pick these before a request can be approved (see the asset
+-- picker in lib/widgets/asset_assignment_sheet.dart). Rows are created on
+-- approval and removed when the approval is cancelled, the request is
+-- rejected, or the request is deleted; each linked asset is flipped to
+-- 'in_use' while it's assigned and back to 'available' when it's freed.
+-- Safe to re-run.
+CREATE TABLE IF NOT EXISTS request_assets (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  request_id INT NOT NULL,
+  asset_id INT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_request_assets_request FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE CASCADE,
+  CONSTRAINT fk_request_assets_asset FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_request_asset (request_id, asset_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Per-asset timeline / audit log. One row per notable thing that happened
+-- to an asset: 'added', a manual status change ('available', 'maintenance',
+-- 'in_stock'), or a request-driven change ('borrowed', 'returned',
+-- 'released' when a loan is cancelled). `detail` carries context such as the
+-- request title; `request_id` is informational only (no FK, so the line
+-- survives the request being deleted). Written by log_asset_event() in
+-- db.php. Safe to re-run.
+CREATE TABLE IF NOT EXISTS asset_events (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  asset_id INT NOT NULL,
+  event_type VARCHAR(30) NOT NULL,
+  detail VARCHAR(255) NULL,
+  request_id INT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_asset_events_asset FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE,
+  INDEX idx_asset_events_asset (asset_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- No seed rows here on purpose: the app itself seeds the four built-in

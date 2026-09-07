@@ -1,7 +1,12 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-enum RequestStatus { pending, approved, rejected }
+import 'asset.dart';
+
+/// [returned] is a terminal state for an approved request whose borrowed
+/// assets have been brought back — the assets are freed to `available`
+/// again, but the request keeps its record of what was lent.
+enum RequestStatus { pending, approved, rejected, returned }
 
 extension RequestStatusApiX on RequestStatus {
   /// The value stored in the `requests.status` column / sent to
@@ -14,6 +19,8 @@ extension RequestStatusApiX on RequestStatus {
         return RequestStatus.approved;
       case 'rejected':
         return RequestStatus.rejected;
+      case 'returned':
+        return RequestStatus.returned;
       default:
         return RequestStatus.pending;
     }
@@ -60,8 +67,47 @@ extension RequestStatusX on RequestStatus {
         return 'Approved';
       case RequestStatus.rejected:
         return 'Rejected';
+      case RequestStatus.returned:
+        return 'Returned';
     }
   }
+}
+
+/// One real asset from the inventory that's been handed out to fulfil an
+/// approved request. Built from the `assets` array on a `requests` row
+/// returned by `csdo_api/requests.php` (GET), or straight from an
+/// [AssetItem] the admin just picked in the approval flow. Display-only —
+/// the assignment itself lives in the backend `request_assets` table and
+/// is keyed by [tagId].
+class AssignedAsset {
+  const AssignedAsset({
+    required this.tagId,
+    required this.name,
+    required this.category,
+    required this.status,
+  });
+
+  final String tagId;
+  final String name;
+  final String category;
+
+  /// The asset's status as of the last load. While assigned to an approved
+  /// request this is [AssetStatus.inUse].
+  final AssetStatus status;
+
+  factory AssignedAsset.fromJson(Map<String, dynamic> json) => AssignedAsset(
+        tagId: json['tag_id'] as String,
+        name: (json['name'] as String?) ?? (json['tag_id'] as String),
+        category: (json['category_value'] as String?) ?? '',
+        status: AssetStatusX.fromApiValue(json['status'] as String? ?? 'in_use'),
+      );
+
+  factory AssignedAsset.fromAsset(AssetItem asset) => AssignedAsset(
+        tagId: asset.tagId,
+        name: asset.name,
+        category: asset.category,
+        status: AssetStatus.inUse,
+      );
 }
 
 /// A single logistics or equipment line on a request, with how many of it
@@ -105,10 +151,12 @@ class AssetRequest {
     Signatory? principalSignature,
     Signatory? deanSignature,
     this.requestFormImageBytes,
+    List<AssignedAsset>? assignedAssets,
   })  : requesterSignature = requesterSignature ?? Signatory(name: requester),
         adviserSignature = adviserSignature ?? const Signatory(name: ''),
         principalSignature = principalSignature ?? const Signatory(name: ''),
-        deanSignature = deanSignature ?? const Signatory(name: '');
+        deanSignature = deanSignature ?? const Signatory(name: ''),
+        assignedAssets = assignedAssets ?? const [];
 
   /// The `requests.id` primary key once this request has been saved via the
   /// API. Null for a request built locally that hasn't been submitted yet.
@@ -158,6 +206,13 @@ class AssetRequest {
   /// signed CSDO Request Form — the printed names above are typed in for
   /// reference, but all four wet-ink signatures live on this one photo.
   Uint8List? requestFormImageBytes;
+
+  /// The real inventory assets handed out for this request. Non-empty only
+  /// while the request is approved — the admin picks these in the approval
+  /// flow, and they're released (back to this list being empty) when the
+  /// approval is cancelled or the request is rejected. Mutable so those
+  /// flows can update it in place, mirroring [status].
+  List<AssignedAsset> assignedAssets;
 
   /// Whether the CSDO Request Form photo has been attached.
   bool get hasRequestForm => requestFormImageBytes != null;
@@ -215,6 +270,9 @@ class AssetRequest {
         requestFormImageBytes: (json['request_form_image'] as String?) == null
             ? null
             : base64Decode(json['request_form_image'] as String),
+        assignedAssets: (json['assets'] as List<dynamic>? ?? [])
+            .map((item) => AssignedAsset.fromJson(item as Map<String, dynamic>))
+            .toList(),
       );
 
   /// The fields `csdo_api/requests.php` (POST) expects in its request body.

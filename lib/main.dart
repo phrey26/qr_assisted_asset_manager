@@ -277,6 +277,9 @@ class _AppShellState extends State<AppShell> {
   /// this runs) and rolled back if the backend rejects it.
   Future<void> _updateAssetStatus(AssetItem asset, AssetStatus status) async {
     final match = _assets.firstWhere((item) => item.tagId == asset.tagId);
+    // Picking the status the asset already has is a no-op — don't touch the
+    // backend, and don't add a redundant line to its timeline.
+    if (match.status == status) return;
     final previousStatus = match.status;
     setState(() => match.status = status);
     try {
@@ -285,6 +288,22 @@ class _AppShellState extends State<AppShell> {
       setState(() => match.status = previousStatus);
       _showSyncError('Could not update the asset\'s status: $e');
     }
+  }
+
+  /// Reflects, in the local inventory, a status change the requests flow
+  /// already persisted on the backend — approving a request marks its
+  /// picked assets `inUse`; cancelling/rejecting frees them back to
+  /// `available`. The backend `requests.php` PUT does the authoritative
+  /// write inside its transaction, so this is purely a local mirror to
+  /// keep the Inventory tab in sync without a full reload.
+  void _applyAssetStatuses(Iterable<String> tagIds, AssetStatus status) {
+    final wanted = tagIds.toSet();
+    if (wanted.isEmpty) return;
+    setState(() {
+      for (final item in _assets) {
+        if (wanted.contains(item.tagId)) item.status = status;
+      }
+    });
   }
 
   Future<void> _openAddAsset() async {
@@ -390,7 +409,12 @@ class _AppShellState extends State<AppShell> {
       // before the admin ever taps the Scanner tab. It now only asks when
       // this flips true, and releases the camera when it flips back.
       QrScannerScreen(assets: _assets, isActive: _index == kTabScanner),
-      RequestsScreen(key: _requestsKey, currentUser: _user),
+      RequestsScreen(
+        key: _requestsKey,
+        currentUser: _user,
+        assets: _assets,
+        onApplyAssetStatuses: _applyAssetStatuses,
+      ),
       ProfileScreen(user: _user, onProfileUpdated: _handleProfileUpdated),
     ];
 

@@ -104,12 +104,12 @@ class CategoriesScreenState extends State<CategoriesScreen> {
         ? await showSelectCategoryToDeleteDialog(
             context,
             categories: widget.categories,
-            itemCountFor: (c) => _countFor(c.value),
+            itemCountFor: (c) => _totalCountFor(c.value),
           )
         : await showSelectCategoryToDeleteScreen(
             context,
             categories: widget.categories,
-            itemCountFor: (c) => _countFor(c.value),
+            itemCountFor: (c) => _totalCountFor(c.value),
           );
     if (category == null) return;
     // Still deferred to the next frame, same as [AppShell._setIndex]: this
@@ -256,8 +256,23 @@ class CategoriesScreenState extends State<CategoriesScreen> {
     );
   }
 
+  /// Count of *active* assets in [category]. Backup "stock items" are
+  /// excluded so this matches what the Inventory tab shows when the card
+  /// is tapped (stock items live on their own screen).
   int _countFor(String category) {
-    return widget.assets.where((a) => a.category.toLowerCase() == category.toLowerCase()).length;
+    return widget.assets
+        .where((a) =>
+            !a.isInStock && a.category.toLowerCase() == category.toLowerCase())
+        .length;
+  }
+
+  /// Count of *all* assets in [category], stock items included. Used by the
+  /// "delete category" guard, since a category still can't be removed while
+  /// any asset (active or backup) references it.
+  int _totalCountFor(String category) {
+    return widget.assets
+        .where((a) => a.category.toLowerCase() == category.toLowerCase())
+        .length;
   }
 }
 

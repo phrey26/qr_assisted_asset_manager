@@ -9,9 +9,12 @@ import 'package:path_provider/path_provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../models/asset.dart';
+import '../models/asset_event.dart';
 import '../models/category.dart';
+import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
+import '../widgets/asset_timeline.dart';
 import '../widgets/delete_confirmation_dialog.dart';
 import '../widgets/status_chip.dart';
 
@@ -47,6 +50,40 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
   final _qrBoundaryKey = GlobalKey();
   bool _saving = false;
 
+  /// The asset's history, loaded lazily when this page opens (and refreshed
+  /// after a status change made from here). Null while the first load is in
+  /// flight; an error string if it failed.
+  List<AssetEvent>? _events;
+  String? _eventsError;
+  bool _loadingEvents = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadEvents();
+  }
+
+  Future<void> _loadEvents() async {
+    setState(() {
+      _loadingEvents = true;
+      _eventsError = null;
+    });
+    try {
+      final rows = await ApiService.fetchAssetEvents(widget.asset.tagId);
+      if (!mounted) return;
+      setState(() {
+        _events = rows.map(AssetEvent.fromJson).toList();
+        _loadingEvents = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _eventsError = '$e';
+        _loadingEvents = false;
+      });
+    }
+  }
+
   /// Applies the status change and refreshes this page. [widget.asset] is
   /// the same mutable object held by the inventory list (matched by
   /// tagId), so [onUpdateStatus] mutates it in place; since this page is a
@@ -55,8 +92,16 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
   /// needed here too — mirroring how [RequestDetailScreen] refreshes after
   /// approve/reject.
   void _changeStatus(AssetStatus status) {
+    // No-op if it's already this status — avoids a redundant backend write,
+    // a redundant timeline entry, and a needless timeline refetch.
+    if (status == widget.asset.status) return;
     widget.onUpdateStatus?.call(status);
     setState(() {});
+    // The backend writes the timeline entry as part of that status update;
+    // give it a beat to land, then pull the refreshed history.
+    Future.delayed(const Duration(milliseconds: 700), () {
+      if (mounted) _loadEvents();
+    });
   }
 
   Future<void> _deleteAsset() async {
@@ -209,6 +254,8 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
             _infoCard(asset, categoryColor, categoryIcon),
             const SizedBox(height: 24),
             _qrCard(),
+            const SizedBox(height: 24),
+            _timelineCard(),
             if (widget.onDelete != null) ...[
               const SizedBox(height: 24),
               _deleteButton(),
@@ -255,6 +302,8 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                     SizedBox(width: 350, child: _qrCard(desktop: true)),
                   ],
                 ),
+                const SizedBox(height: 24),
+                _timelineCard(desktop: true),
               ],
             ),
           ),
@@ -633,6 +682,82 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                 Expanded(child: content),
               ],
             ),
+    );
+  }
+
+  /// The asset's history — every recorded change (added, borrowed,
+  /// returned, maintenance, moved to stock, …) with its date. Loaded from
+  /// `asset_events.php` when the page opens; can be pulled again with the
+  /// refresh button in the header.
+  Widget _timelineCard({bool desktop = false}) {
+    final Widget body;
+    if (_loadingEvents && _events == null) {
+      body = const Padding(
+        padding: EdgeInsets.symmetric(vertical: 12),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    } else if (_eventsError != null && _events == null) {
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Could not load the timeline.',
+            style: TextStyle(color: AppTheme.muted, fontSize: 14),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _loadEvents,
+            icon: const Icon(Icons.refresh, size: 18),
+            label: const Text('Try again'),
+            style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40)),
+          ),
+        ],
+      );
+    } else {
+      body = AssetTimeline(events: _events ?? const []);
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.border, width: 2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: _sectionHeader(
+                  'Timeline',
+                  icon: Icons.history,
+                  tint: AppTheme.mint,
+                  iconColor: AppTheme.primary,
+                  desktop: desktop,
+                ),
+              ),
+              IconButton(
+                onPressed: _loadingEvents ? null : _loadEvents,
+                icon: _loadingEvents && _events != null
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh, size: 20),
+                color: AppTheme.muted,
+                tooltip: 'Refresh timeline',
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+          ),
+          SizedBox(height: desktop ? 18 : 14),
+          body,
+        ],
+      ),
     );
   }
 
