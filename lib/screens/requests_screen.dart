@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/asset.dart';
 import '../models/asset_request.dart';
+import '../models/asset_return.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
@@ -12,6 +13,7 @@ import '../widgets/filter_chip_row.dart';
 import '../widgets/page_header.dart';
 import '../widgets/request_date_range_field.dart';
 import '../widgets/request_form_field.dart';
+import '../widgets/return_inspection_sheet.dart';
 import 'request_detail_screen.dart';
 
 /// Pushes [RequestDetailScreen] for the given request. Mirrors
@@ -48,6 +50,7 @@ class RequestsScreen extends StatefulWidget {
     this.currentUser,
     required this.assets,
     required this.onApplyAssetStatuses,
+    required this.onApplyAssetCondition,
   });
 
   /// The signed-in user's row from `user` (as returned by
@@ -64,6 +67,12 @@ class RequestsScreen extends StatefulWidget {
   /// during a request status update) into `AppShell`'s inventory list, so
   /// the Inventory tab stays in sync without a reload.
   final void Function(Iterable<String> tagIds, AssetStatus status) onApplyAssetStatuses;
+
+  /// Mirrors the condition recorded in a return inspection onto the local
+  /// inventory (`condition` slug: 'good' | 'fair' | 'poor' | 'damaged', or
+  /// null to clear), so the "Damaged" badge appears on the asset list right
+  /// after a return.
+  final void Function(Iterable<String> tagIds, String? condition) onApplyAssetCondition;
 
   @override
   State<RequestsScreen> createState() => RequestsScreenState();
@@ -214,14 +223,25 @@ class RequestsScreenState extends State<RequestsScreen> {
     }
   }
 
-  /// Return flow: the borrowed assets have come back. Frees every assigned
-  /// asset to `available` again and moves the request to the terminal
-  /// [RequestStatus.returned] state — the assignment record is kept so the
-  /// request still shows what was lent.
+  /// Return flow: the borrowed assets have come back. First collects a
+  /// return inspection (condition + notes + photos taken now), then frees
+  /// every assigned asset to `available` again and moves the request to the
+  /// terminal [RequestStatus.returned] state — the assignment record is
+  /// kept so the request still shows what was lent, and the inspection is
+  /// recorded against each asset's condition & usage history.
   Future<void> _markReturned(AssetRequest request) async {
+    final inspection = await showReturnInspectionSheet(context, request: request);
+    if (!mounted || inspection == null) return;
+
     final previousStatus = request.status;
     final previousAssigned = List<AssignedAsset>.from(request.assignedAssets);
     final tags = previousAssigned.map((a) => a.tagId).toList();
+    // Snapshot each asset's recorded condition so an optimistic "damaged"
+    // badge can be rolled back if the return call fails.
+    final previousConditions = {
+      for (final a in widget.assets)
+        if (tags.contains(a.tagId)) a.tagId: a.lastConditionRaw,
+    };
 
     setState(() {
       request.status = RequestStatus.returned;
@@ -237,12 +257,14 @@ class RequestsScreenState extends State<RequestsScreen> {
     });
     if (tags.isNotEmpty) {
       widget.onApplyAssetStatuses(tags, AssetStatus.available);
+      widget.onApplyAssetCondition(tags, inspection.condition.apiValue);
     }
     if (request.id == null) return;
     try {
       await ApiService.updateRequestStatus(
         id: request.id!,
         status: RequestStatus.returned.apiValue,
+        returnInspection: inspection.toJson(),
       );
     } catch (e) {
       if (!mounted) return;
@@ -252,6 +274,9 @@ class RequestsScreenState extends State<RequestsScreen> {
       });
       if (tags.isNotEmpty) {
         widget.onApplyAssetStatuses(tags, AssetStatus.inUse);
+        for (final entry in previousConditions.entries) {
+          widget.onApplyAssetCondition([entry.key], entry.value);
+        }
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not mark the request as returned: $e')),

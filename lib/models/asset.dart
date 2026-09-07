@@ -65,6 +65,7 @@ class AssetItem {
     required this.status,
     required this.purchaseDate,
     this.imageBytes,
+    this.lastConditionRaw,
   });
 
   final String name;
@@ -85,6 +86,18 @@ class AssetItem {
   /// Keeping the bytes with the item lets the same image work on mobile,
   /// desktop, and web without relying on a temporary file path.
   final Uint8List? imageBytes;
+
+  /// The condition slug ('good' | 'fair' | 'poor' | 'damaged') from this
+  /// asset's most recent return inspection, or null if it's never been
+  /// returned. Sent by `assets.php` (GET) as `last_condition`. Mutable so
+  /// the requests flow can update it in place after a return, the same way
+  /// [status] is kept in sync.
+  String? lastConditionRaw;
+
+  /// Whether this asset was last returned in a damaged state — surfaced as
+  /// a warning badge on the inventory list and asset detail, the same way
+  /// [isPastLifespan] is.
+  bool get isDamaged => lastConditionRaw == 'damaged';
 
   /// How many years an "IT equipment" asset is expected to remain in
   /// service before it's flagged as past its lifespan.
@@ -124,6 +137,9 @@ class AssetItem {
         imageBytes: (json['image_base64'] as String?) == null
             ? null
             : base64Decode(json['image_base64'] as String),
+        lastConditionRaw: (json['last_condition'] as String?)?.trim().isEmpty ?? true
+            ? null
+            : json['last_condition'] as String,
       );
 
   /// The fields `csdo_api/assets.php` (POST) expects in its request body.
@@ -198,6 +214,28 @@ class AssetItem {
   /// the add-asset form) can preview a date before an AssetItem exists.
   static String formatDate(DateTime date) =>
       '${_months[date.month - 1]} ${date.day}, ${date.year}';
+
+  /// Best-effort inverse of [formatDate]: parses "Jun 12, 2024" (and a
+  /// plain ISO "2024-06-12") back to a [DateTime], or null if it can't.
+  /// Used to estimate how many days an asset was out on loan from the
+  /// request's stored date strings.
+  static DateTime? tryParseDate(String? value) {
+    if (value == null) return null;
+    final text = value.trim();
+    if (text.isEmpty) return null;
+    final iso = DateTime.tryParse(text);
+    if (iso != null) return iso;
+    final match = RegExp(r'^([A-Za-z]{3})[a-z]*\s+(\d{1,2}),?\s+(\d{4})$').firstMatch(text);
+    if (match == null) return null;
+    final month = _months.indexWhere(
+      (m) => m.toLowerCase() == match.group(1)!.toLowerCase(),
+    );
+    if (month < 0) return null;
+    final day = int.tryParse(match.group(2)!);
+    final year = int.tryParse(match.group(3)!);
+    if (day == null || year == null) return null;
+    return DateTime(year, month + 1, day);
+  }
 
   static String nextTagId(List<AssetItem> assets) {
     final existingTags = assets.map((asset) => asset.tagId).toSet();

@@ -351,6 +351,21 @@ class ApiService {
     throw Exception(body['error'] ?? 'Failed to load the asset timeline');
   }
 
+  /// Fetches an asset's condition & usage history from
+  /// `asset_returns.php` — a `{summary, inspections}` map (see
+  /// [AssetReturnHistory.fromJson]).
+  static Future<Map<String, dynamic>> fetchAssetReturns(String tagId) async {
+    final response = await http
+        .get(Uri.parse('$baseUrl/asset_returns.php?tag_id=${Uri.encodeQueryComponent(tagId)}'))
+        .timeout(_timeout, onTimeout: _timeoutError);
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    final body = jsonDecode(response.body);
+    throw Exception(body['error'] ?? 'Failed to load the asset\'s usage history');
+  }
+
   /// Fetches all asset categories.
   static Future<List<Map<String, dynamic>>> fetchCategories() async {
     final response = await http
@@ -438,6 +453,7 @@ class ApiService {
     required int id,
     required String status,
     List<String>? assetTagIds,
+    Map<String, dynamic>? returnInspection,
   }) async {
     final response = await http
         .put(
@@ -447,6 +463,7 @@ class ApiService {
             'id': id,
             'status': status,
             if (assetTagIds != null) 'asset_tag_ids': assetTagIds,
+            if (returnInspection != null) 'return_inspection': returnInspection,
           }),
         )
         .timeout(_timeout, onTimeout: _timeoutError);

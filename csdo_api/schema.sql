@@ -133,6 +133,40 @@ CREATE TABLE IF NOT EXISTS asset_events (
   INDEX idx_asset_events_asset (asset_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- A return inspection: recorded when an approved request is marked
+-- 'returned'. Captures the assets' condition, optional notes, and how many
+-- days they were out, plus (in the child tables) which assets it covers and
+-- photos of them as returned. Feeds the "Condition & usage" card on the
+-- asset detail screen so wear from actual use is visible, not just the
+-- 5-year lifespan warning. Safe to re-run.
+CREATE TABLE IF NOT EXISTS asset_returns (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  request_id INT NULL,
+  request_title VARCHAR(200) NULL,
+  borrow_date VARCHAR(50) NULL,
+  return_date VARCHAR(50) NULL,
+  days_used INT NULL,
+  asset_condition VARCHAR(20) NOT NULL DEFAULT 'good',  -- good | fair | poor | damaged
+  notes VARCHAR(500) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_asset_returns_request (request_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS asset_return_assets (
+  return_id INT NOT NULL,
+  asset_id INT NOT NULL,
+  PRIMARY KEY (return_id, asset_id),
+  CONSTRAINT fk_ara_return FOREIGN KEY (return_id) REFERENCES asset_returns(id) ON DELETE CASCADE,
+  CONSTRAINT fk_ara_asset FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS asset_return_photos (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  return_id INT NOT NULL,
+  image_base64 LONGTEXT NOT NULL,
+  CONSTRAINT fk_arp_return FOREIGN KEY (return_id) REFERENCES asset_returns(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- No seed rows here on purpose: the app itself seeds the four built-in
 -- categories (IT equipment, Furniture, Vehicles, Tools) into this table
 -- the first time it runs against an empty `categories` table — see

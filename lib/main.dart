@@ -306,6 +306,21 @@ class _AppShellState extends State<AppShell> {
     });
   }
 
+  /// Mirrors the condition recorded in a return inspection onto the local
+  /// inventory, so the "Damaged" warning badge shows up on the asset list
+  /// immediately after a return rather than only on the next full reload.
+  /// [conditionRaw] null restores "no recorded condition" (used to roll
+  /// back an optimistic update when the return call fails).
+  void _applyAssetCondition(Iterable<String> tagIds, String? conditionRaw) {
+    final wanted = tagIds.toSet();
+    if (wanted.isEmpty) return;
+    setState(() {
+      for (final item in _assets) {
+        if (wanted.contains(item.tagId)) item.lastConditionRaw = conditionRaw;
+      }
+    });
+  }
+
   Future<void> _openAddAsset() async {
     final tagId = AssetItem.nextTagId(_assets);
     final AssetItem? asset;
@@ -414,6 +429,7 @@ class _AppShellState extends State<AppShell> {
         currentUser: _user,
         assets: _assets,
         onApplyAssetStatuses: _applyAssetStatuses,
+        onApplyAssetCondition: _applyAssetCondition,
       ),
       ProfileScreen(user: _user, onProfileUpdated: _handleProfileUpdated),
     ];

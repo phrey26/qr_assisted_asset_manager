@@ -119,9 +119,16 @@ class AssetCard extends StatelessWidget {
                           fontSize: (isMobile ? 12.0 : 13.0) * scale,
                         ),
                       ),
-                      if (asset.isPastLifespan) ...[
+                      if (asset.isPastLifespan || asset.isDamaged) ...[
                         SizedBox(height: 8 * scale),
-                        const LifespanWarningBadge(),
+                        Wrap(
+                          spacing: 6 * scale,
+                          runSpacing: 6 * scale,
+                          children: [
+                            if (asset.isPastLifespan) const LifespanWarningBadge(),
+                            if (asset.isDamaged) const DamagedWarningBadge(),
+                          ],
+                        ),
                       ],
                       if (isMobile) ...[
                         SizedBox(height: 8 * scale),

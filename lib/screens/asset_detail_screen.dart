@@ -10,11 +10,13 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../models/asset.dart';
 import '../models/asset_event.dart';
+import '../models/asset_return.dart';
 import '../models/category.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/asset_timeline.dart';
+import '../widgets/asset_usage_view.dart';
 import '../widgets/delete_confirmation_dialog.dart';
 import '../widgets/status_chip.dart';
 
@@ -57,10 +59,38 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
   String? _eventsError;
   bool _loadingEvents = true;
 
+  /// The asset's condition & usage history (return inspections + summary),
+  /// loaded lazily alongside the timeline.
+  AssetReturnHistory? _usage;
+  String? _usageError;
+  bool _loadingUsage = true;
+
   @override
   void initState() {
     super.initState();
     _loadEvents();
+    _loadUsage();
+  }
+
+  Future<void> _loadUsage() async {
+    setState(() {
+      _loadingUsage = true;
+      _usageError = null;
+    });
+    try {
+      final data = await ApiService.fetchAssetReturns(widget.asset.tagId);
+      if (!mounted) return;
+      setState(() {
+        _usage = AssetReturnHistory.fromJson(data);
+        _loadingUsage = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _usageError = '$e';
+        _loadingUsage = false;
+      });
+    }
   }
 
   Future<void> _loadEvents() async {
@@ -247,11 +277,17 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
               _lifespanWarningBanner(),
               const SizedBox(height: 20),
             ],
+            if (asset.isDamaged) ...[
+              _damagedWarningBanner(),
+              const SizedBox(height: 20),
+            ],
             if (asset.imageBytes != null) ...[
               _assetPhoto(asset),
               const SizedBox(height: 24),
             ],
             _infoCard(asset, categoryColor, categoryIcon),
+            const SizedBox(height: 24),
+            _usageCard(),
             const SizedBox(height: 24),
             _qrCard(),
             const SizedBox(height: 24),
@@ -283,6 +319,10 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                   _lifespanWarningBanner(),
                   const SizedBox(height: 24),
                 ],
+                if (asset.isDamaged) ...[
+                  _damagedWarningBanner(),
+                  const SizedBox(height: 24),
+                ],
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -302,6 +342,8 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                     SizedBox(width: 350, child: _qrCard(desktop: true)),
                   ],
                 ),
+                const SizedBox(height: 24),
+                _usageCard(desktop: true),
                 const SizedBox(height: 24),
                 _timelineCard(desktop: true),
               ],
@@ -459,6 +501,50 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                 Text(
                   'IT equipment is expected to last ${AssetItem.itEquipmentLifespanYears} years from its '
                   'date of purchase. Consider inspecting or replacing this item.',
+                  style: TextStyle(color: Color(0xFFC84040), fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Banner shown when this asset's most recent return inspection marked it
+  /// damaged — mirrors [_lifespanWarningBanner] so both "needs attention"
+  /// cases read the same on this page. The full inspection (photos, notes)
+  /// is in the "Condition & usage" card below.
+  Widget _damagedWarningBanner() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppTheme.redTint,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFF3C6C4), width: 2),
+      ),
+      child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.build_circle_outlined, color: Color(0xFFC84040)),
+          SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'This asset was last returned damaged',
+                  style: TextStyle(
+                    color: Color(0xFFC84040),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Inspect it against the return photos below before lending it out again, '
+                  'or send it for maintenance.',
                   style: TextStyle(color: Color(0xFFC84040), fontSize: 13),
                 ),
               ],
@@ -682,6 +768,93 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                 Expanded(child: content),
               ],
             ),
+    );
+  }
+
+  /// The asset's condition & usage: how many times it's been borrowed,
+  /// total days out, its latest inspected condition, plus each return
+  /// inspection with its photos — so wear from real use is visible, not
+  /// just the fixed 5-year lifespan warning.
+  Widget _usageCard({bool desktop = false}) {
+    final Widget body;
+    if (_loadingUsage && _usage == null) {
+      body = const Padding(
+        padding: EdgeInsets.symmetric(vertical: 12),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    } else if (_usageError != null && _usage == null) {
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Could not load the usage history.',
+            style: TextStyle(color: AppTheme.muted, fontSize: 14),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _loadUsage,
+            icon: const Icon(Icons.refresh, size: 18),
+            label: const Text('Try again'),
+            style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40)),
+          ),
+        ],
+      );
+    } else {
+      body = AssetUsageView(
+        history: _usage ??
+            AssetReturnHistory(
+              summary: AssetUsageSummary(
+                timesBorrowed: 0,
+                daysUsed: 0,
+                currentlyOut: false,
+              ),
+              inspections: const [],
+            ),
+        asset: widget.asset,
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.border, width: 2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: _sectionHeader(
+                  'Condition & usage',
+                  icon: Icons.timeline,
+                  tint: AppTheme.cream,
+                  iconColor: const Color(0xFF9A6512),
+                  desktop: desktop,
+                ),
+              ),
+              IconButton(
+                onPressed: _loadingUsage ? null : _loadUsage,
+                icon: _loadingUsage && _usage != null
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh, size: 20),
+                color: AppTheme.muted,
+                tooltip: 'Refresh',
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+          ),
+          SizedBox(height: desktop ? 18 : 14),
+          body,
+        ],
+      ),
     );
   }
 

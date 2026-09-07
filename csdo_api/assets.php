@@ -6,7 +6,10 @@ $method = $_SERVER['REQUEST_METHOD'];
 if ($method === 'GET') {
     $result = $mysqli->query(
         'SELECT a.id, a.tag_id, a.name, a.category_id, c.value AS category_value, ' .
-        'a.description, a.status, a.purchase_date, a.image_base64 ' .
+        'a.description, a.status, a.purchase_date, a.image_base64, ' .
+        '(SELECT r.asset_condition FROM asset_returns r ' .
+        '   JOIN asset_return_assets ra ON ra.return_id = r.id ' .
+        '  WHERE ra.asset_id = a.id ORDER BY r.id DESC LIMIT 1) AS last_condition ' .
         'FROM assets a JOIN categories c ON c.id = a.category_id ' .
         'ORDER BY a.id DESC'
     );

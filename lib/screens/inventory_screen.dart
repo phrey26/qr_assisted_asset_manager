@@ -481,6 +481,10 @@ class _InventoryTable extends StatelessWidget {
                           const SizedBox(width: 8),
                           const LifespanWarningBadge(compact: true),
                         ],
+                        if (asset.isDamaged) ...[
+                          const SizedBox(width: 8),
+                          const DamagedWarningBadge(compact: true),
+                        ],
                       ],
                     )),
                     DataCell(

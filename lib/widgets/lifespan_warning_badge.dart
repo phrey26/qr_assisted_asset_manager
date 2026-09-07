@@ -56,3 +56,55 @@ class LifespanWarningBadge extends StatelessWidget {
     );
   }
 }
+
+/// Twin of [LifespanWarningBadge] for an asset whose most recent return
+/// inspection marked it **damaged** — shown in the same places (inventory
+/// card, desktop table, asset detail) so "this needs looking at" reads the
+/// same whether the cause is age or wear.
+class DamagedWarningBadge extends StatelessWidget {
+  const DamagedWarningBadge({super.key, this.compact = false});
+
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final scale = Responsive.uiScale(context);
+
+    if (compact) {
+      return Tooltip(
+        message: 'Last returned damaged — needs inspection',
+        child: Container(
+          padding: EdgeInsets.all(6 * scale),
+          decoration: const BoxDecoration(
+            color: AppTheme.redTint,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(Icons.build_circle_outlined, color: const Color(0xFFC84040), size: 16 * scale),
+        ),
+      );
+    }
+
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 10 * scale, vertical: 5 * scale),
+      decoration: BoxDecoration(
+        color: AppTheme.redTint,
+        borderRadius: BorderRadius.circular(30),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.build_circle_outlined, color: const Color(0xFFC84040), size: 14 * scale),
+          SizedBox(width: 5 * scale),
+          Text(
+            'Damaged',
+            style: TextStyle(
+              color: const Color(0xFFC84040),
+              fontWeight: FontWeight.w800,
+              fontSize: 12 * scale,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

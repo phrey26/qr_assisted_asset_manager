@@ -71,9 +71,11 @@ function load_request_assets(mysqli $mysqli, array $requestIds): array {
  * (only touching ones still marked 'in_use'), leaving the request_assets
  * link rows in place, and writes a timeline entry per freed asset with
  * $eventType ('returned' when a loan completes, 'released' when an approval
- * is cancelled/rejected). Caller owns the surrounding transaction.
+ * is cancelled/rejected). $extraDetail, if given, is appended to the
+ * timeline line (e.g. "Condition: Fair"). Returns the ids of the assets it
+ * actually freed. Caller owns the surrounding transaction.
  */
-function release_request_assets(mysqli $mysqli, int $requestId, string $eventType): void {
+function release_request_assets(mysqli $mysqli, int $requestId, string $eventType, ?string $extraDetail = null): array {
     // Which assets are actually being freed (still in_use for this request)?
     $stmt = $mysqli->prepare(
         'SELECT a.id FROM assets a JOIN request_assets ra ON ra.asset_id = a.id ' .
@@ -85,7 +87,7 @@ function release_request_assets(mysqli $mysqli, int $requestId, string $eventTyp
     $assetIds = [];
     while ($r = $res->fetch_assoc()) $assetIds[] = (int) $r['id'];
     $stmt->close();
-    if (empty($assetIds)) return;
+    if (empty($assetIds)) return [];
 
     $titleStmt = $mysqli->prepare('SELECT title FROM requests WHERE id = ?');
     $titleStmt->bind_param('i', $requestId);
@@ -93,6 +95,9 @@ function release_request_assets(mysqli $mysqli, int $requestId, string $eventTyp
     $titleRow = $titleStmt->get_result()->fetch_assoc();
     $titleStmt->close();
     $title = $titleRow['title'] ?? null;
+    $detail = $extraDetail === null || $extraDetail === ''
+        ? $title
+        : trim(($title ?? '') . ' · ' . $extraDetail, ' ·');
 
     $ph = implode(',', array_fill(0, count($assetIds), '?'));
     $ty = str_repeat('i', count($assetIds));
@@ -102,7 +107,71 @@ function release_request_assets(mysqli $mysqli, int $requestId, string $eventTyp
     $upd->close();
 
     foreach ($assetIds as $assetId) {
-        log_asset_event($mysqli, $assetId, $eventType, $title, $requestId);
+        log_asset_event($mysqli, $assetId, $eventType, $detail, $requestId);
+    }
+    return $assetIds;
+}
+
+/**
+ * Records a return inspection (condition + notes + photos) for a completed
+ * loan, linking it to every asset that was on the request. $inspection is
+ * the decoded `return_inspection` object from the PUT body. No-op if it's
+ * not an array or there are no assets to link. Caller owns the transaction.
+ */
+function record_return_inspection(mysqli $mysqli, int $requestId, array $assetIds, $inspection): void {
+    if (!is_array($inspection) || empty($assetIds)) return;
+
+    $condition = strtolower(trim((string) ($inspection['asset_condition'] ?? 'good')));
+    if (!in_array($condition, ['good', 'fair', 'poor', 'damaged'], true)) $condition = 'good';
+    $notes = trim((string) ($inspection['notes'] ?? ''));
+    if ($notes === '') $notes = null;
+    $daysUsed = isset($inspection['days_used']) && is_numeric($inspection['days_used'])
+        ? max(0, (int) $inspection['days_used'])
+        : null;
+    $photos = is_array($inspection['photos'] ?? null) ? $inspection['photos'] : [];
+
+    $meta = $mysqli->prepare('SELECT title, borrow_date, return_date FROM requests WHERE id = ?');
+    $meta->bind_param('i', $requestId);
+    $meta->execute();
+    $metaRow = $meta->get_result()->fetch_assoc() ?: [];
+    $meta->close();
+    $title = $metaRow['title'] ?? null;
+    $borrowDate = $metaRow['borrow_date'] ?? null;
+    $returnDate = $metaRow['return_date'] ?? null;
+
+    $ins = $mysqli->prepare(
+        'INSERT INTO asset_returns (request_id, request_title, borrow_date, return_date, days_used, asset_condition, notes) ' .
+        'VALUES (?, ?, ?, ?, ?, ?, ?)'
+    );
+    $ins->bind_param('isssiss', $requestId, $title, $borrowDate, $returnDate, $daysUsed, $condition, $notes);
+    $ins->execute();
+    $returnId = $ins->insert_id;
+    $ins->close();
+
+    $linkStmt = $mysqli->prepare('INSERT INTO asset_return_assets (return_id, asset_id) VALUES (?, ?)');
+    foreach ($assetIds as $assetId) {
+        $linkStmt->bind_param('ii', $returnId, $assetId);
+        $linkStmt->execute();
+    }
+    $linkStmt->close();
+
+    $photoStmt = $mysqli->prepare('INSERT INTO asset_return_photos (return_id, image_base64) VALUES (?, ?)');
+    foreach ($photos as $photo) {
+        $photo = (string) $photo;
+        if ($photo === '') continue;
+        $photoStmt->bind_param('is', $returnId, $photo);
+        $photoStmt->execute();
+    }
+    $photoStmt->close();
+}
+
+/** Human label for a condition slug, for the timeline line. */
+function condition_label(string $slug): string {
+    switch ($slug) {
+        case 'fair': return 'Condition: Fair';
+        case 'poor': return 'Condition: Poor';
+        case 'damaged': return 'Condition: Damaged';
+        default: return 'Condition: Good';
     }
 }
 
@@ -244,12 +313,26 @@ if ($method === 'PUT') {
         ), fn($t) => $t !== '')))
         : [];
 
+    // Optional return inspection (condition + notes + photos), sent with a
+    // 'returned' status. Ignored for any other status.
+    $returnInspection = $body['return_inspection'] ?? null;
+
     $mysqli->begin_transaction();
     try {
         if ($status === 'returned') {
             // Loan completed: free the assets but keep the request_assets
-            // rows so the request still shows what was borrowed.
-            release_request_assets($mysqli, $id, 'returned');
+            // rows so the request still shows what was borrowed. Record the
+            // return inspection (condition + photos) against those assets.
+            $conditionSlug = is_array($returnInspection)
+                ? strtolower(trim((string) ($returnInspection['asset_condition'] ?? 'good')))
+                : 'good';
+            $freedIds = release_request_assets(
+                $mysqli,
+                $id,
+                'returned',
+                is_array($returnInspection) ? condition_label($conditionSlug) : null
+            );
+            record_return_inspection($mysqli, $id, $freedIds, $returnInspection);
         } else {
             // Any other transition drops the assignment entirely. The
             // approved branch below then re-assigns from a clean slate;
