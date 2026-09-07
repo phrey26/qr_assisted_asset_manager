@@ -3,41 +3,60 @@ import 'package:flutter/material.dart';
 import '../models/asset.dart';
 import '../theme/app_theme.dart';
 
-/// The two ways an asset leaves the active inventory, both of which now ask
-/// the admin for a reason that gets recorded.
+/// The two ways an asset leaves the active inventory, both of which ask the
+/// admin for a reason that gets recorded.
 enum AssetRemovalMode {
   /// From the active inventory: the asset isn't deleted, just moved to the
-  /// "Stock items" list. Recorded on the asset's timeline.
+  /// "Stock items" list. Recorded on the asset's timeline. If the admin
+  /// says it needs repair, it's filed under "Maintenance" instead of plain
+  /// "In stock" (see [AssetRemovalChoice.needsMaintenance]).
   retireToStock,
 
   /// From the "Stock items" list: the asset row is permanently deleted.
   /// Recorded in the `asset_removals` audit log. Only possible once the
-  /// asset is already a stock item.
+  /// asset has already been moved to stock.
   delete,
 }
 
+/// The admin's answer from [promptAssetRemoval].
+class AssetRemovalChoice {
+  const AssetRemovalChoice({required this.reason, this.needsMaintenance = false});
+
+  /// The trimmed reason text (always non-empty).
+  final String reason;
+
+  /// [AssetRemovalMode.retireToStock] only: the admin ticked "needs
+  /// repair", so the asset should be filed under [AssetStatus.maintenance]
+  /// rather than [AssetStatus.inStock]. Always false for a delete.
+  final bool needsMaintenance;
+}
+
 /// Prompts the admin to confirm removing [asset] and to give a reason.
-/// Returns the trimmed reason on confirm, or null if they cancelled.
+/// Returns the choice on confirm, or null if they cancelled.
 ///
 /// [mode] chooses the copy and styling: [AssetRemovalMode.retireToStock] is
 /// a neutral "move to stock", [AssetRemovalMode.delete] is a red,
 /// irreversible "delete permanently".
-Future<String?> promptAssetRemoval(
+Future<AssetRemovalChoice?> promptAssetRemoval(
   BuildContext context,
   AssetItem asset,
   AssetRemovalMode mode,
 ) {
-  return showDialog<String>(
+  return showDialog<AssetRemovalChoice>(
     context: context,
     builder: (_) => _AssetRemovalDialog(asset: asset, mode: mode),
   );
 }
 
-/// Kept for older call sites: a plain yes/no delete confirm with no reason.
-@Deprecated('Use promptAssetRemoval, which also collects a reason.')
-Future<bool> confirmAssetDeletion(BuildContext context, AssetItem asset) async {
-  final reason = await promptAssetRemoval(context, asset, AssetRemovalMode.delete);
-  return reason != null;
+/// Prompts the admin for the reason an asset is being put back into the
+/// active, borrowable inventory from "Stock items". Returns the trimmed
+/// reason on confirm, or null if they cancelled. Mirrors [promptAssetRemoval]
+/// so moving an asset in and out of stock feels symmetric.
+Future<String?> promptAssetActivation(BuildContext context, AssetItem asset) {
+  return showDialog<String>(
+    context: context,
+    builder: (_) => _AssetActivationDialog(asset: asset),
+  );
 }
 
 class _AssetRemovalDialog extends StatefulWidget {
@@ -53,11 +72,20 @@ class _AssetRemovalDialog extends StatefulWidget {
 class _AssetRemovalDialogState extends State<_AssetRemovalDialog> {
   final _controller = TextEditingController();
 
+  /// retire-to-stock only: whether to file the asset under "Maintenance"
+  /// rather than plain "In stock". Ticked automatically by the "Needs
+  /// repair" preset, but the admin can toggle it by hand too.
+  bool _needsMaintenance = false;
+
   bool get _isDelete => widget.mode == AssetRemovalMode.delete;
+
+  /// The preset that, when chosen, means the asset is going to stock
+  /// because it needs fixing — so it should land in "Maintenance".
+  static const _repairPreset = 'Needs repair';
 
   List<String> get _presetReasons => _isDelete
       ? const ['Beyond repair', 'Lost', 'Stolen', 'Disposed / scrapped', 'Donated / transferred']
-      : const ['Worn out', 'Damaged', 'Obsolete / outdated', 'Rarely used', 'Needs repair'];
+      : const ['Worn out', 'Damaged', 'Obsolete / outdated', 'Rarely used', _repairPreset];
 
   Color get _accent => _isDelete ? Colors.redAccent : AppTheme.primary;
 
@@ -65,6 +93,16 @@ class _AssetRemovalDialogState extends State<_AssetRemovalDialog> {
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  void _selectPreset(String preset) {
+    setState(() {
+      _controller.text = preset;
+      _controller.selection = TextSelection.fromPosition(
+        TextPosition(offset: _controller.text.length),
+      );
+      if (!_isDelete) _needsMaintenance = preset == _repairPreset;
+    });
   }
 
   @override
@@ -128,6 +166,184 @@ class _AssetRemovalDialogState extends State<_AssetRemovalDialog> {
                   label: preset,
                   selected: _controller.text.trim() == preset,
                   accent: _accent,
+                  onTap: () => _selectPreset(preset),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _controller,
+            onChanged: (_) => setState(() {}),
+            minLines: 2,
+            maxLines: 3,
+            decoration: const InputDecoration(hintText: 'Add or edit the reason...'),
+          ),
+          if (!_isDelete) ...[
+            const SizedBox(height: 4),
+            InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => setState(() => _needsMaintenance = !_needsMaintenance),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Checkbox(
+                      value: _needsMaintenance,
+                      onChanged: (v) => setState(() => _needsMaintenance = v ?? false),
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    const SizedBox(width: 6),
+                    const Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(top: 10),
+                        child: Text(
+                          'This asset needs repair — file it under "Maintenance"',
+                          style: TextStyle(
+                            color: AppTheme.darkGreen,
+                            fontSize: 13,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+      actionsAlignment: MainAxisAlignment.center,
+      actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+      actions: [
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => Navigator.pop(context),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppTheme.darkGreen,
+                  side: const BorderSide(color: AppTheme.border, width: 2),
+                  minimumSize: const Size(0, 48),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.w700)),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: hasReason
+                    ? () => Navigator.pop(
+                          context,
+                          AssetRemovalChoice(
+                            reason: _controller.text.trim(),
+                            needsMaintenance: !_isDelete && _needsMaintenance,
+                          ),
+                        )
+                    : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _accent,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(0, 48),
+                  textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                child: Text(
+                  _isDelete
+                      ? 'Delete'
+                      : (!_isDelete && _needsMaintenance)
+                          ? 'Move to maintenance'
+                          : 'Move to stock',
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// "Move to active" — the counterpart to [_AssetRemovalDialog] for putting a
+/// stock / maintenance asset back into the borrowable inventory.
+class _AssetActivationDialog extends StatefulWidget {
+  const _AssetActivationDialog({required this.asset});
+
+  final AssetItem asset;
+
+  @override
+  State<_AssetActivationDialog> createState() => _AssetActivationDialogState();
+}
+
+class _AssetActivationDialogState extends State<_AssetActivationDialog> {
+  final _controller = TextEditingController();
+
+  static const _presetReasons = [
+    'Repaired / serviced',
+    'Back in service',
+    'Needed for use',
+    'Replacing another unit',
+  ];
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final asset = widget.asset;
+    final hasReason = _controller.text.trim().isNotEmpty;
+
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      icon: Container(
+        width: 56,
+        height: 56,
+        decoration: const BoxDecoration(color: AppTheme.mint, shape: BoxShape.circle),
+        child: const Icon(Icons.unarchive_outlined, color: AppTheme.primary, size: 28),
+      ),
+      title: const Text(
+        'Move this asset to active inventory?',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: AppTheme.darkGreen,
+          fontWeight: FontWeight.w800,
+          fontSize: 20,
+        ),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '"${asset.name}" (${asset.tagId}) will be marked Available and can be '
+            'borrowed again. The reason below is recorded on its timeline.',
+            style: const TextStyle(color: AppTheme.muted, fontSize: 14, height: 1.4),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Why is it going back into service?',
+            style: TextStyle(
+              color: AppTheme.darkGreen,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final preset in _presetReasons)
+                _ReasonChip(
+                  label: preset,
+                  selected: _controller.text.trim() == preset,
+                  accent: AppTheme.primary,
                   onTap: () => setState(() {
                     _controller.text = preset;
                     _controller.selection = TextSelection.fromPosition(
@@ -171,13 +387,13 @@ class _AssetRemovalDialogState extends State<_AssetRemovalDialog> {
                     ? () => Navigator.pop(context, _controller.text.trim())
                     : null,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: _accent,
+                  backgroundColor: AppTheme.primary,
                   foregroundColor: Colors.white,
                   minimumSize: const Size(0, 48),
                   textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 ),
-                child: Text(_isDelete ? 'Delete' : 'Move to stock'),
+                child: const Text('Move to active'),
               ),
             ),
           ],

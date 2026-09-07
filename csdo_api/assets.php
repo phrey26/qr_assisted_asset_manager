@@ -103,10 +103,11 @@ if ($method === 'PUT') {
     }
     $stmt->close();
 
-    // Timeline entry for the manual status change (this endpoint only ever
-    // handles the hand-set statuses — 'available', 'maintenance',
-    // 'in_stock'; 'in_use' is driven through requests.php instead). The
-    // reason, when given, becomes the timeline line's detail.
+    // Timeline entry for the change. This endpoint handles the flow-driven
+    // status moves that aren't borrowing: 'in_stock' / 'maintenance' (from
+    // "Move to stock") and 'available' (from "Move to active"). 'in_use' is
+    // driven through requests.php instead. The reason, when given, becomes
+    // the timeline line's detail.
     log_asset_event($mysqli, (int) $assetRow['id'], $status, $reason !== '' ? $reason : null);
 
     echo json_encode(['message' => 'Asset updated.']);
@@ -119,9 +120,10 @@ if ($method === 'DELETE') {
     if ($tagId === '') fail(400, 'tag_id query parameter is required.');
     if ($reason === '') fail(400, 'A reason for removal is required.');
 
-    // An asset can only be permanently deleted once it's a stock item, and
-    // the reason is written to asset_removals (which has no FK to assets,
-    // so it outlives this row) before the delete.
+    // An asset can only be permanently deleted once it's been moved off the
+    // active inventory (status 'in_stock' or 'maintenance' — both show on
+    // the "Stock items" screen). The reason is written to asset_removals
+    // (which has no FK to assets, so it outlives this row) before the delete.
     $stmt = $mysqli->prepare(
         'SELECT a.id, a.tag_id, a.name, a.status, c.value AS category ' .
         'FROM assets a JOIN categories c ON c.id = a.category_id WHERE a.tag_id = ?'
@@ -131,7 +133,7 @@ if ($method === 'DELETE') {
     $row = $stmt->get_result()->fetch_assoc();
     $stmt->close();
     if (!$row) fail(404, 'No asset with that tag_id.');
-    if ($row['status'] !== 'in_stock') {
+    if (!in_array($row['status'], ['in_stock', 'maintenance'], true)) {
         fail(409, 'Only stock items can be permanently deleted. Move the asset to stock first.');
     }
 

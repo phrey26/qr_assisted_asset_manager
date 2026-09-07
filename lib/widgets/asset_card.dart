@@ -12,7 +12,7 @@ class AssetCard extends StatelessWidget {
     required this.asset,
     this.onTap,
     this.onDelete,
-    this.onUpdateStatus,
+    this.onActivate,
     this.removeIcon = Icons.delete_outline,
     this.removeTooltip = 'Remove from inventory',
     this.removeColor = Colors.redAccent,
@@ -35,10 +35,10 @@ class AssetCard extends StatelessWidget {
   final String removeTooltip;
   final Color removeColor;
 
-  /// Invoked with the newly-picked status when the admin changes it from
-  /// the status chip's menu (e.g. flagging the asset as under
-  /// maintenance). When null, the chip is a plain read-only label.
-  final ValueChanged<AssetStatus>? onUpdateStatus;
+  /// Invoked when the admin taps the "Move to active" button — shown only
+  /// on the stock-items list, to put a stock / maintenance asset back into
+  /// the borrowable inventory. When null, no such button is shown.
+  final VoidCallback? onActivate;
 
   @override
   Widget build(BuildContext context) {
@@ -140,14 +140,23 @@ class AssetCard extends StatelessWidget {
                       ],
                       if (isMobile) ...[
                         SizedBox(height: 8 * scale),
-                        StatusChip(status: asset.status, onChanged: onUpdateStatus),
+                        StatusChip(status: asset.status),
                       ],
                     ],
                   ),
                 ),
                 if (!isMobile) ...[
                   SizedBox(width: 10 * scale),
-                  StatusChip(status: asset.status, onChanged: onUpdateStatus),
+                  StatusChip(status: asset.status),
+                ],
+                if (onActivate != null) ...[
+                  SizedBox(width: isMobile ? 0 : 4 * scale),
+                  IconButton(
+                    onPressed: onActivate,
+                    icon: Icon(Icons.unarchive_outlined, size: 24 * scale),
+                    color: AppTheme.primary,
+                    tooltip: 'Move to active inventory',
+                  ),
                 ],
                 if (onDelete != null) ...[
                   SizedBox(width: isMobile ? 0 : 4 * scale),

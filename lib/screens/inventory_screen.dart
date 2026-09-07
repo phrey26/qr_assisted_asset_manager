@@ -39,8 +39,7 @@ extension InventorySortOptionX on InventorySortOption {
 void _openAssetDetail(
   BuildContext context,
   AssetItem asset, {
-  void Function(AssetItem asset, String reason)? onRetireAsset,
-  void Function(AssetItem asset, AssetStatus status)? onUpdateStatus,
+  void Function(AssetItem asset, String reason, bool needsMaintenance)? onRetireAsset,
 }) {
   Navigator.push(
     context,
@@ -48,25 +47,24 @@ void _openAssetDetail(
       builder: (_) => AssetDetailScreen(
         asset: asset,
         removalMode: AssetRemovalMode.retireToStock,
-        onDelete: onRetireAsset == null ? null : (reason) => onRetireAsset(asset, reason),
-        onUpdateStatus: onUpdateStatus == null
+        onDelete: onRetireAsset == null
             ? null
-            : (status) => onUpdateStatus(asset, status),
+            : (reason, needsMaintenance) => onRetireAsset(asset, reason, needsMaintenance),
       ),
     ),
   );
 }
 
 /// Asks the admin why the asset is being moved to stock, and only invokes
-/// [onRetireAsset] (with that reason) if they confirm. Shared by the mobile
-/// card list and the desktop table.
+/// [onRetireAsset] (with that reason, and whether it needs maintenance) if
+/// they confirm. Shared by the mobile card list and the desktop table.
 Future<void> _confirmAndRetire(
   BuildContext context,
   AssetItem asset,
-  void Function(AssetItem asset, String reason) onRetireAsset,
+  void Function(AssetItem asset, String reason, bool needsMaintenance) onRetireAsset,
 ) async {
-  final reason = await promptAssetRemoval(context, asset, AssetRemovalMode.retireToStock);
-  if (reason != null) onRetireAsset(asset, reason);
+  final choice = await promptAssetRemoval(context, asset, AssetRemovalMode.retireToStock);
+  if (choice != null) onRetireAsset(asset, choice.reason, choice.needsMaintenance);
 }
 
 class InventoryScreen extends StatefulWidget {
@@ -77,7 +75,7 @@ class InventoryScreen extends StatefulWidget {
     this.onAddAsset,
     this.onRetireAsset,
     this.onDeleteAsset,
-    this.onUpdateStatus,
+    this.onActivateAsset,
   });
 
   final List<AssetItem> assets;
@@ -93,22 +91,22 @@ class InventoryScreen extends StatefulWidget {
   /// hi-fi desktop mockups.
   final VoidCallback? onAddAsset;
 
-  /// Invoked (with the admin's reason) to retire an asset from the active
-  /// inventory into "Stock items". This is the only "remove" action on this
-  /// page — assets are never deleted straight from here. When null, no
-  /// retire affordance is shown.
-  final void Function(AssetItem asset, String reason)? onRetireAsset;
+  /// Invoked (with the admin's reason, and whether the asset needs repair —
+  /// which files it under "Maintenance" rather than plain "In stock") to
+  /// retire an asset from the active inventory into "Stock items". This is
+  /// the only "remove" action on this page — assets are never deleted
+  /// straight from here. When null, no retire affordance is shown.
+  final void Function(AssetItem asset, String reason, bool needsMaintenance)? onRetireAsset;
 
   /// Permanent-delete handler, forwarded to [StockItemsScreen] (assets can
   /// only be deleted for good once they're stock items). Not used directly
   /// on this page.
   final void Function(AssetItem asset, String reason)? onDeleteAsset;
 
-  /// Invoked when the admin changes an asset's status from its status
-  /// chip's menu — e.g. flagging it as under maintenance, or marking it
-  /// available again once it's fixed. When null, status chips throughout
-  /// this page are read-only.
-  final void Function(AssetItem asset, AssetStatus status)? onUpdateStatus;
+  /// Invoked (with the admin's reason) to move a stock / maintenance asset
+  /// back into the active, borrowable inventory. Forwarded to
+  /// [StockItemsScreen]. Not used directly on this page.
+  final void Function(AssetItem asset, String reason)? onActivateAsset;
 
   @override
   State<InventoryScreen> createState() => InventoryScreenState();
@@ -145,9 +143,9 @@ class InventoryScreenState extends State<InventoryScreen> {
     searchController.addListener(() => setState(() {}));
   }
 
-  /// Opens the backup "stock items" list. Forwards the same delete and
-  /// status handlers so an item can be activated (moved back into the main
-  /// inventory) or removed straight from there.
+  /// Opens the backup "stock items" list. Forwards the activate and delete
+  /// handlers so an item can be moved back into the main inventory or
+  /// removed straight from there.
   Future<void> _openStockItems(BuildContext context) async {
     await Navigator.push(
       context,
@@ -155,7 +153,7 @@ class InventoryScreenState extends State<InventoryScreen> {
         builder: (_) => StockItemsScreen(
           assets: widget.assets,
           onDeleteAsset: widget.onDeleteAsset,
-          onUpdateStatus: widget.onUpdateStatus,
+          onActivateAsset: widget.onActivateAsset,
         ),
       ),
     );
@@ -182,11 +180,12 @@ class InventoryScreenState extends State<InventoryScreen> {
     super.dispose();
   }
 
-  /// Only the active, borrowable assets. "Stock items" (backups) are kept
-  /// out of the main inventory and shown on their own screen instead — see
+  /// Only the active, borrowable assets. "Stock items" — backups, plus
+  /// anything moved out needing repair (Maintenance) — are kept out of the
+  /// main inventory and shown on their own screen instead, see
   /// [StockItemsScreen].
   List<AssetItem> get _activeAssets =>
-      widget.assets.where((asset) => !asset.isInStock).toList();
+      widget.assets.where((asset) => asset.isActiveInventory).toList();
 
   int get _stockCount => widget.assets.length - _activeAssets.length;
 
@@ -326,7 +325,6 @@ class InventoryScreenState extends State<InventoryScreen> {
                   child: _InventoryTable(
                     assets: filtered,
                     onRetireAsset: widget.onRetireAsset,
-                    onUpdateStatus: widget.onUpdateStatus,
                   ),
                 ),
               ),
@@ -348,14 +346,10 @@ class InventoryScreenState extends State<InventoryScreen> {
                     context,
                     asset,
                     onRetireAsset: widget.onRetireAsset,
-                    onUpdateStatus: widget.onUpdateStatus,
                   ),
                   onDelete: widget.onRetireAsset == null
                       ? null
                       : () => _confirmAndRetire(context, asset, widget.onRetireAsset!),
-                  onUpdateStatus: widget.onUpdateStatus == null
-                      ? null
-                      : (status) => widget.onUpdateStatus!(asset, status),
                 );
               },
             ),
@@ -419,11 +413,10 @@ class InventoryScreenState extends State<InventoryScreen> {
 /// hi-fi desktop mockups (a wide table reads better than stacked cards once
 /// there's room for it).
 class _InventoryTable extends StatelessWidget {
-  const _InventoryTable({required this.assets, this.onRetireAsset, this.onUpdateStatus});
+  const _InventoryTable({required this.assets, this.onRetireAsset});
 
   final List<AssetItem> assets;
-  final void Function(AssetItem asset, String reason)? onRetireAsset;
-  final void Function(AssetItem asset, AssetStatus status)? onUpdateStatus;
+  final void Function(AssetItem asset, String reason, bool needsMaintenance)? onRetireAsset;
 
   @override
   Widget build(BuildContext context) {
@@ -471,7 +464,6 @@ class _InventoryTable extends StatelessWidget {
                     context,
                     asset,
                     onRetireAsset: onRetireAsset,
-                    onUpdateStatus: onUpdateStatus,
                   ),
                   cells: [
                     DataCell(Text(
@@ -500,14 +492,7 @@ class _InventoryTable extends StatelessWidget {
                         ],
                       ],
                     )),
-                    DataCell(
-                      StatusChip(
-                        status: asset.status,
-                        onChanged: onUpdateStatus == null
-                            ? null
-                            : (status) => onUpdateStatus!(asset, status),
-                      ),
-                    ),
+                    DataCell(StatusChip(status: asset.status)),
                     if (onRetireAsset != null)
                       DataCell(
                         IconButton(

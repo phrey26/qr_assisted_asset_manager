@@ -9,33 +9,37 @@ import '../widgets/page_header.dart';
 import 'asset_detail_screen.dart';
 import 'removed_assets_screen.dart';
 
-/// Backup ("stock") assets — items the office keeps on hand as spares but
-/// that are **not** part of the borrowable pool. They're filed here instead
-/// of the main [InventoryScreen] when an asset is added with the "Stock
-/// item" destination, or when its status is later set to "In stock".
+/// Assets that have been taken out of the active, borrowable inventory —
+/// backups kept on hand as spares ([AssetStatus.inStock]) and anything
+/// moved out because it needs repair ([AssetStatus.maintenance]). They're
+/// filed here instead of the main [InventoryScreen] when an asset is added
+/// with the "Stock item" destination, or later via "Move to stock".
 ///
 /// The screen shares [InventoryScreen]'s asset list (owned by `AppShell`)
-/// and its delete / status handlers, so an item can be activated — moved
-/// back into the main inventory by giving it any non-stock status — or
-/// removed straight from here. Both actions are persisted to the backend by
-/// those handlers.
+/// and its activate / delete handlers, so an item can be moved back into
+/// the main inventory ("Move to active") or removed straight from here.
+/// Both actions are persisted to the backend by those handlers.
 class StockItemsScreen extends StatefulWidget {
   const StockItemsScreen({
     super.key,
     required this.assets,
     this.onDeleteAsset,
-    this.onUpdateStatus,
+    this.onActivateAsset,
   });
 
   /// The full asset list (active + stock). This screen shows only the
-  /// entries whose status is [AssetStatus.inStock].
+  /// entries that aren't in the active inventory (see
+  /// [AssetItem.isActiveInventory]).
   final List<AssetItem> assets;
 
   /// Permanently deletes the asset, given the admin's reason. Only offered
   /// here — an asset can't be deleted straight from the active inventory,
   /// it has to be moved to stock first.
   final void Function(AssetItem asset, String reason)? onDeleteAsset;
-  final void Function(AssetItem asset, AssetStatus status)? onUpdateStatus;
+
+  /// Moves the asset back into the active, borrowable inventory, given the
+  /// admin's reason (recorded on its timeline).
+  final void Function(AssetItem asset, String reason)? onActivateAsset;
 
   @override
   State<StockItemsScreen> createState() => _StockItemsScreenState();
@@ -59,17 +63,17 @@ class _StockItemsScreenState extends State<StockItemsScreen> {
   List<AssetItem> get _stockItems {
     final query = searchController.text.toLowerCase();
     return widget.assets.where((asset) {
-      if (!asset.isInStock) return false;
+      if (asset.isActiveInventory) return false;
       return asset.name.toLowerCase().contains(query) ||
           asset.tagId.toLowerCase().contains(query);
     }).toList()
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
   }
 
-  /// Applies a status change through the shared handler, then rebuilds so
-  /// an item that's just been activated drops out of this list.
-  void _updateStatus(AssetItem asset, AssetStatus status) {
-    widget.onUpdateStatus?.call(asset, status);
+  /// Moves an asset back into the active inventory through the shared
+  /// handler, then rebuilds so it drops out of this list.
+  void _activateAsset(AssetItem asset, String reason) {
+    widget.onActivateAsset?.call(asset, reason);
     setState(() {});
   }
 
@@ -87,10 +91,10 @@ class _StockItemsScreenState extends State<StockItemsScreen> {
           removalMode: AssetRemovalMode.delete,
           onDelete: widget.onDeleteAsset == null
               ? null
-              : (reason) => _deleteAsset(asset, reason),
-          onUpdateStatus: widget.onUpdateStatus == null
+              : (reason, _) => _deleteAsset(asset, reason),
+          onActivate: widget.onActivateAsset == null
               ? null
-              : (status) => _updateStatus(asset, status),
+              : (reason) => _activateAsset(asset, reason),
         ),
       ),
     );
@@ -98,8 +102,13 @@ class _StockItemsScreenState extends State<StockItemsScreen> {
   }
 
   Future<void> _confirmAndDelete(AssetItem asset) async {
-    final reason = await promptAssetRemoval(context, asset, AssetRemovalMode.delete);
-    if (reason != null) _deleteAsset(asset, reason);
+    final choice = await promptAssetRemoval(context, asset, AssetRemovalMode.delete);
+    if (choice != null) _deleteAsset(asset, choice.reason);
+  }
+
+  Future<void> _confirmAndActivate(AssetItem asset) async {
+    final reason = await promptAssetActivation(context, asset);
+    if (reason != null) _activateAsset(asset, reason);
   }
 
   @override
@@ -107,7 +116,7 @@ class _StockItemsScreenState extends State<StockItemsScreen> {
     final isDesktop = Responsive.isDesktop(context);
     final maxWidth = isDesktop ? 1040.0 : double.infinity;
     final items = _stockItems;
-    final totalStock = widget.assets.where((a) => a.isInStock).length;
+    final totalStock = widget.assets.where((a) => !a.isActiveInventory).length;
 
     return Scaffold(
       appBar: AppBar(
@@ -140,8 +149,9 @@ class _StockItemsScreenState extends State<StockItemsScreen> {
                     constraints: BoxConstraints(maxWidth: maxWidth),
                     child: PageHeader(
                       title: 'Stock items',
-                      subtitle: '$totalStock backup '
-                          '${totalStock == 1 ? 'item' : 'items'} — not available to borrow',
+                      subtitle: '$totalStock '
+                          '${totalStock == 1 ? 'item' : 'items'} held out of active '
+                          'inventory — not available to borrow',
                       showMark: false,
                     ),
                   ),
@@ -184,7 +194,8 @@ class _StockItemsScreenState extends State<StockItemsScreen> {
                   child: Center(
                     child: Text(
                       totalStock == 0
-                          ? 'No stock items yet.\nAdd an asset as a "Stock item" to keep it here as a backup.'
+                          ? 'Nothing here yet.\nAdd an asset as a "Stock item", or use "Move to stock" '
+                              'on an asset in the inventory, to file it here.'
                           : 'No stock items match your search.',
                       textAlign: TextAlign.center,
                       style: const TextStyle(color: AppTheme.muted, fontSize: 15),
@@ -211,12 +222,12 @@ class _StockItemsScreenState extends State<StockItemsScreen> {
                               asset: asset,
                               removeTooltip: 'Delete permanently',
                               onTap: () => _openDetail(asset),
+                              onActivate: widget.onActivateAsset == null
+                                  ? null
+                                  : () => _confirmAndActivate(asset),
                               onDelete: widget.onDeleteAsset == null
                                   ? null
                                   : () => _confirmAndDelete(asset),
-                              onUpdateStatus: widget.onUpdateStatus == null
-                                  ? null
-                                  : (status) => _updateStatus(asset, status),
                             ),
                         ],
                       ),
@@ -246,9 +257,9 @@ class _StockItemsScreenState extends State<StockItemsScreen> {
           SizedBox(width: 12),
           Expanded(
             child: Text(
-              'Stock items are spares kept as backup. They can\'t be borrowed. '
-              'Set an item\'s status to "Available" (from its status chip) to move '
-              'it into the active inventory.',
+              'These assets are held out of the active inventory — spare backups, and '
+              'items moved out needing repair (Maintenance). They can\'t be borrowed. '
+              'Use "Move to active" to put one back into the borrowable inventory.',
               style: TextStyle(color: AppTheme.darkGreen, fontSize: 13, height: 1.4),
             ),
           ),

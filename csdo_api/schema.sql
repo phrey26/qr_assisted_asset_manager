@@ -56,11 +56,14 @@ CREATE TABLE IF NOT EXISTS assets (
   name VARCHAR(150) NOT NULL,
   category_id INT NOT NULL,
   description TEXT,
-  -- One of: 'available', 'in_use', 'maintenance', 'in_stock'.
-  -- 'in_stock' marks a backup item that is NOT part of the borrowable
-  -- pool; the app lists those on a separate "Stock items" screen. The
-  -- column stays a plain VARCHAR (no ENUM/CHECK) so the app can evolve
-  -- this set without a migration.
+  -- One of: 'available', 'in_use', 'maintenance', 'in_stock'. Status is
+  -- never hand-picked; it's driven by flows. 'available' <-> 'in_use' is
+  -- the borrow/return cycle. 'in_stock' and 'maintenance' both mean the
+  -- asset has been moved off the borrowable pool via "Move to stock"
+  -- ('maintenance' when the admin flagged it as needing repair); the app
+  -- lists both on a separate "Stock items" screen, and "Move to active"
+  -- sends them back to 'available'. Plain VARCHAR (no ENUM/CHECK) so the
+  -- app can evolve this set without a migration.
   status VARCHAR(20) NOT NULL DEFAULT 'available',
   purchase_date DATE NOT NULL,
   image_base64 LONGTEXT NULL,
@@ -116,9 +119,10 @@ CREATE TABLE IF NOT EXISTS request_assets (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Per-asset timeline / audit log. One row per notable thing that happened
--- to an asset: 'added', a manual status change ('available', 'maintenance',
--- 'in_stock'), or a request-driven change ('borrowed', 'returned',
--- 'released' when a loan is cancelled). `detail` carries context such as the
+-- to an asset: 'added', a flow-driven status move ('available' from "Move
+-- to active", 'maintenance' / 'in_stock' from "Move to stock"), or a
+-- request-driven change ('borrowed', 'returned', 'released' when a loan is
+-- cancelled). `detail` carries context such as the
 -- request title; `request_id` is informational only (no FK, so the line
 -- survives the request being deleted). Written by log_asset_event() in
 -- db.php. Safe to re-run.

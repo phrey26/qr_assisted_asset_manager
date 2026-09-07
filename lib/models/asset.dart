@@ -4,10 +4,13 @@ import 'dart:typed_data';
 
 /// The lifecycle state of an asset.
 ///
-/// [inStock] is special: it marks an asset that's kept purely as a backup
-/// and is **not** part of the borrowable pool. Stock items are listed on
-/// their own "Stock items" screen rather than the main inventory, and are
-/// promoted to [available] when they're put into active service.
+/// Status is driven entirely by the borrow / return / stock flows — it's
+/// never hand-picked from a menu. [available] ⟷ [inUse] is the borrow and
+/// return cycle; [inStock] and [maintenance] both mean the asset has been
+/// moved off the active, borrowable pool (via "Move to stock", with
+/// [maintenance] used when the reason was that it needs repair). Both are
+/// listed on the "Stock items" screen and are put back into service with
+/// "Move to active".
 enum AssetStatus { available, inUse, maintenance, inStock }
 
 extension AssetStatusX on AssetStatus {
@@ -110,6 +113,13 @@ class AssetItem {
   /// Whether this asset is a backup ("stock") item — kept off the main
   /// inventory and not available to be borrowed until it's activated.
   bool get isInStock => status.isStock;
+
+  /// Whether this asset is part of the active, borrowable inventory —
+  /// either [AssetStatus.available] or currently [AssetStatus.inUse].
+  /// Everything else ([AssetStatus.inStock] and [AssetStatus.maintenance])
+  /// has been filed out onto the "Stock items" screen.
+  bool get isActiveInventory =>
+      status == AssetStatus.available || status == AssetStatus.inUse;
 
   /// Whether this asset is IT equipment that is past its
   /// [itEquipmentLifespanYears]-year expected lifespan, based on

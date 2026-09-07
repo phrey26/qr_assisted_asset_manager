@@ -255,21 +255,51 @@ class _AppShellState extends State<AppShell> {
   /// Retires an asset from the active inventory into "Stock items", with the
   /// admin's [reason] (recorded on the asset's timeline). This is what the
   /// "remove" affordance on [InventoryScreen] / [AssetDetailScreen] now
-  /// does — assets are never deleted straight from the active list.
-  Future<void> _retireAssetToStock(AssetItem asset, String reason) async {
+  /// does — assets are never deleted straight from the active list. When
+  /// [needsMaintenance] is set (the admin said it needs repair), it's filed
+  /// under [AssetStatus.maintenance] rather than [AssetStatus.inStock];
+  /// either way it leaves the borrowable pool and shows on the stock list.
+  Future<void> _retireAssetToStock(
+    AssetItem asset,
+    String reason,
+    bool needsMaintenance,
+  ) async {
     final match = _assets.firstWhere((item) => item.tagId == asset.tagId);
-    if (match.status == AssetStatus.inStock) return;
+    final target =
+        needsMaintenance ? AssetStatus.maintenance : AssetStatus.inStock;
+    if (match.status == target) return;
     final previousStatus = match.status;
-    setState(() => match.status = AssetStatus.inStock);
+    setState(() => match.status = target);
     try {
       await ApiService.updateAssetStatus(
         tagId: asset.tagId,
-        status: AssetStatus.inStock.apiValue,
+        status: target.apiValue,
         reason: reason,
       );
     } catch (e) {
       setState(() => match.status = previousStatus);
       _showSyncError('Could not move the asset to stock: $e');
+    }
+  }
+
+  /// Moves a stock / maintenance asset back into the active, borrowable
+  /// inventory (status [AssetStatus.available]), with the admin's [reason]
+  /// recorded on the asset's timeline. Triggered by "Move to active" on
+  /// [StockItemsScreen] / [AssetDetailScreen].
+  Future<void> _activateAsset(AssetItem asset, String reason) async {
+    final match = _assets.firstWhere((item) => item.tagId == asset.tagId);
+    if (match.status == AssetStatus.available) return;
+    final previousStatus = match.status;
+    setState(() => match.status = AssetStatus.available);
+    try {
+      await ApiService.updateAssetStatus(
+        tagId: asset.tagId,
+        status: AssetStatus.available.apiValue,
+        reason: reason,
+      );
+    } catch (e) {
+      setState(() => match.status = previousStatus);
+      _showSyncError('Could not move the asset back to active inventory: $e');
     }
   }
 
@@ -283,29 +313,6 @@ class _AppShellState extends State<AppShell> {
       setState(() => _assets.removeWhere((item) => item.tagId == asset.tagId));
     } catch (e) {
       _showSyncError('Could not delete the asset: $e');
-    }
-  }
-
-  /// Changes an asset's status — e.g. flagging it as under maintenance, or
-  /// marking it available again once it's fixed. Triggered from the status
-  /// chip's menu on the inventory page (list, table, and detail views all
-  /// share this one handler). tagId is unique per asset, so it's used to
-  /// find the matching item in [_assets] rather than relying on object
-  /// identity, which the widgets that call this don't guarantee. Applied
-  /// locally right away (the chip's own menu already closed by the time
-  /// this runs) and rolled back if the backend rejects it.
-  Future<void> _updateAssetStatus(AssetItem asset, AssetStatus status) async {
-    final match = _assets.firstWhere((item) => item.tagId == asset.tagId);
-    // Picking the status the asset already has is a no-op — don't touch the
-    // backend, and don't add a redundant line to its timeline.
-    if (match.status == status) return;
-    final previousStatus = match.status;
-    setState(() => match.status = status);
-    try {
-      await ApiService.updateAssetStatus(tagId: asset.tagId, status: status.apiValue);
-    } catch (e) {
-      setState(() => match.status = previousStatus);
-      _showSyncError('Could not update the asset\'s status: $e');
     }
   }
 
@@ -435,7 +442,7 @@ class _AppShellState extends State<AppShell> {
         onAddAsset: _openAddAsset,
         onRetireAsset: _retireAssetToStock,
         onDeleteAsset: _deleteAsset,
-        onUpdateStatus: _updateAssetStatus,
+        onActivateAsset: _activateAsset,
       ),
       // isActive tells the scanner whether its tab is the one on screen.
       // Every tab in this IndexedStack is mounted at once, so without this

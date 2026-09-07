@@ -28,26 +28,28 @@ class AssetDetailScreen extends StatefulWidget {
     super.key,
     required this.asset,
     this.onDelete,
-    this.onUpdateStatus,
+    this.onActivate,
     this.removalMode = AssetRemovalMode.retireToStock,
   });
 
   final AssetItem asset;
 
-  /// Invoked with the admin's reason once the removal dialog is confirmed.
-  /// What it does depends on [removalMode] — retire to stock, or delete
+  /// Invoked with the admin's reason (and, for a retire-to-stock, whether
+  /// it needs maintenance) once the removal dialog is confirmed. What it
+  /// does depends on [removalMode] — retire to stock, or delete
   /// permanently. When null, no remove action is shown.
-  final void Function(String reason)? onDelete;
+  final void Function(String reason, bool needsMaintenance)? onDelete;
+
+  /// Invoked with the admin's reason to move a stock / maintenance asset
+  /// back into the active, borrowable inventory. Wired up only when this
+  /// page is opened from the stock-items list. When null, no "move to
+  /// active" action is shown.
+  final void Function(String reason)? onActivate;
 
   /// Whether the remove action on this page retires the asset to stock
   /// (opened from the inventory) or permanently deletes it (opened from the
   /// stock-items list).
   final AssetRemovalMode removalMode;
-
-  /// Invoked with the newly-picked status when the admin changes it from
-  /// the status chip's menu (e.g. flagging the asset as under
-  /// maintenance). When null, the chip is a plain read-only label.
-  final ValueChanged<AssetStatus>? onUpdateStatus;
 
   @override
   State<AssetDetailScreen> createState() => _AssetDetailScreenState();
@@ -120,32 +122,21 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     }
   }
 
-  /// Applies the status change and refreshes this page. [widget.asset] is
-  /// the same mutable object held by the inventory list (matched by
-  /// tagId), so [onUpdateStatus] mutates it in place; since this page is a
-  /// separate pushed route, it won't pick that up on its own the way the
-  /// inventory list does via its own setState, so a local setState is
-  /// needed here too — mirroring how [RequestDetailScreen] refreshes after
-  /// approve/reject.
-  void _changeStatus(AssetStatus status) {
-    // No-op if it's already this status — avoids a redundant backend write,
-    // a redundant timeline entry, and a needless timeline refetch.
-    if (status == widget.asset.status) return;
-    widget.onUpdateStatus?.call(status);
-    setState(() {});
-    // The backend writes the timeline entry as part of that status update;
-    // give it a beat to land, then pull the refreshed history.
-    Future.delayed(const Duration(milliseconds: 700), () {
-      if (mounted) _loadEvents();
-    });
-  }
-
   Future<void> _removeAsset() async {
-    final reason = await promptAssetRemoval(context, widget.asset, widget.removalMode);
-    if (reason == null) return;
-    widget.onDelete?.call(reason);
+    final choice = await promptAssetRemoval(context, widget.asset, widget.removalMode);
+    if (choice == null) return;
+    widget.onDelete?.call(choice.reason, choice.needsMaintenance);
     // Return to the previous list now that the asset has moved/gone — its
     // detail page no longer has anything valid to show.
+    if (mounted) Navigator.pop(context);
+  }
+
+  Future<void> _activateAsset() async {
+    final reason = await promptAssetActivation(context, widget.asset);
+    if (reason == null) return;
+    widget.onActivate?.call(reason);
+    // The asset has left the stock list for the active inventory — this
+    // page was pushed from the stock list, so pop back to it.
     if (mounted) Navigator.pop(context);
   }
 
@@ -234,12 +225,29 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         ),
         title: const Text('Asset details'),
         actions: [
-          // On desktop there's plenty of room in the app bar for a proper,
-          // legible button instead of a bare icon that's easy to miss next
-          // to the back arrow. Mobile drops this entirely in favour of a
-          // full-width button at the bottom of the page (see
-          // `_deleteButton`) — a small icon crammed into a narrow phone
-          // app bar is both easy to miss and easy to mis-tap.
+          // On desktop there's plenty of room in the app bar for proper,
+          // legible buttons instead of bare icons that are easy to miss next
+          // to the back arrow. Mobile drops these entirely in favour of
+          // full-width buttons at the bottom of the page (see
+          // `_deleteButton` / `_activateButton`) — a small icon crammed into
+          // a narrow phone app bar is both easy to miss and easy to mis-tap.
+          if (widget.onActivate != null && desktop && !asset.isActiveInventory)
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: OutlinedButton.icon(
+                onPressed: _activateAsset,
+                icon: const Icon(Icons.unarchive_outlined, size: 18),
+                label: const Text('Move to active'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppTheme.primary,
+                  side: const BorderSide(color: AppTheme.primary, width: 2),
+                  minimumSize: const Size(0, 44),
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                ),
+              ),
+            ),
           if (widget.onDelete != null && desktop)
             Padding(
               padding: const EdgeInsets.only(right: 24),
@@ -307,6 +315,10 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
             _qrCard(),
             const SizedBox(height: 24),
             _timelineCard(),
+            if (widget.onActivate != null && !asset.isActiveInventory) ...[
+              const SizedBox(height: 24),
+              _activateButton(),
+            ],
             if (widget.onDelete != null) ...[
               const SizedBox(height: 24),
               _deleteButton(),
@@ -403,6 +415,35 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     );
   }
 
+  /// Full-width "move to active" button for mobile — the counterpart to
+  /// [_deleteButton], shown only when this page was opened from the stock
+  /// list for an asset that isn't in the active inventory.
+  Widget _activateButton() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _activateAsset,
+            icon: const Icon(Icons.unarchive_outlined, size: 20),
+            label: const Text('Move to active inventory'),
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size.fromHeight(56),
+              textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        const Text(
+          'This puts the asset back into the borrowable inventory. You\'ll be asked why.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: AppTheme.muted, fontSize: 13),
+        ),
+      ],
+    );
+  }
+
   /// Desktop gets a full "hero" card — a soft, flat category-tinted
   /// wash behind a larger category avatar, the name, and the tag ID —
   /// while mobile keeps a plain background with just a compact avatar, so
@@ -451,10 +492,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
           ),
         ),
         const SizedBox(width: 12),
-        StatusChip(
-          status: asset.status,
-          onChanged: widget.onUpdateStatus == null ? null : _changeStatus,
-        ),
+        StatusChip(status: asset.status),
       ],
     );
 
