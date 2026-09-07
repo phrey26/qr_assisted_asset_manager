@@ -29,14 +29,20 @@ class AssetDetailScreen extends StatefulWidget {
     required this.asset,
     this.onDelete,
     this.onUpdateStatus,
+    this.removalMode = AssetRemovalMode.retireToStock,
   });
 
   final AssetItem asset;
 
-  /// Invoked (after the "are you sure" dialog is confirmed) to remove this
-  /// asset from the inventory once it's no longer usable. When null, no
-  /// delete action is shown in the app bar.
-  final VoidCallback? onDelete;
+  /// Invoked with the admin's reason once the removal dialog is confirmed.
+  /// What it does depends on [removalMode] — retire to stock, or delete
+  /// permanently. When null, no remove action is shown.
+  final void Function(String reason)? onDelete;
+
+  /// Whether the remove action on this page retires the asset to stock
+  /// (opened from the inventory) or permanently deletes it (opened from the
+  /// stock-items list).
+  final AssetRemovalMode removalMode;
 
   /// Invoked with the newly-picked status when the admin changes it from
   /// the status chip's menu (e.g. flagging the asset as under
@@ -134,14 +140,16 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     });
   }
 
-  Future<void> _deleteAsset() async {
-    final confirmed = await confirmAssetDeletion(context, widget.asset);
-    if (!confirmed) return;
-    widget.onDelete?.call();
-    // Return to the inventory list now that the asset has been removed;
-    // its detail page no longer has anything valid to show.
+  Future<void> _removeAsset() async {
+    final reason = await promptAssetRemoval(context, widget.asset, widget.removalMode);
+    if (reason == null) return;
+    widget.onDelete?.call(reason);
+    // Return to the previous list now that the asset has moved/gone — its
+    // detail page no longer has anything valid to show.
     if (mounted) Navigator.pop(context);
   }
+
+  bool get _isDeleteMode => widget.removalMode == AssetRemovalMode.delete;
 
   /// The tint/icon pair to show for [category] — matched against the
   /// app's built-in categories first (covers every default category with
@@ -236,12 +244,19 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
             Padding(
               padding: const EdgeInsets.only(right: 24),
               child: OutlinedButton.icon(
-                onPressed: _deleteAsset,
-                icon: const Icon(Icons.delete_outline, size: 18),
-                label: const Text('Delete asset'),
+                onPressed: _removeAsset,
+                icon: Icon(
+                  _isDeleteMode ? Icons.delete_outline : Icons.archive_outlined,
+                  size: 18,
+                ),
+                label: Text(_isDeleteMode ? 'Delete asset' : 'Move to stock'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFFC84040),
-                  side: const BorderSide(color: Color(0xFFC84040), width: 2),
+                  foregroundColor:
+                      _isDeleteMode ? const Color(0xFFC84040) : AppTheme.primary,
+                  side: BorderSide(
+                    color: _isDeleteMode ? const Color(0xFFC84040) : AppTheme.primary,
+                    width: 2,
+                  ),
                   minimumSize: const Size(0, 44),
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -352,35 +367,37 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         ),
       );
 
-  /// Full-width danger button for mobile, styled to match the app's other
-  /// destructive actions (e.g. "Reject" on the request detail screen): a
-  /// red outline rather than a bare icon, plus a short caption so it's
-  /// unambiguous this can't be undone. This replaces the old app-bar icon,
-  /// which was small, easy to miss, and easy to mis-tap next to the back
-  /// arrow on a narrow phone screen.
+  /// Full-width remove button for mobile. In stock-items ("delete") mode it
+  /// carries the app's danger styling (red outline, "can't be undone"
+  /// caption); from the inventory it's the calmer "move to stock" action.
   Widget _deleteButton() {
+    final danger = _isDeleteMode;
+    final color = danger ? const Color(0xFFC84040) : AppTheme.primary;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
-            onPressed: _deleteAsset,
-            icon: const Icon(Icons.delete_outline, size: 20),
-            label: const Text('Remove asset'),
+            onPressed: _removeAsset,
+            icon: Icon(danger ? Icons.delete_outline : Icons.archive_outlined, size: 20),
+            label: Text(danger ? 'Delete asset' : 'Move to stock'),
             style: OutlinedButton.styleFrom(
-              foregroundColor: const Color(0xFFC84040),
-              side: const BorderSide(color: Color(0xFFC84040), width: 2),
+              foregroundColor: color,
+              side: BorderSide(color: color, width: 2),
               minimumSize: const Size.fromHeight(56),
               textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
             ),
           ),
         ),
         const SizedBox(height: 10),
-        const Text(
-          'This removes the asset from inventory and can\'t be undone.',
+        Text(
+          danger
+              ? 'This permanently removes the asset and can\'t be undone.'
+              : 'This moves the asset out of active inventory into stock. '
+                  'You\'ll be asked why.',
           textAlign: TextAlign.center,
-          style: TextStyle(color: AppTheme.muted, fontSize: 13),
+          style: const TextStyle(color: AppTheme.muted, fontSize: 13),
         ),
       ],
     );

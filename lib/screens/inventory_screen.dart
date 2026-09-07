@@ -33,12 +33,13 @@ extension InventorySortOptionX on InventorySortOption {
 
 /// Pushes [AssetDetailScreen] for the given asset. Shared by both the
 /// mobile card list and the desktop table so tapping an asset behaves the
-/// same way regardless of layout. [onDeleteAsset] is forwarded so the
-/// admin can also remove the asset from the detail page.
+/// same way regardless of layout. [onRetireAsset] is forwarded so the admin
+/// can also retire the asset (to stock, with a reason) from the detail
+/// page.
 void _openAssetDetail(
   BuildContext context,
   AssetItem asset, {
-  void Function(AssetItem asset)? onDeleteAsset,
+  void Function(AssetItem asset, String reason)? onRetireAsset,
   void Function(AssetItem asset, AssetStatus status)? onUpdateStatus,
 }) {
   Navigator.push(
@@ -46,7 +47,8 @@ void _openAssetDetail(
     MaterialPageRoute(
       builder: (_) => AssetDetailScreen(
         asset: asset,
-        onDelete: onDeleteAsset == null ? null : () => onDeleteAsset(asset),
+        removalMode: AssetRemovalMode.retireToStock,
+        onDelete: onRetireAsset == null ? null : (reason) => onRetireAsset(asset, reason),
         onUpdateStatus: onUpdateStatus == null
             ? null
             : (status) => onUpdateStatus(asset, status),
@@ -55,15 +57,16 @@ void _openAssetDetail(
   );
 }
 
-/// Shows the confirmation dialog, and only invokes [onDeleteAsset] if the
-/// admin confirms. Shared by the mobile card list and the desktop table.
-Future<void> _confirmAndDelete(
+/// Asks the admin why the asset is being moved to stock, and only invokes
+/// [onRetireAsset] (with that reason) if they confirm. Shared by the mobile
+/// card list and the desktop table.
+Future<void> _confirmAndRetire(
   BuildContext context,
   AssetItem asset,
-  void Function(AssetItem asset) onDeleteAsset,
+  void Function(AssetItem asset, String reason) onRetireAsset,
 ) async {
-  final confirmed = await confirmAssetDeletion(context, asset);
-  if (confirmed) onDeleteAsset(asset);
+  final reason = await promptAssetRemoval(context, asset, AssetRemovalMode.retireToStock);
+  if (reason != null) onRetireAsset(asset, reason);
 }
 
 class InventoryScreen extends StatefulWidget {
@@ -72,6 +75,7 @@ class InventoryScreen extends StatefulWidget {
     required this.assets,
     required this.categories,
     this.onAddAsset,
+    this.onRetireAsset,
     this.onDeleteAsset,
     this.onUpdateStatus,
   });
@@ -89,10 +93,16 @@ class InventoryScreen extends StatefulWidget {
   /// hi-fi desktop mockups.
   final VoidCallback? onAddAsset;
 
-  /// Invoked (after the admin confirms via the "are you sure" dialog) to
-  /// remove an asset from the inventory once it's no longer usable. When
-  /// null, no delete affordance is shown anywhere on this page.
-  final void Function(AssetItem asset)? onDeleteAsset;
+  /// Invoked (with the admin's reason) to retire an asset from the active
+  /// inventory into "Stock items". This is the only "remove" action on this
+  /// page — assets are never deleted straight from here. When null, no
+  /// retire affordance is shown.
+  final void Function(AssetItem asset, String reason)? onRetireAsset;
+
+  /// Permanent-delete handler, forwarded to [StockItemsScreen] (assets can
+  /// only be deleted for good once they're stock items). Not used directly
+  /// on this page.
+  final void Function(AssetItem asset, String reason)? onDeleteAsset;
 
   /// Invoked when the admin changes an asset's status from its status
   /// chip's menu — e.g. flagging it as under maintenance, or marking it
@@ -315,7 +325,7 @@ class InventoryScreenState extends State<InventoryScreen> {
                   constraints: BoxConstraints(maxWidth: maxWidth),
                   child: _InventoryTable(
                     assets: filtered,
-                    onDeleteAsset: widget.onDeleteAsset,
+                    onRetireAsset: widget.onRetireAsset,
                     onUpdateStatus: widget.onUpdateStatus,
                   ),
                 ),
@@ -331,15 +341,18 @@ class InventoryScreenState extends State<InventoryScreen> {
                 final asset = filtered[index];
                 return AssetCard(
                   asset: asset,
+                  removeIcon: Icons.archive_outlined,
+                  removeTooltip: 'Move to stock',
+                  removeColor: AppTheme.primary,
                   onTap: () => _openAssetDetail(
                     context,
                     asset,
-                    onDeleteAsset: widget.onDeleteAsset,
+                    onRetireAsset: widget.onRetireAsset,
                     onUpdateStatus: widget.onUpdateStatus,
                   ),
-                  onDelete: widget.onDeleteAsset == null
+                  onDelete: widget.onRetireAsset == null
                       ? null
-                      : () => _confirmAndDelete(context, asset, widget.onDeleteAsset!),
+                      : () => _confirmAndRetire(context, asset, widget.onRetireAsset!),
                   onUpdateStatus: widget.onUpdateStatus == null
                       ? null
                       : (status) => widget.onUpdateStatus!(asset, status),
@@ -406,10 +419,10 @@ class InventoryScreenState extends State<InventoryScreen> {
 /// hi-fi desktop mockups (a wide table reads better than stacked cards once
 /// there's room for it).
 class _InventoryTable extends StatelessWidget {
-  const _InventoryTable({required this.assets, this.onDeleteAsset, this.onUpdateStatus});
+  const _InventoryTable({required this.assets, this.onRetireAsset, this.onUpdateStatus});
 
   final List<AssetItem> assets;
-  final void Function(AssetItem asset)? onDeleteAsset;
+  final void Function(AssetItem asset, String reason)? onRetireAsset;
   final void Function(AssetItem asset, AssetStatus status)? onUpdateStatus;
 
   @override
@@ -449,7 +462,7 @@ class _InventoryTable extends StatelessWidget {
             const DataColumn(label: Text('Category')),
             const DataColumn(label: Text('Purchased')),
             const DataColumn(label: Text('Status')),
-            if (onDeleteAsset != null) const DataColumn(label: Text('')),
+            if (onRetireAsset != null) const DataColumn(label: Text('')),
           ],
           rows: assets
               .map(
@@ -457,7 +470,7 @@ class _InventoryTable extends StatelessWidget {
                   onSelectChanged: (_) => _openAssetDetail(
                     context,
                     asset,
-                    onDeleteAsset: onDeleteAsset,
+                    onRetireAsset: onRetireAsset,
                     onUpdateStatus: onUpdateStatus,
                   ),
                   cells: [
@@ -495,13 +508,13 @@ class _InventoryTable extends StatelessWidget {
                             : (status) => onUpdateStatus!(asset, status),
                       ),
                     ),
-                    if (onDeleteAsset != null)
+                    if (onRetireAsset != null)
                       DataCell(
                         IconButton(
-                          onPressed: () => _confirmAndDelete(context, asset, onDeleteAsset!),
-                          icon: const Icon(Icons.delete_outline),
-                          color: Colors.redAccent,
-                          tooltip: 'Remove from inventory',
+                          onPressed: () => _confirmAndRetire(context, asset, onRetireAsset!),
+                          icon: const Icon(Icons.archive_outlined),
+                          color: AppTheme.primary,
+                          tooltip: 'Move to stock',
                         ),
                       ),
                   ],

@@ -252,14 +252,33 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
-  /// Removes an asset from the inventory. Called only after the admin
-  /// confirms via the "are you sure" dialog shown by [InventoryScreen] /
-  /// [AssetDetailScreen] — e.g. once an asset is broken or otherwise no
-  /// longer usable. tagId is unique per asset, so it's used to identify
-  /// which one to remove.
-  Future<void> _deleteAsset(AssetItem asset) async {
+  /// Retires an asset from the active inventory into "Stock items", with the
+  /// admin's [reason] (recorded on the asset's timeline). This is what the
+  /// "remove" affordance on [InventoryScreen] / [AssetDetailScreen] now
+  /// does — assets are never deleted straight from the active list.
+  Future<void> _retireAssetToStock(AssetItem asset, String reason) async {
+    final match = _assets.firstWhere((item) => item.tagId == asset.tagId);
+    if (match.status == AssetStatus.inStock) return;
+    final previousStatus = match.status;
+    setState(() => match.status = AssetStatus.inStock);
     try {
-      await ApiService.deleteAsset(asset.tagId);
+      await ApiService.updateAssetStatus(
+        tagId: asset.tagId,
+        status: AssetStatus.inStock.apiValue,
+        reason: reason,
+      );
+    } catch (e) {
+      setState(() => match.status = previousStatus);
+      _showSyncError('Could not move the asset to stock: $e');
+    }
+  }
+
+  /// Permanently deletes a stock item, with the admin's [reason] (kept in
+  /// the backend `asset_removals` log). Only reachable from
+  /// [StockItemsScreen] — the backend rejects deleting a non-stock asset.
+  Future<void> _deleteAsset(AssetItem asset, String reason) async {
+    try {
+      await ApiService.deleteAsset(asset.tagId, reason: reason);
       if (!mounted) return;
       setState(() => _assets.removeWhere((item) => item.tagId == asset.tagId));
     } catch (e) {
@@ -414,6 +433,7 @@ class _AppShellState extends State<AppShell> {
         assets: _assets,
         categories: _categories,
         onAddAsset: _openAddAsset,
+        onRetireAsset: _retireAssetToStock,
         onDeleteAsset: _deleteAsset,
         onUpdateStatus: _updateAssetStatus,
       ),

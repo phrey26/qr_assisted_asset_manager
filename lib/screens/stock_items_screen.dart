@@ -7,6 +7,7 @@ import '../widgets/asset_card.dart';
 import '../widgets/delete_confirmation_dialog.dart';
 import '../widgets/page_header.dart';
 import 'asset_detail_screen.dart';
+import 'removed_assets_screen.dart';
 
 /// Backup ("stock") assets — items the office keeps on hand as spares but
 /// that are **not** part of the borrowable pool. They're filed here instead
@@ -30,7 +31,10 @@ class StockItemsScreen extends StatefulWidget {
   /// entries whose status is [AssetStatus.inStock].
   final List<AssetItem> assets;
 
-  final void Function(AssetItem asset)? onDeleteAsset;
+  /// Permanently deletes the asset, given the admin's reason. Only offered
+  /// here — an asset can't be deleted straight from the active inventory,
+  /// it has to be moved to stock first.
+  final void Function(AssetItem asset, String reason)? onDeleteAsset;
   final void Function(AssetItem asset, AssetStatus status)? onUpdateStatus;
 
   @override
@@ -69,8 +73,8 @@ class _StockItemsScreenState extends State<StockItemsScreen> {
     setState(() {});
   }
 
-  void _deleteAsset(AssetItem asset) {
-    widget.onDeleteAsset?.call(asset);
+  void _deleteAsset(AssetItem asset, String reason) {
+    widget.onDeleteAsset?.call(asset, reason);
     setState(() {});
   }
 
@@ -80,9 +84,10 @@ class _StockItemsScreenState extends State<StockItemsScreen> {
       MaterialPageRoute(
         builder: (_) => AssetDetailScreen(
           asset: asset,
+          removalMode: AssetRemovalMode.delete,
           onDelete: widget.onDeleteAsset == null
               ? null
-              : () => _deleteAsset(asset),
+              : (reason) => _deleteAsset(asset, reason),
           onUpdateStatus: widget.onUpdateStatus == null
               ? null
               : (status) => _updateStatus(asset, status),
@@ -93,8 +98,8 @@ class _StockItemsScreenState extends State<StockItemsScreen> {
   }
 
   Future<void> _confirmAndDelete(AssetItem asset) async {
-    final confirmed = await confirmAssetDeletion(context, asset);
-    if (confirmed) _deleteAsset(asset);
+    final reason = await promptAssetRemoval(context, asset, AssetRemovalMode.delete);
+    if (reason != null) _deleteAsset(asset, reason);
   }
 
   @override
@@ -113,6 +118,16 @@ class _StockItemsScreenState extends State<StockItemsScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text('Stock items'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.receipt_long_outlined),
+            tooltip: 'Removed assets log',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const RemovedAssetsScreen()),
+            ),
+          ),
+        ],
       ),
       body: SafeArea(
         child: CustomScrollView(
@@ -194,6 +209,7 @@ class _StockItemsScreenState extends State<StockItemsScreen> {
                           for (final asset in items)
                             AssetCard(
                               asset: asset,
+                              removeTooltip: 'Delete permanently',
                               onTap: () => _openDetail(asset),
                               onDelete: widget.onDeleteAsset == null
                                   ? null

@@ -13,6 +13,9 @@ class AssetCard extends StatelessWidget {
     this.onTap,
     this.onDelete,
     this.onUpdateStatus,
+    this.removeIcon = Icons.delete_outline,
+    this.removeTooltip = 'Remove from inventory',
+    this.removeColor = Colors.redAccent,
   });
 
   final AssetItem asset;
@@ -21,11 +24,16 @@ class AssetCard extends StatelessWidget {
   /// open the asset's detail page.
   final VoidCallback? onTap;
 
-  /// Invoked when the admin confirms they want to remove this asset from
-  /// the inventory (e.g. it's broken or otherwise unusable). When null, no
-  /// delete affordance is shown — used to keep this widget reusable for
-  /// non-admin contexts if they're added later.
+  /// Invoked when the admin taps the trailing remove button. What "remove"
+  /// means depends on the screen — on the inventory list it retires the
+  /// asset to stock, on the stock list it deletes it — so the icon,
+  /// tooltip and colour below are passed in per screen. When null, no
+  /// remove affordance is shown.
   final VoidCallback? onDelete;
+
+  final IconData removeIcon;
+  final String removeTooltip;
+  final Color removeColor;
 
   /// Invoked with the newly-picked status when the admin changes it from
   /// the status chip's menu (e.g. flagging the asset as under
@@ -145,9 +153,9 @@ class AssetCard extends StatelessWidget {
                   SizedBox(width: isMobile ? 0 : 4 * scale),
                   IconButton(
                     onPressed: onDelete,
-                    icon: Icon(Icons.delete_outline, size: 24 * scale),
-                    color: Colors.redAccent,
-                    tooltip: 'Remove from inventory',
+                    icon: Icon(removeIcon, size: 24 * scale),
+                    color: removeColor,
+                    tooltip: removeTooltip,
                   ),
                 ],
                 if (onTap != null) ...[

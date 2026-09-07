@@ -167,6 +167,20 @@ CREATE TABLE IF NOT EXISTS asset_return_photos (
   CONSTRAINT fk_arp_return FOREIGN KEY (return_id) REFERENCES asset_returns(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Audit trail of assets permanently deleted from the system. Deliberately
+-- has NO foreign key to `assets` — the whole point is that this row
+-- outlives the asset it describes. An asset can only be deleted once it's a
+-- stock item, and the admin must give a reason; both are captured here.
+-- Safe to re-run.
+CREATE TABLE IF NOT EXISTS asset_removals (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  tag_id VARCHAR(50) NOT NULL,
+  name VARCHAR(150) NOT NULL,
+  category VARCHAR(100) NULL,
+  reason VARCHAR(500) NOT NULL,
+  removed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- No seed rows here on purpose: the app itself seeds the four built-in
 -- categories (IT equipment, Furniture, Vehicles, Tools) into this table
 -- the first time it runs against an empty `categories` table — see

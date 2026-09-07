@@ -304,16 +304,22 @@ class ApiService {
   }
 
   /// Updates an existing asset's status (e.g. flagging it under
-  /// maintenance, or marking it available again).
+  /// maintenance, or moving it to stock). [reason], when given, is recorded
+  /// on the asset's timeline as the change's detail.
   static Future<void> updateAssetStatus({
     required String tagId,
     required String status,
+    String? reason,
   }) async {
     final response = await http
         .put(
           Uri.parse('$baseUrl/assets.php'),
           headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({'tag_id': tagId, 'status': status}),
+          body: jsonEncode({
+            'tag_id': tagId,
+            'status': status,
+            if (reason != null && reason.isNotEmpty) 'reason': reason,
+          }),
         )
         .timeout(_timeout, onTimeout: _timeoutError);
 
@@ -323,11 +329,15 @@ class ApiService {
     }
   }
 
-  /// Removes an asset from the inventory.
-  static Future<void> deleteAsset(String tagId) async {
-    final response = await http
-        .delete(Uri.parse('$baseUrl/assets.php?tag_id=${Uri.encodeQueryComponent(tagId)}'))
-        .timeout(_timeout, onTimeout: _timeoutError);
+  /// Permanently deletes an asset. The backend only allows this once the
+  /// asset is a stock item, and requires [reason] — it's written to the
+  /// `asset_removals` audit log before the row is removed.
+  static Future<void> deleteAsset(String tagId, {required String reason}) async {
+    final uri = Uri.parse(
+      '$baseUrl/assets.php?tag_id=${Uri.encodeQueryComponent(tagId)}'
+      '&reason=${Uri.encodeQueryComponent(reason)}',
+    );
+    final response = await http.delete(uri).timeout(_timeout, onTimeout: _timeoutError);
 
     if (response.statusCode != 200) {
       final body = jsonDecode(response.body);
@@ -349,6 +359,22 @@ class ApiService {
     }
     final body = jsonDecode(response.body);
     throw Exception(body['error'] ?? 'Failed to load the asset timeline');
+  }
+
+  /// Fetches the permanent-removal audit log (`asset_removals.php`) —
+  /// every asset deleted for good, newest first. Each map is `{id, tag_id,
+  /// name, category, reason, removed_at}`.
+  static Future<List<Map<String, dynamic>>> fetchAssetRemovals() async {
+    final response = await http
+        .get(Uri.parse('$baseUrl/asset_removals.php'))
+        .timeout(_timeout, onTimeout: _timeoutError);
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = jsonDecode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    }
+    final body = jsonDecode(response.body);
+    throw Exception(body['error'] ?? 'Failed to load the removal log');
   }
 
   /// Fetches an asset's condition & usage history from

@@ -76,6 +76,9 @@ if ($method === 'PUT') {
     $body = read_json_body();
     $tagId = trim($body['tag_id'] ?? '');
     $status = trim($body['status'] ?? '');
+    // Optional context for the timeline — e.g. why an asset was moved to
+    // stock ("Worn out", "Obsolete", ...).
+    $reason = trim($body['reason'] ?? '');
     if ($tagId === '' || $status === '') fail(400, 'tag_id and status are required.');
 
     // Read the current row first so a "change" to the status it already has
@@ -102,8 +105,9 @@ if ($method === 'PUT') {
 
     // Timeline entry for the manual status change (this endpoint only ever
     // handles the hand-set statuses — 'available', 'maintenance',
-    // 'in_stock'; 'in_use' is driven through requests.php instead).
-    log_asset_event($mysqli, (int) $assetRow['id'], $status);
+    // 'in_stock'; 'in_use' is driven through requests.php instead). The
+    // reason, when given, becomes the timeline line's detail.
+    log_asset_event($mysqli, (int) $assetRow['id'], $status, $reason !== '' ? $reason : null);
 
     echo json_encode(['message' => 'Asset updated.']);
     exit;
@@ -111,15 +115,46 @@ if ($method === 'PUT') {
 
 if ($method === 'DELETE') {
     $tagId = trim($_GET['tag_id'] ?? '');
+    $reason = trim($_GET['reason'] ?? '');
     if ($tagId === '') fail(400, 'tag_id query parameter is required.');
+    if ($reason === '') fail(400, 'A reason for removal is required.');
 
-    $stmt = $mysqli->prepare('DELETE FROM assets WHERE tag_id = ?');
+    // An asset can only be permanently deleted once it's a stock item, and
+    // the reason is written to asset_removals (which has no FK to assets,
+    // so it outlives this row) before the delete.
+    $stmt = $mysqli->prepare(
+        'SELECT a.id, a.tag_id, a.name, a.status, c.value AS category ' .
+        'FROM assets a JOIN categories c ON c.id = a.category_id WHERE a.tag_id = ?'
+    );
     $stmt->bind_param('s', $tagId);
-    if (!$stmt->execute()) {
-        $stmt->close();
-        fail(500, 'Failed to delete asset: ' . $mysqli->error);
-    }
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
     $stmt->close();
+    if (!$row) fail(404, 'No asset with that tag_id.');
+    if ($row['status'] !== 'in_stock') {
+        fail(409, 'Only stock items can be permanently deleted. Move the asset to stock first.');
+    }
+
+    $mysqli->begin_transaction();
+    try {
+        $log = $mysqli->prepare(
+            'INSERT INTO asset_removals (tag_id, name, category, reason) VALUES (?, ?, ?, ?)'
+        );
+        $log->bind_param('ssss', $row['tag_id'], $row['name'], $row['category'], $reason);
+        $log->execute();
+        $log->close();
+
+        $del = $mysqli->prepare('DELETE FROM assets WHERE id = ?');
+        $del->bind_param('i', $row['id']);
+        $del->execute();
+        $del->close();
+
+        $mysqli->commit();
+    } catch (Exception $e) {
+        $mysqli->rollback();
+        fail(500, 'Failed to delete asset: ' . $e->getMessage());
+    }
+
     echo json_encode(['message' => 'Asset deleted.']);
     exit;
 }
