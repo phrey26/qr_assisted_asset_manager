@@ -51,6 +51,7 @@ class RequestsScreen extends StatefulWidget {
     required this.assets,
     required this.onApplyAssetStatuses,
     required this.onApplyAssetCondition,
+    required this.onApplyBulkOut,
   });
 
   /// The signed-in user's row from `user` (as returned by
@@ -73,6 +74,15 @@ class RequestsScreen extends StatefulWidget {
   /// null to clear), so the "Damaged" badge appears on the asset list right
   /// after a return.
   final void Function(Iterable<String> tagIds, String? condition) onApplyAssetCondition;
+
+  /// Mirrors a change to bulk pools' units-on-loan into the local inventory.
+  /// Keys are tag IDs, values are signed deltas to `quantityOut` (+ when a
+  /// pool is lent from on approval, − when units come back on return/cancel).
+  /// [damagedDeltas], when given, additionally adjusts `quantityDamaged` —
+  /// units reported damaged on return are set aside (not written off), so
+  /// the pool's owned total is untouched.
+  final void Function(Map<String, int> outDeltas, {Map<String, int>? damagedDeltas})
+      onApplyBulkOut;
 
   @override
   State<RequestsScreen> createState() => RequestsScreenState();
@@ -140,15 +150,22 @@ class RequestsScreenState extends State<RequestsScreen> {
   Future<void> _setStatus(AssetRequest request, RequestStatus status) async {
     final previousStatus = request.status;
     final previousAssigned = List<AssignedAsset>.from(request.assignedAssets);
-    final freedTags = previousAssigned.map((a) => a.tagId).toList();
+    final wasApproved = previousStatus == RequestStatus.approved;
+    final freedIndividual =
+        previousAssigned.where((a) => !a.isBulk).map((a) => a.tagId).toList();
+    final bulkRestore = {
+      for (final a in previousAssigned)
+        if (a.isBulk) a.tagId: -a.quantity,
+    };
 
     setState(() {
       request.status = status;
       request.assignedAssets = const [];
     });
-    if (freedTags.isNotEmpty) {
-      widget.onApplyAssetStatuses(freedTags, AssetStatus.available);
+    if (wasApproved && freedIndividual.isNotEmpty) {
+      widget.onApplyAssetStatuses(freedIndividual, AssetStatus.available);
     }
+    if (wasApproved && bulkRestore.isNotEmpty) widget.onApplyBulkOut(bulkRestore);
     if (request.id == null) return;
     try {
       await ApiService.updateRequestStatus(id: request.id!, status: status.apiValue);
@@ -158,8 +175,11 @@ class RequestsScreenState extends State<RequestsScreen> {
         request.status = previousStatus;
         request.assignedAssets = previousAssigned;
       });
-      if (freedTags.isNotEmpty) {
-        widget.onApplyAssetStatuses(freedTags, AssetStatus.inUse);
+      if (wasApproved && freedIndividual.isNotEmpty) {
+        widget.onApplyAssetStatuses(freedIndividual, AssetStatus.inUse);
+      }
+      if (wasApproved && bulkRestore.isNotEmpty) {
+        widget.onApplyBulkOut({for (final e in bulkRestore.entries) e.key: -e.value});
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not update the request\'s status: $e')),
@@ -172,37 +192,65 @@ class RequestsScreenState extends State<RequestsScreen> {
   /// (locally and on the backend, in one transaction); any assets that
   /// were assigned before but dropped from the new selection are freed.
   Future<void> _approveRequest(AssetRequest request) async {
-    final previousAssignedTags =
-        request.assignedAssets.map((a) => a.tagId).toList();
+    final wasApproved = request.status == RequestStatus.approved;
+    final previousAssigned = List<AssignedAsset>.from(request.assignedAssets);
+    final previousIndividualTags = previousAssigned
+        .where((a) => !a.isBulk)
+        .map((a) => a.tagId)
+        .toList();
+    final previousBulkQty = {
+      for (final a in previousAssigned)
+        if (a.isBulk) a.tagId: a.quantity,
+    };
 
     final picked = await showAssetAssignmentPicker(
       context,
       assets: widget.assets,
       request: request,
-      preselectedTagIds: previousAssignedTags,
+      preselectedTagIds: previousIndividualTags,
+      preselectedQuantities: previousBulkQty,
     );
     if (!mounted || picked == null || picked.isEmpty) return;
 
     final previousStatus = request.status;
-    final previousAssigned = List<AssignedAsset>.from(request.assignedAssets);
-    final newTags = picked.map((a) => a.tagId).toList();
-    final freed = previousAssignedTags.toSet().difference(newTags.toSet());
+
+    final newIndividualTags =
+        picked.where((p) => !p.asset.isBulk).map((p) => p.asset.tagId).toList();
+    final newBulkQty = {
+      for (final p in picked)
+        if (p.asset.isBulk) p.asset.tagId: p.quantity,
+    };
+
+    // Individual assets dropped from the selection since last time → free.
+    final freedIndividual =
+        previousIndividualTags.toSet().difference(newIndividualTags.toSet());
+    // Net bulk delta = (new take) − (old take) per pool.
+    final bulkDeltas = <String, int>{};
+    for (final tag in {...previousBulkQty.keys, ...newBulkQty.keys}) {
+      final delta = (newBulkQty[tag] ?? 0) - (previousBulkQty[tag] ?? 0);
+      if (delta != 0) bulkDeltas[tag] = delta;
+    }
 
     setState(() {
       request.status = RequestStatus.approved;
-      request.assignedAssets = picked.map(AssignedAsset.fromAsset).toList();
+      request.assignedAssets = picked
+          .map((p) => AssignedAsset.fromAsset(p.asset, quantity: p.quantity))
+          .toList();
     });
-    if (freed.isNotEmpty) {
-      widget.onApplyAssetStatuses(freed, AssetStatus.available);
+    if (freedIndividual.isNotEmpty) {
+      widget.onApplyAssetStatuses(freedIndividual, AssetStatus.available);
     }
-    widget.onApplyAssetStatuses(newTags, AssetStatus.inUse);
+    if (newIndividualTags.isNotEmpty) {
+      widget.onApplyAssetStatuses(newIndividualTags, AssetStatus.inUse);
+    }
+    if (bulkDeltas.isNotEmpty) widget.onApplyBulkOut(bulkDeltas);
 
     if (request.id == null) return;
     try {
       await ApiService.updateRequestStatus(
         id: request.id!,
         status: RequestStatus.approved.apiValue,
-        assetTagIds: newTags,
+        assignments: picked.map((p) => p.toBody()).toList(),
       );
     } catch (e) {
       if (!mounted) return;
@@ -210,12 +258,15 @@ class RequestsScreenState extends State<RequestsScreen> {
         request.status = previousStatus;
         request.assignedAssets = previousAssigned;
       });
-      // Roll the local inventory back: the ones we just marked in-use go
-      // back to available, and anything that was assigned before is
-      // in-use again.
-      widget.onApplyAssetStatuses(newTags, AssetStatus.available);
-      if (previousAssignedTags.isNotEmpty) {
-        widget.onApplyAssetStatuses(previousAssignedTags, AssetStatus.inUse);
+      // Undo the optimistic inventory changes.
+      if (newIndividualTags.isNotEmpty) {
+        widget.onApplyAssetStatuses(newIndividualTags, AssetStatus.available);
+      }
+      if (previousIndividualTags.isNotEmpty && wasApproved) {
+        widget.onApplyAssetStatuses(previousIndividualTags, AssetStatus.inUse);
+      }
+      if (bulkDeltas.isNotEmpty) {
+        widget.onApplyBulkOut({for (final e in bulkDeltas.entries) e.key: -e.value});
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not approve the request: $e')),
@@ -235,29 +286,49 @@ class RequestsScreenState extends State<RequestsScreen> {
 
     final previousStatus = request.status;
     final previousAssigned = List<AssignedAsset>.from(request.assignedAssets);
-    final tags = previousAssigned.map((a) => a.tagId).toList();
-    // Snapshot each asset's recorded condition so an optimistic "damaged"
-    // badge can be rolled back if the return call fails.
+    final individualTags =
+        previousAssigned.where((a) => !a.isBulk).map((a) => a.tagId).toList();
+    final bulkLines = previousAssigned.where((a) => a.isBulk).toList();
+
+    // Bulk pools: every lent unit comes back (quantityOut -= lent); any
+    // reported damaged is then SET ASIDE (quantityDamaged += dmg), not
+    // written off — the owned total is untouched.
+    final bulkOutRestore = {for (final a in bulkLines) a.tagId: -a.quantity};
+    final bulkDamagedGain = <String, int>{};
+    for (final a in bulkLines) {
+      final dmg = (inspection.bulkDamaged[a.tagId] ?? 0).clamp(0, a.quantity);
+      if (dmg > 0) bulkDamagedGain[a.tagId] = dmg;
+    }
+
+    // Snapshot each individual asset's recorded condition so an optimistic
+    // "damaged" badge can be rolled back if the return call fails.
     final previousConditions = {
       for (final a in widget.assets)
-        if (tags.contains(a.tagId)) a.tagId: a.lastConditionRaw,
+        if (individualTags.contains(a.tagId)) a.tagId: a.lastConditionRaw,
     };
 
     setState(() {
       request.status = RequestStatus.returned;
-      // Keep the list, but show the assets as freed now.
       request.assignedAssets = previousAssigned
           .map((a) => AssignedAsset(
                 tagId: a.tagId,
                 name: a.name,
                 category: a.category,
                 status: AssetStatus.available,
+                tracking: a.tracking,
+                quantity: a.quantity,
               ))
           .toList();
     });
-    if (tags.isNotEmpty) {
-      widget.onApplyAssetStatuses(tags, AssetStatus.available);
-      widget.onApplyAssetCondition(tags, inspection.condition.apiValue);
+    if (individualTags.isNotEmpty) {
+      widget.onApplyAssetStatuses(individualTags, AssetStatus.available);
+      widget.onApplyAssetCondition(individualTags, inspection.condition.apiValue);
+    }
+    if (bulkOutRestore.isNotEmpty) {
+      widget.onApplyBulkOut(
+        bulkOutRestore,
+        damagedDeltas: bulkDamagedGain.isEmpty ? null : bulkDamagedGain,
+      );
     }
     if (request.id == null) return;
     try {
@@ -272,11 +343,19 @@ class RequestsScreenState extends State<RequestsScreen> {
         request.status = previousStatus;
         request.assignedAssets = previousAssigned;
       });
-      if (tags.isNotEmpty) {
-        widget.onApplyAssetStatuses(tags, AssetStatus.inUse);
+      if (individualTags.isNotEmpty) {
+        widget.onApplyAssetStatuses(individualTags, AssetStatus.inUse);
         for (final entry in previousConditions.entries) {
           widget.onApplyAssetCondition([entry.key], entry.value);
         }
+      }
+      if (bulkOutRestore.isNotEmpty) {
+        widget.onApplyBulkOut(
+          {for (final e in bulkOutRestore.entries) e.key: -e.value},
+          damagedDeltas: bulkDamagedGain.isEmpty
+              ? null
+              : {for (final e in bulkDamagedGain.entries) e.key: -e.value},
+        );
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not mark the request as returned: $e')),

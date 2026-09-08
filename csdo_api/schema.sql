@@ -47,8 +47,14 @@ CREATE TABLE IF NOT EXISTS categories (
   value VARCHAR(100) NOT NULL UNIQUE,
   icon_code_point INT NOT NULL,
   color_value INT UNSIGNED NOT NULL,
+  -- Suggested tracking mode for assets added under this category:
+  -- 'individual' (serialised, QR-tagged units) or 'bulk' (quantity-tracked
+  -- pools). Only a default for the Add Asset form — the binding flag is
+  -- assets.tracking, so a category can hold a mix. See bulk_items.sql.
+  default_tracking VARCHAR(12) NOT NULL DEFAULT 'individual',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS default_tracking VARCHAR(12) NOT NULL DEFAULT 'individual';
 
 CREATE TABLE IF NOT EXISTS assets (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -67,9 +73,24 @@ CREATE TABLE IF NOT EXISTS assets (
   status VARCHAR(20) NOT NULL DEFAULT 'available',
   purchase_date DATE NOT NULL,
   image_base64 LONGTEXT NULL,
+  -- Bulk-item fields (see bulk_items.sql). 'individual' assets leave these
+  -- at their defaults; 'bulk' assets are one row carrying a running count.
+  tracking VARCHAR(12) NOT NULL DEFAULT 'individual',   -- 'individual' | 'bulk'
+  quantity_total INT NULL,                              -- units owned (bulk)
+  quantity_out INT NOT NULL DEFAULT 0,                  -- units on loan now (bulk)
+  quantity_damaged INT NOT NULL DEFAULT 0,              -- units back from loan damaged, set aside pending repair/disposal (bulk)
+  reorder_point INT NULL,                               -- low-stock threshold (bulk)
+  unit_label VARCHAR(24) NULL,                          -- "pcs", "box", ... (bulk)
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_assets_category FOREIGN KEY (category_id) REFERENCES categories(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+ALTER TABLE assets
+  ADD COLUMN IF NOT EXISTS tracking         VARCHAR(12) NOT NULL DEFAULT 'individual',
+  ADD COLUMN IF NOT EXISTS quantity_total   INT NULL,
+  ADD COLUMN IF NOT EXISTS quantity_out     INT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS quantity_damaged INT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS reorder_point    INT NULL,
+  ADD COLUMN IF NOT EXISTS unit_label       VARCHAR(24) NULL;
 
 CREATE TABLE IF NOT EXISTS requests (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -112,11 +133,15 @@ CREATE TABLE IF NOT EXISTS request_assets (
   id INT AUTO_INCREMENT PRIMARY KEY,
   request_id INT NOT NULL,
   asset_id INT NOT NULL,
+  -- Units taken from the asset. 1 for an individual pick (one row = one
+  -- physical unit); N for a bulk pool line. See bulk_items.sql.
+  quantity INT NOT NULL DEFAULT 1,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_request_assets_request FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE CASCADE,
   CONSTRAINT fk_request_assets_asset FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE,
   UNIQUE KEY uq_request_asset (request_id, asset_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+ALTER TABLE request_assets ADD COLUMN IF NOT EXISTS quantity INT NOT NULL DEFAULT 1;
 
 -- Per-asset timeline / audit log. One row per notable thing that happened
 -- to an asset: 'added', a flow-driven status move ('available' from "Move
@@ -183,6 +208,47 @@ CREATE TABLE IF NOT EXISTS asset_removals (
   category VARCHAR(100) NULL,
   reason VARCHAR(500) NOT NULL,
   removed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Running ledger for a bulk asset — the "Timeline" equivalent for
+-- quantity-tracked items. One row per movement. No FK to `assets` (audit
+-- trail). See bulk_items.sql for the column meanings. Safe to re-run.
+CREATE TABLE IF NOT EXISTS stock_movements (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  asset_id INT NOT NULL,
+  kind VARCHAR(16) NOT NULL,          -- purchase|lent|returned|damaged|disposed|adjusted
+  quantity_delta INT NOT NULL,
+  balance_after INT NULL,
+  note VARCHAR(500) NULL,
+  request_id INT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_stock_movements_asset (asset_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Procurement detail (cost / supplier) for each "Add stock" on a bulk asset.
+CREATE TABLE IF NOT EXISTS stock_purchases (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  asset_id INT NOT NULL,
+  quantity INT NOT NULL,
+  unit_cost DECIMAL(12,2) NULL,
+  total_cost DECIMAL(14,2) NULL,
+  supplier VARCHAR(150) NULL,
+  note VARCHAR(500) NULL,
+  purchased_at DATE NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_stock_purchases_asset (asset_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Permanent audit log of bulk stock disposed of — the bulk counterpart to
+-- asset_removals. No FK to `assets` on purpose. Safe to re-run.
+CREATE TABLE IF NOT EXISTS bulk_disposals (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  tag_id VARCHAR(50) NOT NULL,
+  name VARCHAR(150) NOT NULL,
+  category VARCHAR(100) NULL,
+  quantity INT NOT NULL,
+  reason VARCHAR(500) NOT NULL,
+  disposed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- No seed rows here on purpose: the app itself seeds the four built-in

@@ -20,6 +20,7 @@ class ReturnInspectionInput {
     required this.photos,
     this.notes,
     this.daysUsed,
+    this.bulkDamaged = const {},
   });
 
   final AssetCondition condition;
@@ -27,11 +28,21 @@ class ReturnInspectionInput {
   final String? notes;
   final int? daysUsed;
 
+  /// Bulk lines returned short: tag ID → units that came back damaged or
+  /// lost. Those units are written off (pool total shrinks) and logged to
+  /// the disposal log. Entries of 0 are omitted.
+  final Map<String, int> bulkDamaged;
+
   Map<String, dynamic> toJson() => {
         'asset_condition': condition.apiValue,
         if (notes != null && notes!.isNotEmpty) 'notes': notes,
         if (daysUsed != null) 'days_used': daysUsed,
         'photos': [for (final p in photos) base64Encode(p)],
+        if (bulkDamaged.isNotEmpty)
+          'bulk_returns': [
+            for (final e in bulkDamaged.entries)
+              if (e.value > 0) {'tag_id': e.key, 'damaged': e.value},
+          ],
       };
 }
 
@@ -88,6 +99,17 @@ class _ReturnInspectionBodyState extends State<_ReturnInspectionBody> {
   );
   final List<Uint8List> _photos = [];
   bool _busy = false;
+
+  /// Per-bulk-line "damaged / lost" count, keyed by tag ID.
+  late final Map<String, int> _bulkDamaged = {
+    for (final a in widget.request.assignedAssets)
+      if (a.isBulk) a.tagId: 0,
+  };
+
+  List<AssignedAsset> get _individualLines =>
+      widget.request.assignedAssets.where((a) => !a.isBulk).toList();
+  List<AssignedAsset> get _bulkLines =>
+      widget.request.assignedAssets.where((a) => a.isBulk).toList();
 
   /// Best-effort "days out": today minus the loan's borrow date (inclusive),
   /// falling back to the stored borrow/return span.
@@ -153,7 +175,9 @@ class _ReturnInspectionBodyState extends State<_ReturnInspectionBody> {
   }
 
   void _submit() {
-    if (_photos.isEmpty) {
+    // Photos + condition only matter for individually-tracked assets; a
+    // pure-bulk return just needs the counts.
+    if (_individualLines.isNotEmpty && _photos.isEmpty) {
       _toast('Add at least one photo of the returned item.');
       return;
     }
@@ -170,6 +194,10 @@ class _ReturnInspectionBodyState extends State<_ReturnInspectionBody> {
         notes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
         daysUsed: days,
         photos: List.of(_photos),
+        bulkDamaged: {
+          for (final e in _bulkDamaged.entries)
+            if (e.value > 0) e.key: e.value,
+        },
       ),
     );
   }
@@ -203,20 +231,31 @@ class _ReturnInspectionBodyState extends State<_ReturnInspectionBody> {
                     ],
                   ),
                 Text(
-                  'Record the condition of ${assets.length == 1 ? 'the asset' : 'the ${assets.length} assets'} '
-                  'coming back from "${widget.request.title}", and attach photos taken now.',
+                  _individualLines.isEmpty
+                      ? 'Confirm the bulk items coming back from "${widget.request.title}". '
+                          'Every lent unit returns to stock; any you mark damaged are set '
+                          'aside for inspection (not written off).'
+                      : 'Record the condition of ${assets.length == 1 ? 'the asset' : 'the ${assets.length} items'} '
+                          'coming back from "${widget.request.title}", and attach photos taken now.',
                   style: const TextStyle(color: AppTheme.muted, fontSize: 13, height: 1.4),
                 ),
-                const SizedBox(height: 18),
-                _label('Condition'),
-                _conditionSelector(),
-                const SizedBox(height: 18),
-                _label('Days used'),
-                TextField(
-                  controller: _daysController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(hintText: 'e.g. 2'),
-                ),
+                if (_bulkLines.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  _label('Bulk items returned'),
+                  _bulkReturnSection(),
+                ],
+                if (_individualLines.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  _label('Condition'),
+                  _conditionSelector(),
+                  const SizedBox(height: 18),
+                  _label('Days used'),
+                  TextField(
+                    controller: _daysController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(hintText: 'e.g. 2'),
+                  ),
+                ],
                 const SizedBox(height: 18),
                 _label('Notes (optional)'),
                 TextField(
@@ -227,9 +266,11 @@ class _ReturnInspectionBodyState extends State<_ReturnInspectionBody> {
                     hintText: 'Scuffs, missing accessories, damage seen on inspection...',
                   ),
                 ),
-                const SizedBox(height: 18),
-                _label('Photos of the returned item'),
-                _photoGrid(),
+                if (_individualLines.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  _label('Photos of the returned item'),
+                  _photoGrid(),
+                ],
               ],
             ),
           ),
@@ -274,6 +315,55 @@ class _ReturnInspectionBodyState extends State<_ReturnInspectionBody> {
           ),
         ),
       );
+
+  Widget _bulkReturnSection() {
+    return Column(
+      children: [
+        for (final line in _bulkLines)
+          Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppTheme.border, width: 2),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        line.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AppTheme.darkGreen,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${line.quantity} lent · damaged or lost:',
+                        style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+                _MiniStepper(
+                  value: _bulkDamaged[line.tagId] ?? 0,
+                  min: 0,
+                  max: line.quantity,
+                  onChanged: (v) => setState(() => _bulkDamaged[line.tagId] = v),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
 
   Widget _conditionSelector() {
     return Wrap(
@@ -352,6 +442,61 @@ class _ReturnInspectionBodyState extends State<_ReturnInspectionBody> {
             ),
           ],
         ),
+      ],
+    );
+  }
+}
+
+/// Small − N + control used for the "damaged / lost" count per bulk line.
+class _MiniStepper extends StatelessWidget {
+  const _MiniStepper({
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.onChanged,
+  });
+
+  final int value;
+  final int min;
+  final int max;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget btn(IconData icon, VoidCallback? onTap) {
+      final on = onTap != null;
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            color: on ? AppTheme.redTint : AppTheme.slateTint,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, size: 18, color: on ? const Color(0xFFC84040) : AppTheme.muted),
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        btn(Icons.remove, value > min ? () => onChanged(value - 1) : null),
+        SizedBox(
+          width: 34,
+          child: Text(
+            '$value',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: AppTheme.darkGreen,
+              fontWeight: FontWeight.w800,
+              fontSize: 15,
+            ),
+          ),
+        ),
+        btn(Icons.add, value < max ? () => onChanged(value + 1) : null),
       ],
     );
   }

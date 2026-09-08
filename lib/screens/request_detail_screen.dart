@@ -361,7 +361,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          asset.name,
+                          asset.isBulk ? '${asset.name}  ×${asset.quantity}' : asset.name,
                           style: const TextStyle(color: AppTheme.muted, fontSize: 16),
                         ),
                         Text(
@@ -389,6 +389,22 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                           color: AppTheme.muted,
                           fontWeight: FontWeight.w800,
                           fontSize: 14,
+                        ),
+                      ),
+                    )
+                  else if (asset.isBulk)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: AppTheme.cream,
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                      child: Text(
+                        '${asset.quantity} on loan',
+                        style: const TextStyle(
+                          color: Color(0xFF9A6512),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
                         ),
                       ),
                     )

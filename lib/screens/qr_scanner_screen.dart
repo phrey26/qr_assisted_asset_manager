@@ -513,7 +513,26 @@ class _ScanResultDialog extends StatelessWidget {
                   ),
                   if (asset != null) ...[
                     const SizedBox(width: 10),
-                    StatusChip(status: asset.status),
+                    if (asset.isBulk)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: asset.isLowStock ? AppTheme.redTint : AppTheme.mint,
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                        child: Text(
+                          asset.stockLabel,
+                          style: TextStyle(
+                            color: asset.isLowStock
+                                ? const Color(0xFFC84040)
+                                : AppTheme.primary,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
+                          ),
+                        ),
+                      )
+                    else
+                      StatusChip(status: asset.status),
                   ],
                   IconButton(
                     onPressed: () => Navigator.pop(context),

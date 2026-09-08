@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/asset.dart';
 import '../models/category.dart';
+import '../models/stock.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/asset_card.dart';
@@ -40,16 +41,27 @@ void _openAssetDetail(
   BuildContext context,
   AssetItem asset, {
   void Function(AssetItem asset, String reason, bool needsMaintenance)? onRetireAsset,
+  void Function(AssetItem asset, String reason)? onDeleteAsset,
+  void Function(AssetItem asset, StockSummary summary)? onBulkStockChanged,
 }) {
   Navigator.push(
     context,
     MaterialPageRoute(
       builder: (_) => AssetDetailScreen(
         asset: asset,
-        removalMode: AssetRemovalMode.retireToStock,
-        onDelete: onRetireAsset == null
+        // A bulk pool is deleted (once run down to zero), never retired to
+        // stock; an individual asset is retired to stock.
+        removalMode:
+            asset.isBulk ? AssetRemovalMode.delete : AssetRemovalMode.retireToStock,
+        onDelete: asset.isBulk
+            ? (onDeleteAsset == null ? null : (reason, _) => onDeleteAsset(asset, reason))
+            : (onRetireAsset == null
+                ? null
+                : (reason, needsMaintenance) =>
+                    onRetireAsset(asset, reason, needsMaintenance)),
+        onStockChanged: onBulkStockChanged == null
             ? null
-            : (reason, needsMaintenance) => onRetireAsset(asset, reason, needsMaintenance),
+            : (summary) => onBulkStockChanged(asset, summary),
       ),
     ),
   );
@@ -76,6 +88,7 @@ class InventoryScreen extends StatefulWidget {
     this.onRetireAsset,
     this.onDeleteAsset,
     this.onActivateAsset,
+    this.onBulkStockChanged,
   });
 
   final List<AssetItem> assets;
@@ -98,10 +111,15 @@ class InventoryScreen extends StatefulWidget {
   /// straight from here. When null, no retire affordance is shown.
   final void Function(AssetItem asset, String reason, bool needsMaintenance)? onRetireAsset;
 
-  /// Permanent-delete handler, forwarded to [StockItemsScreen] (assets can
-  /// only be deleted for good once they're stock items). Not used directly
-  /// on this page.
+  /// Permanent-delete handler, forwarded to [StockItemsScreen] for
+  /// individual assets (deletable once they're stock items), and used here
+  /// for bulk pools (deletable once run down to zero).
   final void Function(AssetItem asset, String reason)? onDeleteAsset;
+
+  /// Bulk assets only: invoked with the authoritative new stock totals
+  /// after a stock action on the asset detail screen, so this list's
+  /// readouts stay right without a reload.
+  final void Function(AssetItem asset, StockSummary summary)? onBulkStockChanged;
 
   /// Invoked (with the admin's reason) to move a stock / maintenance asset
   /// back into the active, borrowable inventory. Forwarded to
@@ -325,6 +343,8 @@ class InventoryScreenState extends State<InventoryScreen> {
                   child: _InventoryTable(
                     assets: filtered,
                     onRetireAsset: widget.onRetireAsset,
+                    onDeleteAsset: widget.onDeleteAsset,
+                    onBulkStockChanged: widget.onBulkStockChanged,
                   ),
                 ),
               ),
@@ -346,8 +366,13 @@ class InventoryScreenState extends State<InventoryScreen> {
                     context,
                     asset,
                     onRetireAsset: widget.onRetireAsset,
+                    onDeleteAsset: widget.onDeleteAsset,
+                    onBulkStockChanged: widget.onBulkStockChanged,
                   ),
-                  onDelete: widget.onRetireAsset == null
+                  // Bulk pools aren't retired to stock — they're managed
+                  // from the detail screen. Only individual assets get the
+                  // inline "move to stock" button.
+                  onDelete: (asset.isBulk || widget.onRetireAsset == null)
                       ? null
                       : () => _confirmAndRetire(context, asset, widget.onRetireAsset!),
                 );
@@ -413,10 +438,17 @@ class InventoryScreenState extends State<InventoryScreen> {
 /// hi-fi desktop mockups (a wide table reads better than stacked cards once
 /// there's room for it).
 class _InventoryTable extends StatelessWidget {
-  const _InventoryTable({required this.assets, this.onRetireAsset});
+  const _InventoryTable({
+    required this.assets,
+    this.onRetireAsset,
+    this.onDeleteAsset,
+    this.onBulkStockChanged,
+  });
 
   final List<AssetItem> assets;
   final void Function(AssetItem asset, String reason, bool needsMaintenance)? onRetireAsset;
+  final void Function(AssetItem asset, String reason)? onDeleteAsset;
+  final void Function(AssetItem asset, StockSummary summary)? onBulkStockChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -464,6 +496,8 @@ class _InventoryTable extends StatelessWidget {
                     context,
                     asset,
                     onRetireAsset: onRetireAsset,
+                    onDeleteAsset: onDeleteAsset,
+                    onBulkStockChanged: onBulkStockChanged,
                   ),
                   cells: [
                     DataCell(Text(
@@ -486,21 +520,40 @@ class _InventoryTable extends StatelessWidget {
                           const SizedBox(width: 8),
                           const LifespanWarningBadge(compact: true),
                         ],
-                        if (asset.isDamaged) ...[
+                        if (asset.isDamaged || asset.hasDamagedStock) ...[
                           const SizedBox(width: 8),
                           const DamagedWarningBadge(compact: true),
                         ],
+                        if (asset.isLowStock) ...[
+                          const SizedBox(width: 8),
+                          const LowStockBadge(compact: true),
+                        ],
                       ],
                     )),
-                    DataCell(StatusChip(status: asset.status)),
+                    DataCell(
+                      asset.isBulk
+                          ? Text(
+                              asset.stockLabel,
+                              style: TextStyle(
+                                color: asset.isLowStock
+                                    ? const Color(0xFFC84040)
+                                    : AppTheme.primary,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            )
+                          : StatusChip(status: asset.status),
+                    ),
                     if (onRetireAsset != null)
                       DataCell(
-                        IconButton(
-                          onPressed: () => _confirmAndRetire(context, asset, onRetireAsset!),
-                          icon: const Icon(Icons.archive_outlined),
-                          color: AppTheme.primary,
-                          tooltip: 'Move to stock',
-                        ),
+                        asset.isBulk
+                            ? const SizedBox.shrink()
+                            : IconButton(
+                                onPressed: () =>
+                                    _confirmAndRetire(context, asset, onRetireAsset!),
+                                icon: const Icon(Icons.archive_outlined),
+                                color: AppTheme.primary,
+                                tooltip: 'Move to stock',
+                              ),
                       ),
                   ],
                 ),

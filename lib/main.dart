@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'models/asset.dart';
 import 'models/category.dart';
+import 'models/stock.dart';
 import 'screens/add_asset_screen.dart';
 import 'screens/categories_screen.dart';
 import 'screens/forgot_password_screen.dart';
@@ -332,6 +333,60 @@ class _AppShellState extends State<AppShell> {
     });
   }
 
+  /// Mirrors a change to bulk pools' units-on-loan (and, optionally, their
+  /// set-aside-damaged count) into the local inventory, so the Inventory
+  /// tab's stock readouts and warning badges stay right after an
+  /// approve/return without a reload. Signed deltas: [outDeltas] adds to
+  /// `quantityOut`; [damagedDeltas] adds to `quantityDamaged` (units
+  /// returned damaged are set aside, not written off — the owned total is
+  /// untouched).
+  void _applyBulkOut(Map<String, int> outDeltas, {Map<String, int>? damagedDeltas}) {
+    if (outDeltas.isEmpty && (damagedDeltas == null || damagedDeltas.isEmpty)) return;
+    setState(() {
+      for (final item in _assets) {
+        final od = outDeltas[item.tagId];
+        if (od != null) {
+          item.quantityOut = (item.quantityOut + od).clamp(0, 1 << 30);
+        }
+        final dd = damagedDeltas?[item.tagId];
+        if (dd != null) {
+          item.quantityDamaged = (item.quantityDamaged + dd).clamp(0, 1 << 30);
+        }
+      }
+    });
+  }
+
+  /// Applies the authoritative [StockSummary] from a stock action (Add
+  /// stock / Dispose / Repair / Correct count) to the matching local asset.
+  void _applyBulkSummary(AssetItem asset, StockSummary summary) {
+    final idx = _assets.indexWhere((a) => a.tagId == asset.tagId);
+    if (idx < 0) return;
+    setState(() {
+      final a = _assets[idx];
+      a.quantityOut = summary.out;
+      a.quantityDamaged = summary.damaged;
+      _assets[idx] = _withQuantityTotal(a, summary.total);
+    });
+  }
+
+  /// `quantityTotal` is `final` on [AssetItem]; rebuild the row to change it.
+  AssetItem _withQuantityTotal(AssetItem a, int total) => AssetItem(
+        name: a.name,
+        tagId: a.tagId,
+        category: a.category,
+        description: a.description,
+        status: a.status,
+        purchaseDate: a.purchaseDate,
+        imageBytes: a.imageBytes,
+        lastConditionRaw: a.lastConditionRaw,
+        tracking: a.tracking,
+        quantityTotal: total,
+        quantityOut: a.quantityOut,
+        quantityDamaged: a.quantityDamaged,
+        reorderPoint: a.reorderPoint,
+        unitLabel: a.unitLabel,
+      );
+
   /// Mirrors the condition recorded in a return inspection onto the local
   /// inventory, so the "Damaged" warning badge shows up on the asset list
   /// immediately after a return rather than only on the next full reload.
@@ -443,6 +498,7 @@ class _AppShellState extends State<AppShell> {
         onRetireAsset: _retireAssetToStock,
         onDeleteAsset: _deleteAsset,
         onActivateAsset: _activateAsset,
+        onBulkStockChanged: _applyBulkSummary,
       ),
       // isActive tells the scanner whether its tab is the one on screen.
       // Every tab in this IndexedStack is mounted at once, so without this
@@ -457,6 +513,7 @@ class _AppShellState extends State<AppShell> {
         assets: _assets,
         onApplyAssetStatuses: _applyAssetStatuses,
         onApplyAssetCondition: _applyAssetCondition,
+        onApplyBulkOut: _applyBulkOut,
       ),
       ProfileScreen(user: _user, onProfileUpdated: _handleProfileUpdated),
     ];

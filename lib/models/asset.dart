@@ -13,6 +13,26 @@ import 'dart:typed_data';
 /// "Move to active".
 enum AssetStatus { available, inUse, maintenance, inStock }
 
+/// How an asset is tracked.
+///
+/// [individual] — one row is one physical, QR-tagged unit with its own
+/// status, timeline and return inspections (the original model).
+/// [bulk] — one row is a pool of interchangeable units (cables, markers,
+/// chairs…) carrying a running count. Bulk assets have no status; they're
+/// borrowed/bought/disposed by quantity. A category only *suggests* which
+/// mode to use — the binding flag is per asset.
+enum AssetTracking { individual, bulk }
+
+extension AssetTrackingX on AssetTracking {
+  String get label => this == AssetTracking.bulk ? 'Bulk quantity' : 'Individual';
+
+  /// Value stored in `assets.tracking` / `categories.default_tracking`.
+  String get apiValue => this == AssetTracking.bulk ? 'bulk' : 'individual';
+
+  static AssetTracking fromApiValue(String? value) =>
+      value == 'bulk' ? AssetTracking.bulk : AssetTracking.individual;
+}
+
 extension AssetStatusX on AssetStatus {
   String get label {
     switch (this) {
@@ -69,6 +89,12 @@ class AssetItem {
     required this.purchaseDate,
     this.imageBytes,
     this.lastConditionRaw,
+    this.tracking = AssetTracking.individual,
+    this.quantityTotal,
+    this.quantityOut = 0,
+    this.quantityDamaged = 0,
+    this.reorderPoint,
+    this.unitLabel,
   });
 
   final String name;
@@ -97,10 +123,56 @@ class AssetItem {
   /// [status] is kept in sync.
   String? lastConditionRaw;
 
+  /// How this asset is tracked — individually (serialised unit) or as a
+  /// bulk quantity pool. See [AssetTracking].
+  final AssetTracking tracking;
+
+  /// Bulk only: total units currently owned. Null for an individual asset.
+  final int? quantityTotal;
+
+  /// Bulk only: units currently out on loan. Mutable so the requests flow
+  /// can mirror approve/return locally, the same way [status] is.
+  int quantityOut;
+
+  /// Bulk only: units back from a loan damaged and set aside pending a
+  /// decision — the admin either repairs them back into available stock or
+  /// disposes them for good. Not lendable while here, but still owned (they
+  /// count toward [quantityTotal]). Mutable for the same local-mirror
+  /// reason as [quantityOut].
+  int quantityDamaged;
+
+  /// Bulk only: low-stock threshold. When available stock falls to or below
+  /// this, the asset shows a "Low stock" warning. Null = no threshold set.
+  final int? reorderPoint;
+
+  /// Bulk only: the unit an amount is counted in ("pcs", "box", …). Null =
+  /// unlabelled (just a number).
+  final String? unitLabel;
+
+  bool get isBulk => tracking == AssetTracking.bulk;
+
+  /// Bulk only: units available to borrow right now — owned, minus what's
+  /// on loan, minus what's set aside damaged.
+  int get quantityAvailable => (quantityTotal ?? 0) - quantityOut - quantityDamaged;
+
+  /// Bulk only: whether any units are currently set aside damaged.
+  bool get hasDamagedStock => isBulk && quantityDamaged > 0;
+
+  /// Bulk only: whether available stock has fallen to or below
+  /// [reorderPoint].
+  bool get isLowStock =>
+      isBulk && reorderPoint != null && quantityAvailable <= reorderPoint!;
+
+  /// "12 / 50 pcs" — a compact stock readout for bulk cards/rows.
+  String get stockLabel {
+    final unit = unitLabel == null || unitLabel!.isEmpty ? '' : ' ${unitLabel!}';
+    return '$quantityAvailable / ${quantityTotal ?? 0}$unit';
+  }
+
   /// Whether this asset was last returned in a damaged state — surfaced as
   /// a warning badge on the inventory list and asset detail, the same way
-  /// [isPastLifespan] is.
-  bool get isDamaged => lastConditionRaw == 'damaged';
+  /// [isPastLifespan] is. Never flagged for bulk items.
+  bool get isDamaged => !isBulk && lastConditionRaw == 'damaged';
 
   /// How many years an "IT equipment" asset is expected to remain in
   /// service before it's flagged as past its lifespan.
@@ -117,15 +189,18 @@ class AssetItem {
   /// Whether this asset is part of the active, borrowable inventory —
   /// either [AssetStatus.available] or currently [AssetStatus.inUse].
   /// Everything else ([AssetStatus.inStock] and [AssetStatus.maintenance])
-  /// has been filed out onto the "Stock items" screen.
+  /// has been filed out onto the "Stock items" screen. Bulk pools are
+  /// always active — they carry a level, not a status.
   bool get isActiveInventory =>
-      status == AssetStatus.available || status == AssetStatus.inUse;
+      isBulk ||
+      status == AssetStatus.available ||
+      status == AssetStatus.inUse;
 
   /// Whether this asset is IT equipment that is past its
   /// [itEquipmentLifespanYears]-year expected lifespan, based on
   /// [purchaseDate]. Non-IT-equipment assets are never flagged.
   bool get isPastLifespan {
-    if (!isItEquipment) return false;
+    if (isBulk || !isItEquipment) return false;
     final limit = DateTime(
       purchaseDate.year + itEquipmentLifespanYears,
       purchaseDate.month,
@@ -150,6 +225,14 @@ class AssetItem {
         lastConditionRaw: (json['last_condition'] as String?)?.trim().isEmpty ?? true
             ? null
             : json['last_condition'] as String,
+        tracking: AssetTrackingX.fromApiValue(json['tracking'] as String?),
+        quantityTotal: (json['quantity_total'] as num?)?.toInt(),
+        quantityOut: (json['quantity_out'] as num?)?.toInt() ?? 0,
+        quantityDamaged: (json['quantity_damaged'] as num?)?.toInt() ?? 0,
+        reorderPoint: (json['reorder_point'] as num?)?.toInt(),
+        unitLabel: (json['unit_label'] as String?)?.trim().isEmpty ?? true
+            ? null
+            : (json['unit_label'] as String).trim(),
       );
 
   /// The fields `csdo_api/assets.php` (POST) expects in its request body.
@@ -164,6 +247,10 @@ class AssetItem {
             '${purchaseDate.month.toString().padLeft(2, '0')}-'
             '${purchaseDate.day.toString().padLeft(2, '0')}',
         'image_base64': imageBytes == null ? null : base64Encode(imageBytes!),
+        'tracking': tracking.apiValue,
+        'quantity_total': quantityTotal,
+        'reorder_point': reorderPoint,
+        'unit_label': unitLabel,
       };
 
   static List<AssetItem> samples = [

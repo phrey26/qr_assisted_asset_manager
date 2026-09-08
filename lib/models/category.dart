@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import 'asset.dart';
 
 /// A category assets can be organized under. Shown as a card on the
 /// Categories tab, and offered as a filter chip on Inventory and as a
@@ -14,6 +15,7 @@ class AssetCategory {
     required this.value,
     required this.icon,
     required this.color,
+    this.defaultTracking = AssetTracking.individual,
   });
 
   /// Label shown on the category card (e.g. 'Vehicles').
@@ -31,6 +33,13 @@ class AssetCategory {
 
   final Color color;
 
+  /// The tracking mode pre-selected on the Add Asset form for this category.
+  /// A suggestion only — the admin can switch it per asset. See
+  /// [AssetTracking].
+  final AssetTracking defaultTracking;
+
+  bool get isBulkByDefault => defaultTracking == AssetTracking.bulk;
+
   /// Whether [category] (an [AssetItem.category] string) belongs to this
   /// category. Matched case-insensitively since category is free text
   /// elsewhere in the app.
@@ -43,6 +52,8 @@ class AssetCategory {
         value: json['value'] as String,
         icon: _iconForCodePoint(json['icon_code_point'] as int),
         color: Color(json['color_value'] as int),
+        defaultTracking:
+            AssetTrackingX.fromApiValue(json['default_tracking'] as String?),
       );
 
   /// Resolves a stored code point back to one of the curated [iconChoices].
@@ -62,6 +73,7 @@ class AssetCategory {
         'value': value,
         'icon_code_point': icon.codePoint,
         'color_value': color.toARGB32(),
+        'default_tracking': defaultTracking.apiValue,
       };
 
   /// The categories the app ships with.

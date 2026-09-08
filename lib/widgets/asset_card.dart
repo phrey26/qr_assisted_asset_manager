@@ -127,27 +127,32 @@ class AssetCard extends StatelessWidget {
                           fontSize: (isMobile ? 12.0 : 13.0) * scale,
                         ),
                       ),
-                      if (asset.isPastLifespan || asset.isDamaged) ...[
+                      if (asset.isPastLifespan ||
+                          asset.isDamaged ||
+                          asset.hasDamagedStock ||
+                          asset.isLowStock) ...[
                         SizedBox(height: 8 * scale),
                         Wrap(
                           spacing: 6 * scale,
                           runSpacing: 6 * scale,
                           children: [
                             if (asset.isPastLifespan) const LifespanWarningBadge(),
-                            if (asset.isDamaged) const DamagedWarningBadge(),
+                            if (asset.isDamaged || asset.hasDamagedStock)
+                              const DamagedWarningBadge(),
+                            if (asset.isLowStock) const LowStockBadge(),
                           ],
                         ),
                       ],
                       if (isMobile) ...[
                         SizedBox(height: 8 * scale),
-                        StatusChip(status: asset.status),
+                        _StatusOrStock(asset: asset),
                       ],
                     ],
                   ),
                 ),
                 if (!isMobile) ...[
                   SizedBox(width: 10 * scale),
-                  StatusChip(status: asset.status),
+                  _StatusOrStock(asset: asset),
                 ],
                 if (onActivate != null) ...[
                   SizedBox(width: isMobile ? 0 : 4 * scale),
@@ -188,5 +193,31 @@ class AssetCard extends StatelessWidget {
     if (value.contains('vehicle')) return Icons.directions_car_outlined;
     if (value.contains('tool')) return Icons.build_outlined;
     return Icons.devices_outlined;
+  }
+}
+
+/// A [StatusChip] for an individual asset, or a "12 / 50 pcs" stock pill for
+/// a bulk pool (which has no status).
+class _StatusOrStock extends StatelessWidget {
+  const _StatusOrStock({required this.asset});
+
+  final AssetItem asset;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!asset.isBulk) return StatusChip(status: asset.status);
+    final scale = Responsive.uiScale(context);
+    final low = asset.isLowStock || asset.quantityAvailable <= 0;
+    final (bg, fg) = low
+        ? (AppTheme.redTint, const Color(0xFFC84040))
+        : (AppTheme.mint, AppTheme.primary);
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 16 * scale, vertical: 9 * scale),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(30)),
+      child: Text(
+        asset.stockLabel,
+        style: TextStyle(color: fg, fontWeight: FontWeight.w800, fontSize: 14 * scale),
+      ),
+    );
   }
 }

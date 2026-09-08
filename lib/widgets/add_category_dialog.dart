@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/asset.dart';
 import '../models/category.dart';
 import '../theme/app_theme.dart';
 
@@ -33,6 +34,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
   final controller = TextEditingController();
   IconData icon = AssetCategory.iconChoices.first;
   Color color = AssetCategory.colorChoices.first;
+  AssetTracking tracking = AssetTracking.individual;
   String? error;
 
   @override
@@ -56,7 +58,13 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
     }
     Navigator.pop(
       context,
-      AssetCategory(displayName: name, value: name, icon: icon, color: color),
+      AssetCategory(
+        displayName: name,
+        value: name,
+        icon: icon,
+        color: color,
+        defaultTracking: tracking,
+      ),
     );
   }
 
@@ -125,6 +133,27 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
                   ),
               ],
             ),
+            const SizedBox(height: 22),
+            const Text(
+              'Assets in this category are usually',
+              style: TextStyle(color: AppTheme.darkGreen, fontWeight: FontWeight.w700, fontSize: 15),
+            ),
+            const SizedBox(height: 10),
+            Column(
+              children: [
+                for (final option in AssetTracking.values)
+                  _TrackingChoice(
+                    option: option,
+                    selected: option == tracking,
+                    onTap: () => setState(() => tracking = option),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Just the default when adding an asset — you can switch it per asset.',
+              style: TextStyle(color: AppTheme.muted, fontSize: 12, height: 1.35),
+            ),
           ],
         ),
       ),
@@ -146,6 +175,76 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
           child: const Text('Add category'),
         ),
       ],
+    );
+  }
+}
+
+class _TrackingChoice extends StatelessWidget {
+  const _TrackingChoice({
+    required this.option,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final AssetTracking option;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final subtitle = option == AssetTracking.bulk
+        ? 'Counted as a quantity (cables, markers, chairs…)'
+        : 'Each unit tagged and tracked on its own';
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          decoration: BoxDecoration(
+            color: selected ? AppTheme.mint : Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected ? AppTheme.primary : AppTheme.border,
+              width: 2,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                option == AssetTracking.bulk
+                    ? Icons.inventory_2_outlined
+                    : Icons.qr_code_2,
+                size: 20,
+                color: selected ? AppTheme.primary : AppTheme.muted,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      option.label,
+                      style: TextStyle(
+                        color: selected ? AppTheme.primary : AppTheme.darkGreen,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(subtitle,
+                        style: const TextStyle(color: AppTheme.muted, fontSize: 12)),
+                  ],
+                ),
+              ),
+              if (selected)
+                const Icon(Icons.check_circle, size: 18, color: AppTheme.primary),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

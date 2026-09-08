@@ -377,6 +377,121 @@ class ApiService {
     throw Exception(body['error'] ?? 'Failed to load the removal log');
   }
 
+  /// Fetches a bulk asset's stock state and history from `stock.php` — a
+  /// `{summary, movements, purchases}` map (see [StockHistory.fromJson]).
+  static Future<Map<String, dynamic>> fetchStockHistory(String tagId) async {
+    final response = await http
+        .get(Uri.parse('$baseUrl/stock.php?tag_id=${Uri.encodeQueryComponent(tagId)}'))
+        .timeout(_timeout, onTimeout: _timeoutError);
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    final body = jsonDecode(response.body);
+    throw Exception(body['error'] ?? 'Failed to load the stock history');
+  }
+
+  /// Records a purchase ("Add stock") on a bulk asset — bumps its on-hand
+  /// total and files the cost/supplier paperwork. Returns the refreshed
+  /// `summary` map.
+  static Future<Map<String, dynamic>> addStock({
+    required String tagId,
+    required int quantity,
+    double? unitCost,
+    double? totalCost,
+    String? supplier,
+    String? note,
+    String? purchasedAt,
+  }) {
+    return _postStock({
+      'tag_id': tagId,
+      'action': 'purchase',
+      'quantity': quantity,
+      if (unitCost != null) 'unit_cost': unitCost,
+      if (totalCost != null) 'total_cost': totalCost,
+      if (supplier != null && supplier.isNotEmpty) 'supplier': supplier,
+      if (note != null && note.isNotEmpty) 'note': note,
+      if (purchasedAt != null && purchasedAt.isNotEmpty) 'purchased_at': purchasedAt,
+    });
+  }
+
+  /// Disposes of [quantity] units of a bulk asset (broken / used up / lost).
+  /// [reason] is required and kept in the permanent `bulk_disposals` log.
+  static Future<Map<String, dynamic>> disposeStock({
+    required String tagId,
+    required int quantity,
+    required String reason,
+  }) {
+    return _postStock({
+      'tag_id': tagId,
+      'action': 'dispose',
+      'quantity': quantity,
+      'reason': reason,
+    });
+  }
+
+  /// Moves [quantity] repaired units out of a bulk asset's "set aside
+  /// damaged" holding bucket back into available stock.
+  static Future<Map<String, dynamic>> restoreStock({
+    required String tagId,
+    required int quantity,
+    String? note,
+  }) {
+    return _postStock({
+      'tag_id': tagId,
+      'action': 'restore',
+      'quantity': quantity,
+      if (note != null && note.isNotEmpty) 'note': note,
+    });
+  }
+
+  /// Corrects a bulk asset's on-hand total to [newTotal] (physical count
+  /// mismatch). [reason] is required and logged on the stock ledger.
+  static Future<Map<String, dynamic>> adjustStock({
+    required String tagId,
+    required int newTotal,
+    required String reason,
+  }) {
+    return _postStock({
+      'tag_id': tagId,
+      'action': 'adjust',
+      'new_total': newTotal,
+      'reason': reason,
+    });
+  }
+
+  static Future<Map<String, dynamic>> _postStock(Map<String, dynamic> payload) async {
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/stock.php'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(payload),
+        )
+        .timeout(_timeout, onTimeout: _timeoutError);
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.statusCode != 200) {
+      throw Exception(body['error'] ?? 'Stock update failed');
+    }
+    return (body['summary'] as Map?)?.cast<String, dynamic>() ?? const {};
+  }
+
+  /// Fetches the permanent bulk-stock disposal log (`bulk_disposals.php`) —
+  /// newest first. Each map is `{id, tag_id, name, category, quantity,
+  /// reason, disposed_at}`.
+  static Future<List<Map<String, dynamic>>> fetchBulkDisposals() async {
+    final response = await http
+        .get(Uri.parse('$baseUrl/bulk_disposals.php'))
+        .timeout(_timeout, onTimeout: _timeoutError);
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = jsonDecode(response.body);
+      return data.cast<Map<String, dynamic>>();
+    }
+    final body = jsonDecode(response.body);
+    throw Exception(body['error'] ?? 'Failed to load the disposal log');
+  }
+
   /// Fetches an asset's condition & usage history from
   /// `asset_returns.php` — a `{summary, inspections}` map (see
   /// [AssetReturnHistory.fromJson]).
@@ -468,17 +583,19 @@ class ApiService {
     return body['id'] as int;
   }
 
-  /// Updates a request's status (pending/approved/rejected).
+  /// Updates a request's status (pending/approved/rejected/returned).
   ///
-  /// When [status] is `approved`, [assetTagIds] must list the tag IDs of
-  /// the assets being handed out — the backend links them to the request
-  /// and flips each to `in_use` in the same transaction. For any other
-  /// status the backend releases whatever assets the request was holding,
-  /// so [assetTagIds] can be omitted.
+  /// When [status] is `approved`, [assignments] must list what's being
+  /// handed out as `{tag_id, quantity}` maps — quantity is 1 for an
+  /// individual asset and N for a bulk pool line. The backend links them to
+  /// the request, flips each individual asset to `in_use`, and decrements
+  /// each bulk pool's available stock, all in one transaction. For any
+  /// other status the backend releases whatever the request was holding, so
+  /// [assignments] can be omitted.
   static Future<void> updateRequestStatus({
     required int id,
     required String status,
-    List<String>? assetTagIds,
+    List<Map<String, dynamic>>? assignments,
     Map<String, dynamic>? returnInspection,
   }) async {
     final response = await http
@@ -488,7 +605,7 @@ class ApiService {
           body: jsonEncode({
             'id': id,
             'status': status,
-            if (assetTagIds != null) 'asset_tag_ids': assetTagIds,
+            if (assignments != null) 'assignments': assignments,
             if (returnInspection != null) 'return_inspection': returnInspection,
           }),
         )

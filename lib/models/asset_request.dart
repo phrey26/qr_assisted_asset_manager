@@ -85,28 +85,47 @@ class AssignedAsset {
     required this.name,
     required this.category,
     required this.status,
+    this.tracking = AssetTracking.individual,
+    this.quantity = 1,
   });
 
   final String tagId;
   final String name;
   final String category;
 
-  /// The asset's status as of the last load. While assigned to an approved
-  /// request this is [AssetStatus.inUse].
+  /// The asset's status as of the last load. While an individual asset is
+  /// assigned to an approved request this is [AssetStatus.inUse]. Not
+  /// meaningful for a bulk line (a pool has no status).
   final AssetStatus status;
+
+  /// How the underlying asset is tracked. A bulk line represents [quantity]
+  /// units taken from a pool rather than one physical unit.
+  final AssetTracking tracking;
+
+  /// Units taken. Always 1 for an individual asset; N for a bulk line.
+  final int quantity;
+
+  bool get isBulk => tracking == AssetTracking.bulk;
+
+  /// "Foldable chairs ×120" for a bulk line, just the name otherwise.
+  String get displayLabel => isBulk && quantity > 1 ? '$name ×$quantity' : name;
 
   factory AssignedAsset.fromJson(Map<String, dynamic> json) => AssignedAsset(
         tagId: json['tag_id'] as String,
         name: (json['name'] as String?) ?? (json['tag_id'] as String),
         category: (json['category_value'] as String?) ?? '',
         status: AssetStatusX.fromApiValue(json['status'] as String? ?? 'in_use'),
+        tracking: AssetTrackingX.fromApiValue(json['tracking'] as String?),
+        quantity: (json['quantity'] as num?)?.toInt() ?? 1,
       );
 
-  factory AssignedAsset.fromAsset(AssetItem asset) => AssignedAsset(
+  factory AssignedAsset.fromAsset(AssetItem asset, {int quantity = 1}) => AssignedAsset(
         tagId: asset.tagId,
         name: asset.name,
         category: asset.category,
-        status: AssetStatus.inUse,
+        status: asset.isBulk ? AssetStatus.available : AssetStatus.inUse,
+        tracking: asset.tracking,
+        quantity: asset.isBulk ? quantity : 1,
       );
 }
 

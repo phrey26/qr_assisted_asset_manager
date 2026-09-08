@@ -12,6 +12,7 @@ import '../models/asset.dart';
 import '../models/asset_event.dart';
 import '../models/asset_return.dart';
 import '../models/category.dart';
+import '../models/stock.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
@@ -19,6 +20,8 @@ import '../widgets/asset_timeline.dart';
 import '../widgets/asset_usage_view.dart';
 import '../widgets/delete_confirmation_dialog.dart';
 import '../widgets/status_chip.dart';
+import '../widgets/stock_dialogs.dart';
+import 'bulk_disposals_screen.dart';
 
 /// Full detail view for a single asset. Shows every field the admin
 /// entered when the asset was created, plus the QR code generated for it
@@ -29,10 +32,16 @@ class AssetDetailScreen extends StatefulWidget {
     required this.asset,
     this.onDelete,
     this.onActivate,
+    this.onStockChanged,
     this.removalMode = AssetRemovalMode.retireToStock,
   });
 
   final AssetItem asset;
+
+  /// Bulk assets only: invoked after a stock action (Add stock / Dispose /
+  /// Correct count) succeeds, with the authoritative new totals so the
+  /// inventory list can be updated without a reload.
+  final void Function(StockSummary summary)? onStockChanged;
 
   /// Invoked with the admin's reason (and, for a retire-to-stock, whether
   /// it needs maintenance) once the removal dialog is confirmed. What it
@@ -73,11 +82,117 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
   String? _usageError;
   bool _loadingUsage = true;
 
+  /// Bulk assets only: stock state + ledger, loaded from `stock.php`.
+  StockHistory? _stock;
+  String? _stockError;
+  bool _loadingStock = true;
+  bool _stockBusy = false;
+
+  bool get _isBulk => widget.asset.isBulk;
+
   @override
   void initState() {
     super.initState();
-    _loadEvents();
-    _loadUsage();
+    if (_isBulk) {
+      _loadStock();
+    } else {
+      _loadEvents();
+      _loadUsage();
+    }
+  }
+
+  Future<void> _loadStock() async {
+    setState(() {
+      _loadingStock = true;
+      _stockError = null;
+    });
+    try {
+      final data = await ApiService.fetchStockHistory(widget.asset.tagId);
+      if (!mounted) return;
+      setState(() {
+        _stock = StockHistory.fromJson(data);
+        _loadingStock = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _stockError = '$e';
+        _loadingStock = false;
+      });
+    }
+  }
+
+  Future<void> _runStockAction(Future<StockSummary> Function() action) async {
+    setState(() => _stockBusy = true);
+    try {
+      final summary = await action();
+      if (!mounted) return;
+      widget.onStockChanged?.call(summary);
+      await _loadStock();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _stockBusy = false);
+    }
+  }
+
+  Future<void> _addStock() async {
+    final input = await promptStockPurchase(context, widget.asset);
+    if (input == null) return;
+    await _runStockAction(() async {
+      final s = await ApiService.addStock(
+        tagId: widget.asset.tagId,
+        quantity: input.quantity,
+        unitCost: input.unitCost,
+        supplier: input.supplier,
+        note: input.note,
+        purchasedAt: input.purchasedAt,
+      );
+      return StockSummary.fromJson(s);
+    });
+  }
+
+  Future<void> _disposeStock() async {
+    final input = await promptStockDisposal(context, widget.asset);
+    if (input == null) return;
+    await _runStockAction(() async {
+      final s = await ApiService.disposeStock(
+        tagId: widget.asset.tagId,
+        quantity: input.quantity,
+        reason: input.reason,
+      );
+      return StockSummary.fromJson(s);
+    });
+  }
+
+  Future<void> _repairStock() async {
+    final input = await promptStockRestore(context, widget.asset);
+    if (input == null) return;
+    await _runStockAction(() async {
+      final s = await ApiService.restoreStock(
+        tagId: widget.asset.tagId,
+        quantity: input.quantity,
+        note: input.note,
+      );
+      return StockSummary.fromJson(s);
+    });
+  }
+
+  Future<void> _adjustStock() async {
+    final input = await promptStockAdjust(context, widget.asset);
+    if (input == null) return;
+    await _runStockAction(() async {
+      final s = await ApiService.adjustStock(
+        tagId: widget.asset.tagId,
+        newTotal: input.newTotal,
+        reason: input.reason,
+      );
+      return StockSummary.fromJson(s);
+    });
   }
 
   Future<void> _loadUsage() async {
@@ -248,7 +363,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                 ),
               ),
             ),
-          if (widget.onDelete != null && desktop)
+          if (_canRemove && desktop)
             Padding(
               padding: const EdgeInsets.only(right: 24),
               child: OutlinedButton.icon(
@@ -304,22 +419,30 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
               _damagedWarningBanner(),
               const SizedBox(height: 20),
             ],
+            if (_isBulk && asset.hasDamagedStock) ...[
+              _damagedStockBanner(),
+              const SizedBox(height: 20),
+            ],
+            if (_isBulk && asset.isLowStock) ...[
+              _lowStockBanner(),
+              const SizedBox(height: 20),
+            ],
             if (asset.imageBytes != null) ...[
               _assetPhoto(asset),
               const SizedBox(height: 24),
             ],
             _infoCard(asset, categoryColor, categoryIcon),
             const SizedBox(height: 24),
-            _usageCard(),
+            if (_isBulk) _stockCard() else _usageCard(),
             const SizedBox(height: 24),
             _qrCard(),
             const SizedBox(height: 24),
-            _timelineCard(),
+            if (_isBulk) _stockLedgerCard() else _timelineCard(),
             if (widget.onActivate != null && !asset.isActiveInventory) ...[
               const SizedBox(height: 24),
               _activateButton(),
             ],
-            if (widget.onDelete != null) ...[
+            if (_canRemove) ...[
               const SizedBox(height: 24),
               _deleteButton(),
             ],
@@ -350,6 +473,14 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                   _damagedWarningBanner(),
                   const SizedBox(height: 24),
                 ],
+                if (_isBulk && asset.hasDamagedStock) ...[
+                  _damagedStockBanner(),
+                  const SizedBox(height: 24),
+                ],
+                if (_isBulk && asset.isLowStock) ...[
+                  _lowStockBanner(),
+                  const SizedBox(height: 24),
+                ],
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -370,14 +501,324 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                   ],
                 ),
                 const SizedBox(height: 24),
-                _usageCard(desktop: true),
+                if (_isBulk) _stockCard(desktop: true) else _usageCard(desktop: true),
                 const SizedBox(height: 24),
-                _timelineCard(desktop: true),
+                if (_isBulk)
+                  _stockLedgerCard(desktop: true)
+                else
+                  _timelineCard(desktop: true),
               ],
             ),
           ),
         ),
       );
+
+  /// Whether the remove button should show. A bulk pool can only be removed
+  /// once it's been fully run down (nothing owned, nothing out).
+  bool get _canRemove {
+    if (widget.onDelete == null) return false;
+    if (!_isBulk) return true;
+    return (widget.asset.quantityTotal ?? 0) == 0 && widget.asset.quantityOut == 0;
+  }
+
+  Widget _stockPill(AssetItem asset) {
+    final low = asset.isLowStock || asset.quantityAvailable <= 0;
+    final (bg, fg) = low
+        ? (AppTheme.redTint, const Color(0xFFC84040))
+        : (AppTheme.mint, AppTheme.primary);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(30)),
+      child: Text(
+        asset.stockLabel,
+        style: TextStyle(color: fg, fontWeight: FontWeight.w800, fontSize: 14),
+      ),
+    );
+  }
+
+  Widget _damagedStockBanner() {
+    final asset = widget.asset;
+    final unit = asset.unitLabel == null || asset.unitLabel!.isEmpty
+        ? 'unit'
+        : asset.unitLabel!;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppTheme.redTint,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFF3C6C4), width: 2),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.report_gmailerrorred_outlined, color: Color(0xFFC84040)),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${asset.quantityDamaged} $unit set aside damaged',
+                  style: const TextStyle(
+                    color: Color(0xFFC84040),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'These came back from a loan damaged and aren\'t lendable. In the '
+                  'Stock card below, use "Repair" to return the fixed ones to stock, '
+                  'or "Dispose" to write them off.',
+                  style: TextStyle(color: Color(0xFFC84040), fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _lowStockBanner() {
+    final asset = widget.asset;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppTheme.redTint,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFF3C6C4), width: 2),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.inventory_2_outlined, color: Color(0xFFC84040)),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Running low on stock',
+                  style: TextStyle(
+                    color: Color(0xFFC84040),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Only ${asset.quantityAvailable} available'
+                  '${asset.reorderPoint == null ? '' : ', at or below the reorder point of ${asset.reorderPoint}'}'
+                  '. Use "Add stock" once more has been bought.',
+                  style: const TextStyle(color: Color(0xFFC84040), fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The bulk counterpart to [_usageCard]: current levels, the buy / dispose
+  /// / correct actions, and a link to the permanent disposal log.
+  Widget _stockCard({bool desktop = false}) {
+    final asset = widget.asset;
+    final summary = _stock?.summary;
+    final total = summary?.total ?? asset.quantityTotal ?? 0;
+    final out = summary?.out ?? asset.quantityOut;
+    final damaged = summary?.damaged ?? asset.quantityDamaged;
+    final available = summary?.available ?? asset.quantityAvailable;
+
+    Widget stat(String label, String value, Color color) => Expanded(
+          child: Column(
+            children: [
+              Text(
+                value,
+                style: TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 22),
+              ),
+              const SizedBox(height: 2),
+              Text(label, style: const TextStyle(color: AppTheme.muted, fontSize: 12)),
+            ],
+          ),
+        );
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.border, width: 2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: _sectionHeader(
+                  'Stock',
+                  icon: Icons.inventory_2_outlined,
+                  tint: AppTheme.mint,
+                  iconColor: AppTheme.primary,
+                  desktop: desktop,
+                ),
+              ),
+              IconButton(
+                onPressed: _loadingStock ? null : _loadStock,
+                icon: const Icon(Icons.refresh, size: 20),
+                color: AppTheme.muted,
+                tooltip: 'Refresh',
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+          ),
+          SizedBox(height: desktop ? 16 : 12),
+          if (_stockError != null && _stock == null)
+            Text(_stockError!, style: const TextStyle(color: Color(0xFFC84040), fontSize: 13))
+          else
+            Row(
+              children: [
+                stat('Owned', '$total', AppTheme.darkGreen),
+                stat('On loan', '$out', const Color(0xFF9A6512)),
+                if (damaged > 0) stat('Damaged', '$damaged', const Color(0xFFC84040)),
+                stat('Available', '$available',
+                    asset.isLowStock ? const Color(0xFFC84040) : AppTheme.primary),
+              ],
+            ),
+          if (asset.reorderPoint != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Reorder point: ${asset.reorderPoint}${asset.unitLabel == null ? '' : ' ${asset.unitLabel}'}',
+              style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+            ),
+          ],
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              ElevatedButton.icon(
+                onPressed: _stockBusy ? null : _addStock,
+                icon: const Icon(Icons.add_shopping_cart_outlined, size: 18),
+                label: const Text('Add stock'),
+                style: ElevatedButton.styleFrom(minimumSize: const Size(0, 44)),
+              ),
+              if (damaged > 0)
+                OutlinedButton.icon(
+                  onPressed: _stockBusy ? null : _repairStock,
+                  icon: const Icon(Icons.healing_outlined, size: 18),
+                  label: Text('Repair ($damaged)'),
+                  style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),
+                ),
+              OutlinedButton.icon(
+                onPressed: _stockBusy || (available <= 0 && damaged <= 0)
+                    ? null
+                    : _disposeStock,
+                icon: const Icon(Icons.delete_sweep_outlined, size: 18),
+                label: const Text('Dispose'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFFC84040),
+                  side: const BorderSide(color: Color(0xFFC84040), width: 2),
+                  minimumSize: const Size(0, 44),
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: _stockBusy ? null : _adjustStock,
+                icon: const Icon(Icons.tune_outlined, size: 18),
+                label: const Text('Correct count'),
+                style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),
+              ),
+              TextButton.icon(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const BulkDisposalsScreen()),
+                ),
+                icon: const Icon(Icons.receipt_long_outlined, size: 18),
+                label: const Text('Disposal log'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The bulk counterpart to [_timelineCard]: the stock ledger (purchases,
+  /// loans, returns, disposals) newest first.
+  Widget _stockLedgerCard({bool desktop = false}) {
+    final movements = _stock?.movements ?? const <StockMovement>[];
+    final Widget body;
+    if (_loadingStock && _stock == null) {
+      body = const Padding(
+        padding: EdgeInsets.symmetric(vertical: 12),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    } else if (_stockError != null && _stock == null) {
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Could not load the stock history.',
+              style: TextStyle(color: AppTheme.muted, fontSize: 14)),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _loadStock,
+            icon: const Icon(Icons.refresh, size: 18),
+            label: const Text('Try again'),
+            style: OutlinedButton.styleFrom(minimumSize: const Size(0, 40)),
+          ),
+        ],
+      );
+    } else if (movements.isEmpty) {
+      body = const Text('No stock movements yet.',
+          style: TextStyle(color: AppTheme.muted, fontSize: 14));
+    } else {
+      body = Column(
+        children: [for (final m in movements) _LedgerRow(movement: m)],
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.border, width: 2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: _sectionHeader(
+                  'Stock history',
+                  icon: Icons.history,
+                  tint: AppTheme.mint,
+                  iconColor: AppTheme.primary,
+                  desktop: desktop,
+                ),
+              ),
+              IconButton(
+                onPressed: _loadingStock ? null : _loadStock,
+                icon: const Icon(Icons.refresh, size: 20),
+                color: AppTheme.muted,
+                tooltip: 'Refresh',
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+          ),
+          SizedBox(height: desktop ? 18 : 14),
+          body,
+        ],
+      ),
+    );
+  }
 
   /// Full-width remove button for mobile. In stock-items ("delete") mode it
   /// carries the app's danger styling (red outline, "can't be undone"
@@ -492,7 +933,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
           ),
         ),
         const SizedBox(width: 12),
-        StatusChip(status: asset.status),
+        if (_isBulk) _stockPill(asset) else StatusChip(status: asset.status),
       ],
     );
 
@@ -675,9 +1116,9 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                 ),
                 Expanded(
                   child: _detailRow(
-                    'Status',
-                    asset.status.label,
-                    icon: Icons.flag_outlined,
+                    _isBulk ? 'Stock' : 'Status',
+                    _isBulk ? asset.stockLabel : asset.status.label,
+                    icon: _isBulk ? Icons.inventory_2_outlined : Icons.flag_outlined,
                     tint: statusBg,
                     iconColor: statusFg,
                   ),
@@ -716,9 +1157,9 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
               iconColor: const Color(0xFF9A6512),
             ),
             _detailRow(
-              'Status',
-              asset.status.label,
-              icon: Icons.flag_outlined,
+              _isBulk ? 'Stock' : 'Status',
+              _isBulk ? asset.stockLabel : asset.status.label,
+              icon: _isBulk ? Icons.inventory_2_outlined : Icons.flag_outlined,
               tint: statusBg,
               iconColor: statusFg,
             ),
@@ -1076,6 +1517,90 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                     )
                   : const Icon(Icons.download),
               label: Text(_saving ? 'Preparing...' : 'Download QR code'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One row in a bulk asset's stock ledger — a dot with the movement's icon,
+/// its label + note, the signed quantity, and the date.
+class _LedgerRow extends StatelessWidget {
+  const _LedgerRow({required this.movement});
+
+  final StockMovement movement;
+
+  String _formatTimestamp(DateTime dt) {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final m = dt.minute.toString().padLeft(2, '0');
+    final ap = dt.hour < 12 ? 'AM' : 'PM';
+    return '${months[dt.month - 1]} ${dt.day}, ${dt.year} · $h:$m $ap';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final (bg, fg) = movement.kind.colors;
+    final positive = movement.quantityDelta >= 0;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
+            child: Icon(movement.kind.icon, size: 18, color: fg),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        movement.kind.label,
+                        style: const TextStyle(
+                          color: AppTheme.darkGreen,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      movement.deltaLabel,
+                      style: TextStyle(
+                        color: positive ? AppTheme.primary : const Color(0xFFC84040),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _formatTimestamp(movement.timestamp) +
+                      (movement.balanceAfter == null
+                          ? ''
+                          : '  ·  ${movement.balanceAfter} on hand'),
+                  style: const TextStyle(color: AppTheme.muted, fontSize: 11.5),
+                ),
+                if (movement.note != null && movement.note!.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    movement.note!,
+                    style: const TextStyle(color: AppTheme.muted, fontSize: 12.5, height: 1.3),
+                  ),
+                ],
+              ],
             ),
           ),
         ],

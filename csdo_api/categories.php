@@ -5,13 +5,15 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'GET') {
     $result = $mysqli->query(
-        'SELECT id, display_name, value, icon_code_point, color_value FROM categories ORDER BY id ASC'
+        'SELECT id, display_name, value, icon_code_point, color_value, default_tracking ' .
+        'FROM categories ORDER BY id ASC'
     );
     $rows = [];
     while ($row = $result->fetch_assoc()) {
         $row['id'] = (int) $row['id'];
         $row['icon_code_point'] = (int) $row['icon_code_point'];
         $row['color_value'] = (int) $row['color_value'];
+        $row['default_tracking'] = $row['default_tracking'] ?: 'individual';
         $rows[] = $row;
     }
     echo json_encode($rows);
@@ -24,6 +26,8 @@ if ($method === 'POST') {
     $value = trim($body['value'] ?? '');
     $iconCodePoint = $body['icon_code_point'] ?? null;
     $colorValue = $body['color_value'] ?? null;
+    $defaultTracking = trim($body['default_tracking'] ?? 'individual');
+    if (!in_array($defaultTracking, ['individual', 'bulk'], true)) $defaultTracking = 'individual';
 
     if ($displayName === '' || $value === '' || $iconCodePoint === null || $colorValue === null) {
         fail(400, 'display_name, value, icon_code_point, and color_value are required.');
@@ -39,11 +43,12 @@ if ($method === 'POST') {
     $stmt->close();
 
     $stmt = $mysqli->prepare(
-        'INSERT INTO categories (display_name, value, icon_code_point, color_value) VALUES (?, ?, ?, ?)'
+        'INSERT INTO categories (display_name, value, icon_code_point, color_value, default_tracking) ' .
+        'VALUES (?, ?, ?, ?, ?)'
     );
     $iconCodePoint = (int) $iconCodePoint;
     $colorValue = (int) $colorValue;
-    $stmt->bind_param('ssii', $displayName, $value, $iconCodePoint, $colorValue);
+    $stmt->bind_param('ssiis', $displayName, $value, $iconCodePoint, $colorValue, $defaultTracking);
 
     if (!$stmt->execute()) {
         $stmt->close();
@@ -59,6 +64,7 @@ if ($method === 'POST') {
         'value' => $value,
         'icon_code_point' => $iconCodePoint,
         'color_value' => $colorValue,
+        'default_tracking' => $defaultTracking,
     ]);
     exit;
 }

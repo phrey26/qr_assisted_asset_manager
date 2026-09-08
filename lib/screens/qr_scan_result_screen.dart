@@ -124,7 +124,24 @@ class QrScanResultScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 12),
-            StatusChip(status: asset.status),
+            if (asset.isBulk)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                decoration: BoxDecoration(
+                  color: asset.isLowStock ? AppTheme.redTint : AppTheme.mint,
+                  borderRadius: BorderRadius.circular(30),
+                ),
+                child: Text(
+                  asset.stockLabel,
+                  style: TextStyle(
+                    color: asset.isLowStock ? const Color(0xFFC84040) : AppTheme.primary,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                  ),
+                ),
+              )
+            else
+              StatusChip(status: asset.status),
           ],
         ),
         const SizedBox(height: 20),

@@ -49,6 +49,9 @@ class _AddAssetFormState extends State<AddAssetForm> {
   final nameController = TextEditingController();
   final descriptionController = TextEditingController();
   late final tagController = TextEditingController(text: widget.nextTagId);
+  final quantityController = TextEditingController();
+  final unitController = TextEditingController();
+  final reorderController = TextEditingController();
   late String category;
   DateTime? purchaseDate;
   Uint8List? imageBytes;
@@ -56,13 +59,37 @@ class _AddAssetFormState extends State<AddAssetForm> {
   /// Where this asset goes once saved. `false` -> an active asset that can
   /// be borrowed (status `available`); `true` -> a backup "stock item"
   /// that's kept off the borrowable pool (status `in_stock`). Defaults to
-  /// an active asset.
+  /// an active asset. Not used for bulk assets.
   bool toStock = false;
+
+  /// How this asset is tracked. Seeded from the selected category's default
+  /// and re-seeded when the category changes, unless the admin has flipped
+  /// it by hand (then [_trackingTouched] keeps their choice).
+  AssetTracking tracking = AssetTracking.individual;
+  bool _trackingTouched = false;
+
+  bool get _isBulk => tracking == AssetTracking.bulk;
 
   @override
   void initState() {
     super.initState();
     category = widget.categories.first.value;
+    tracking = widget.categories.first.defaultTracking;
+  }
+
+  /// Applies the picked category and, unless the admin has overridden it,
+  /// switches the tracking mode to that category's default.
+  void _selectCategory(String value) {
+    setState(() {
+      category = value;
+      if (!_trackingTouched) {
+        final match = widget.categories.firstWhere(
+          (c) => c.value == value,
+          orElse: () => widget.categories.first,
+        );
+        tracking = match.defaultTracking;
+      }
+    });
   }
 
   @override
@@ -70,6 +97,9 @@ class _AddAssetFormState extends State<AddAssetForm> {
     nameController.dispose();
     descriptionController.dispose();
     tagController.dispose();
+    quantityController.dispose();
+    unitController.dispose();
+    reorderController.dispose();
     super.dispose();
   }
 
@@ -134,15 +164,42 @@ class _AddAssetFormState extends State<AddAssetForm> {
       );
       return;
     }
+    int? quantity;
+    int? reorder;
+    if (_isBulk) {
+      quantity = int.tryParse(quantityController.text.trim());
+      if (quantity == null || quantity < 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Enter the quantity on hand (0 or more).')),
+        );
+        return;
+      }
+      final rawReorder = reorderController.text.trim();
+      if (rawReorder.isNotEmpty) {
+        reorder = int.tryParse(rawReorder);
+        if (reorder == null || reorder < 0) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('The reorder point must be a whole number.')),
+          );
+          return;
+        }
+      }
+    }
     widget.onSave(
       AssetItem(
         name: nameController.text.trim(),
         tagId: tagController.text.trim(),
         category: category,
         description: descriptionController.text.trim(),
-        status: toStock ? AssetStatus.inStock : AssetStatus.available,
+        status: (!_isBulk && toStock) ? AssetStatus.inStock : AssetStatus.available,
         purchaseDate: purchaseDate!,
         imageBytes: imageBytes,
+        tracking: tracking,
+        quantityTotal: _isBulk ? quantity : null,
+        reorderPoint: _isBulk ? reorder : null,
+        unitLabel: _isBulk && unitController.text.trim().isNotEmpty
+            ? unitController.text.trim()
+            : null,
       ),
     );
   }
@@ -194,12 +251,50 @@ class _AddAssetFormState extends State<AddAssetForm> {
             for (final c in widget.categories)
               DropdownMenuItem(value: c.value, child: Text(c.displayName)),
           ],
-          onChanged: (value) => setState(() => category = value!),
+          onChanged: (value) => _selectCategory(value!),
         ),
         SizedBox(height: gap),
-        _label('Add to'),
-        _destinationSelector(),
+        _label('How is it tracked?'),
+        _trackingSelector(),
         SizedBox(height: gap),
+        if (_isBulk) ...[
+          _label('Quantity on hand'),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 2,
+                child: TextField(
+                  controller: quantityController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(hintText: 'e.g. 50'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
+                  controller: unitController,
+                  textCapitalization: TextCapitalization.none,
+                  decoration: const InputDecoration(hintText: 'unit — pcs'),
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: gap),
+          _label('Reorder point (optional)'),
+          TextField(
+            controller: reorderController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              hintText: 'Warn when available stock drops to this',
+            ),
+          ),
+          SizedBox(height: gap),
+        ] else ...[
+          _label('Add to'),
+          _destinationSelector(),
+          SizedBox(height: gap),
+        ],
         _label('Date of purchase'),
         InkWell(
           borderRadius: BorderRadius.circular(14),
@@ -298,6 +393,40 @@ class _AddAssetFormState extends State<AddAssetForm> {
             title: 'Stock item',
             subtitle: 'Backup, not borrowable',
             onTap: () => setState(() => toStock = true),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Individual (one QR-tagged unit) vs Bulk (a counted quantity). Seeded
+  /// from the category's default; flipping it here sticks for this asset.
+  Widget _trackingSelector() {
+    return Row(
+      children: [
+        Expanded(
+          child: _destinationOption(
+            selected: !_isBulk,
+            icon: Icons.qr_code_2,
+            title: 'Individual',
+            subtitle: 'One tagged unit',
+            onTap: () => setState(() {
+              tracking = AssetTracking.individual;
+              _trackingTouched = true;
+            }),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _destinationOption(
+            selected: _isBulk,
+            icon: Icons.inventory_2_outlined,
+            title: 'Bulk quantity',
+            subtitle: 'Counted stock',
+            onTap: () => setState(() {
+              tracking = AssetTracking.bulk;
+              _trackingTouched = true;
+            }),
           ),
         ),
       ],

@@ -49,6 +49,33 @@ function log_asset_event(mysqli $mysqli, int $assetId, string $eventType, ?strin
     $stmt->close();
 }
 
+/**
+ * Appends a row to a BULK asset's stock ledger (see `stock_movements` and
+ * lib/models/stock.dart). $kind is one of: 'purchase', 'lent', 'returned',
+ * 'damaged', 'disposed', 'adjusted'. $delta is signed; $balanceAfter is the
+ * new quantity_total when this row changed the total (else null). Unlike
+ * log_asset_event this is called inside the caller's transaction, so a
+ * failure is surfaced, not swallowed.
+ */
+function log_stock_movement(
+    mysqli $mysqli,
+    int $assetId,
+    string $kind,
+    int $delta,
+    ?int $balanceAfter = null,
+    ?string $note = null,
+    ?int $requestId = null
+): void {
+    $stmt = $mysqli->prepare(
+        'INSERT INTO stock_movements (asset_id, kind, quantity_delta, balance_after, note, request_id) ' .
+        'VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    if ($stmt === false) return;
+    $stmt->bind_param('isiisi', $assetId, $kind, $delta, $balanceAfter, $note, $requestId);
+    $stmt->execute();
+    $stmt->close();
+}
+
 /** Reads and JSON-decodes the request body as an assoc array (empty array if none/invalid). */
 function read_json_body(): array {
     $raw = file_get_contents('php://input');
