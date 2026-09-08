@@ -428,7 +428,6 @@ class _AssetRow extends StatelessWidget {
                         _QtyStepper(
                           value: quantity,
                           max: asset.quantityAvailable,
-                          unit: asset.unitLabel,
                           onChanged: onQuantityChanged,
                         ),
                       ],
@@ -478,17 +477,14 @@ class _QtyStepper extends StatelessWidget {
     required this.value,
     required this.max,
     required this.onChanged,
-    this.unit,
   });
 
   final int value;
   final int max;
-  final String? unit;
   final ValueChanged<int> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    final unitText = unit == null || unit!.isEmpty ? '' : ' ${unit!}';
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -496,7 +492,7 @@ class _QtyStepper extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Text(
-            '$value$unitText',
+            '$value',
             style: const TextStyle(
               color: AppTheme.darkGreen,
               fontWeight: FontWeight.w800,

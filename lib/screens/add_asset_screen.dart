@@ -11,10 +11,16 @@ import '../widgets/brand_mark.dart';
 /// so the flow matches the QREMS hi-fi desktop mockups (a centered modal
 /// over a dimmed inventory list).
 class AddAssetScreen extends StatelessWidget {
-  const AddAssetScreen({super.key, required this.nextTagId, required this.categories});
+  const AddAssetScreen({
+    super.key,
+    required this.nextTagId,
+    required this.categories,
+    this.existingBulk = const [],
+  });
 
   final String nextTagId;
   final List<AssetCategory> categories;
+  final List<AssetItem> existingBulk;
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +57,9 @@ class AddAssetScreen extends StatelessWidget {
               AddAssetForm(
                 nextTagId: nextTagId,
                 categories: categories,
-                onSave: (asset) => Navigator.pop<AssetItem>(context, asset),
+                existingBulk: existingBulk,
+                onSubmit: (result) =>
+                    Navigator.pop<AddAssetResult>(context, result),
               ),
             ],
           ),

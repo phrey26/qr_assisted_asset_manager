@@ -538,9 +538,6 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
 
   Widget _damagedStockBanner() {
     final asset = widget.asset;
-    final unit = asset.unitLabel == null || asset.unitLabel!.isEmpty
-        ? 'unit'
-        : asset.unitLabel!;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
@@ -559,7 +556,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${asset.quantityDamaged} $unit set aside damaged',
+                  '${asset.quantityDamaged} unit(s) set aside damaged',
                   style: const TextStyle(
                     color: Color(0xFFC84040),
                     fontWeight: FontWeight.w800,
@@ -693,7 +690,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
           if (asset.reorderPoint != null) ...[
             const SizedBox(height: 10),
             Text(
-              'Reorder point: ${asset.reorderPoint}${asset.unitLabel == null ? '' : ' ${asset.unitLabel}'}',
+              'Reorder point: ${asset.reorderPoint}',
               style: const TextStyle(color: AppTheme.muted, fontSize: 12),
             ),
           ],

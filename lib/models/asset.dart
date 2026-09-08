@@ -94,7 +94,6 @@ class AssetItem {
     this.quantityOut = 0,
     this.quantityDamaged = 0,
     this.reorderPoint,
-    this.unitLabel,
   });
 
   final String name;
@@ -145,10 +144,6 @@ class AssetItem {
   /// this, the asset shows a "Low stock" warning. Null = no threshold set.
   final int? reorderPoint;
 
-  /// Bulk only: the unit an amount is counted in ("pcs", "box", …). Null =
-  /// unlabelled (just a number).
-  final String? unitLabel;
-
   bool get isBulk => tracking == AssetTracking.bulk;
 
   /// Bulk only: units available to borrow right now — owned, minus what's
@@ -163,11 +158,9 @@ class AssetItem {
   bool get isLowStock =>
       isBulk && reorderPoint != null && quantityAvailable <= reorderPoint!;
 
-  /// "12 / 50 pcs" — a compact stock readout for bulk cards/rows.
-  String get stockLabel {
-    final unit = unitLabel == null || unitLabel!.isEmpty ? '' : ' ${unitLabel!}';
-    return '$quantityAvailable / ${quantityTotal ?? 0}$unit';
-  }
+  /// "12 / 50" — a compact "available / owned" stock readout for bulk
+  /// cards/rows.
+  String get stockLabel => '$quantityAvailable / ${quantityTotal ?? 0}';
 
   /// Whether this asset was last returned in a damaged state — surfaced as
   /// a warning badge on the inventory list and asset detail, the same way
@@ -230,9 +223,6 @@ class AssetItem {
         quantityOut: (json['quantity_out'] as num?)?.toInt() ?? 0,
         quantityDamaged: (json['quantity_damaged'] as num?)?.toInt() ?? 0,
         reorderPoint: (json['reorder_point'] as num?)?.toInt(),
-        unitLabel: (json['unit_label'] as String?)?.trim().isEmpty ?? true
-            ? null
-            : (json['unit_label'] as String).trim(),
       );
 
   /// The fields `csdo_api/assets.php` (POST) expects in its request body.
@@ -250,7 +240,6 @@ class AssetItem {
         'tracking': tracking.apiValue,
         'quantity_total': quantityTotal,
         'reorder_point': reorderPoint,
-        'unit_label': unitLabel,
       };
 
   static List<AssetItem> samples = [

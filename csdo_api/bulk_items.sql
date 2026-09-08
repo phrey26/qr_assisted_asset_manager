@@ -20,8 +20,10 @@ ALTER TABLE assets
   ADD COLUMN IF NOT EXISTS quantity_total  INT NULL,          -- units owned (bulk only)
   ADD COLUMN IF NOT EXISTS quantity_out    INT NOT NULL DEFAULT 0, -- units on loan now
   ADD COLUMN IF NOT EXISTS quantity_damaged INT NOT NULL DEFAULT 0, -- units held aside, back from loan damaged, awaiting a decision (repair -> available, or dispose)
-  ADD COLUMN IF NOT EXISTS reorder_point   INT NULL,          -- low-stock threshold
-  ADD COLUMN IF NOT EXISTS unit_label      VARCHAR(24) NULL;   -- "pcs", "box", ...
+  ADD COLUMN IF NOT EXISTS reorder_point   INT NULL;          -- low-stock threshold
+-- (No unit label — a bulk count is just a number.) Drops the column if an
+-- earlier version of this migration added it.
+ALTER TABLE assets DROP COLUMN IF EXISTS unit_label;
 
 -- How many units of a bulk pool a request line took. 1 for an individual
 -- asset pick (one row = one physical unit), so the default keeps old rows valid.

@@ -211,8 +211,6 @@ class _StockPurchaseDialogState extends State<_StockPurchaseDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final unit = widget.asset.unitLabel;
-    final unitSuffix = unit == null || unit.isEmpty ? '' : ' $unit';
     return _DialogShell(
       icon: Icons.add_shopping_cart_outlined,
       iconBg: AppTheme.mint,
@@ -230,7 +228,7 @@ class _StockPurchaseDialogState extends State<_StockPurchaseDialog> {
             'on-hand total right away.',
             style: const TextStyle(color: AppTheme.muted, fontSize: 13, height: 1.4),
           ),
-          _fieldLabel('How many units?$unitSuffix'),
+          _fieldLabel('How many units?'),
           TextField(
             controller: _qty,
             keyboardType: TextInputType.number,

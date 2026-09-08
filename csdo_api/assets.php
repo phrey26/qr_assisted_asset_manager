@@ -9,7 +9,7 @@ if ($method === 'GET') {
         'c.default_tracking AS category_default_tracking, ' .
         'a.description, a.status, a.purchase_date, a.image_base64, ' .
         'a.tracking, a.quantity_total, a.quantity_out, a.quantity_damaged, ' .
-        'a.reorder_point, a.unit_label, ' .
+        'a.reorder_point, ' .
         '(SELECT r.asset_condition FROM asset_returns r ' .
         '   JOIN asset_return_assets ra ON ra.return_id = r.id ' .
         '  WHERE ra.asset_id = a.id ORDER BY r.id DESC LIMIT 1) AS last_condition ' .
@@ -49,8 +49,6 @@ if ($method === 'POST') {
     $reorderPoint = isset($body['reorder_point']) && is_numeric($body['reorder_point'])
         ? max(0, (int) $body['reorder_point'])
         : null;
-    $unitLabel = trim((string) ($body['unit_label'] ?? ''));
-    if ($unitLabel === '') $unitLabel = null;
     // A bulk pool is never "in stock" / "in use" as a whole — it carries a
     // level instead. Keep its status column at 'available' as a placeholder.
     if ($isBulk) $status = 'available';
@@ -62,11 +60,11 @@ if ($method === 'POST') {
 
     $stmt = $mysqli->prepare(
         'INSERT INTO assets (tag_id, name, category_id, description, status, purchase_date, image_base64, ' .
-        'tracking, quantity_total, quantity_out, reorder_point, unit_label) ' .
-        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)'
+        'tracking, quantity_total, quantity_out, reorder_point) ' .
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)'
     );
     $stmt->bind_param(
-        'ssisssssiis',
+        'ssisssssii',
         $tagId,
         $name,
         $categoryId,
@@ -76,8 +74,7 @@ if ($method === 'POST') {
         $imageBase64,
         $tracking,
         $quantityTotal,
-        $reorderPoint,
-        $unitLabel
+        $reorderPoint
     );
 
     if (!$stmt->execute()) {

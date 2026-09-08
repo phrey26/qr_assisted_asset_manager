@@ -80,7 +80,6 @@ CREATE TABLE IF NOT EXISTS assets (
   quantity_out INT NOT NULL DEFAULT 0,                  -- units on loan now (bulk)
   quantity_damaged INT NOT NULL DEFAULT 0,              -- units back from loan damaged, set aside pending repair/disposal (bulk)
   reorder_point INT NULL,                               -- low-stock threshold (bulk)
-  unit_label VARCHAR(24) NULL,                          -- "pcs", "box", ... (bulk)
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_assets_category FOREIGN KEY (category_id) REFERENCES categories(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -89,8 +88,8 @@ ALTER TABLE assets
   ADD COLUMN IF NOT EXISTS quantity_total   INT NULL,
   ADD COLUMN IF NOT EXISTS quantity_out     INT NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS quantity_damaged INT NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS reorder_point    INT NULL,
-  ADD COLUMN IF NOT EXISTS unit_label       VARCHAR(24) NULL;
+  ADD COLUMN IF NOT EXISTS reorder_point    INT NULL;
+ALTER TABLE assets DROP COLUMN IF EXISTS unit_label;
 
 CREATE TABLE IF NOT EXISTS requests (
   id INT AUTO_INCREMENT PRIMARY KEY,

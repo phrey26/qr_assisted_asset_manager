@@ -17,6 +17,7 @@ import 'services/session_store.dart';
 import 'theme/app_theme.dart';
 import 'utils/responsive.dart';
 import 'widgets/add_asset_dialog.dart';
+import 'widgets/add_asset_form.dart';
 import 'widgets/brand_mark.dart';
 
 void main() {
@@ -384,7 +385,6 @@ class _AppShellState extends State<AppShell> {
         quantityOut: a.quantityOut,
         quantityDamaged: a.quantityDamaged,
         reorderPoint: a.reorderPoint,
-        unitLabel: a.unitLabel,
       );
 
   /// Mirrors the condition recorded in a return inspection onto the local
@@ -404,23 +404,59 @@ class _AppShellState extends State<AppShell> {
 
   Future<void> _openAddAsset() async {
     final tagId = AssetItem.nextTagId(_assets);
-    final AssetItem? asset;
+    final bulk = _assets.where((a) => a.isBulk).toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    final AddAssetResult? result;
     if (Responsive.isDesktop(context)) {
       // Desktop mockups show "Add new asset" as a centered modal over a
       // dimmed inventory list, rather than navigating to a new page.
-      asset = await showDialog<AssetItem>(
+      result = await showDialog<AddAssetResult>(
         context: context,
-        builder: (_) => AddAssetDialog(nextTagId: tagId, categories: _categories),
+        builder: (_) => AddAssetDialog(
+          nextTagId: tagId,
+          categories: _categories,
+          existingBulk: bulk,
+        ),
       );
     } else {
-      asset = await Navigator.push<AssetItem>(
+      result = await Navigator.push<AddAssetResult>(
         context,
         MaterialPageRoute(
-          builder: (_) => AddAssetScreen(nextTagId: tagId, categories: _categories),
+          builder: (_) => AddAssetScreen(
+            nextTagId: tagId,
+            categories: _categories,
+            existingBulk: bulk,
+          ),
         ),
       );
     }
-    if (asset != null) _addAsset(asset);
+    if (result is NewAssetResult) {
+      _addAsset(result.asset);
+    } else if (result is BulkRestockResult) {
+      _restockBulk(result);
+    }
+  }
+
+  /// "Bought more of an existing bulk item" — runs the same restock path as
+  /// the "Add stock" action on the asset detail screen.
+  Future<void> _restockBulk(BulkRestockResult r) async {
+    try {
+      final summary = await ApiService.addStock(
+        tagId: r.tagId,
+        quantity: r.quantity,
+        unitCost: r.unitCost,
+        supplier: r.supplier,
+        note: r.note,
+        purchasedAt: r.purchasedAt,
+      );
+      if (!mounted) return;
+      final idx = _assets.indexWhere((a) => a.tagId == r.tagId);
+      if (idx >= 0) {
+        _applyBulkSummary(_assets[idx], StockSummary.fromJson(summary));
+      }
+    } catch (e) {
+      _showSyncError('Could not add to stock: $e');
+    }
   }
 
   /// Switches the active tab. Deferred to the next frame (rather than

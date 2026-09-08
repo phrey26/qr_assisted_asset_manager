@@ -19,7 +19,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 function load_bulk_asset(mysqli $mysqli, string $tagId): array {
     $stmt = $mysqli->prepare(
         'SELECT a.id, a.tag_id, a.name, a.tracking, a.quantity_total, a.quantity_out, ' .
-        'a.quantity_damaged, a.reorder_point, a.unit_label, c.value AS category ' .
+        'a.quantity_damaged, a.reorder_point, c.value AS category ' .
         'FROM assets a JOIN categories c ON c.id = a.category_id WHERE a.tag_id = ?'
     );
     $stmt->bind_param('s', $tagId);
@@ -52,7 +52,6 @@ function stock_summary(array $asset): array {
         'damaged' => $damaged,
         'available' => $available,
         'reorder_point' => $reorder,
-        'unit_label' => $asset['unit_label'],
         'low_stock' => $reorder !== null && $available <= $reorder,
     ];
 }

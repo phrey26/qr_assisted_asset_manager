@@ -186,7 +186,6 @@ class StockSummary {
     required this.lowStock,
     this.damaged = 0,
     this.reorderPoint,
-    this.unitLabel,
   });
 
   final int total;
@@ -195,7 +194,6 @@ class StockSummary {
   final int available;
   final bool lowStock;
   final int? reorderPoint;
-  final String? unitLabel;
 
   factory StockSummary.fromJson(Map<String, dynamic> json) => StockSummary(
         total: (json['total'] as num?)?.toInt() ?? 0,
@@ -204,9 +202,6 @@ class StockSummary {
         available: (json['available'] as num?)?.toInt() ?? 0,
         lowStock: json['low_stock'] == true,
         reorderPoint: (json['reorder_point'] as num?)?.toInt(),
-        unitLabel: (json['unit_label'] as String?)?.trim().isEmpty ?? true
-            ? null
-            : (json['unit_label'] as String).trim(),
       );
 }
 

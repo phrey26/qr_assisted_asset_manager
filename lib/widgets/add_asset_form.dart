@@ -9,6 +9,41 @@ import '../screens/camera_capture_screen.dart';
 import '../theme/app_theme.dart';
 import '../utils/camera_support.dart';
 
+/// What the Add Asset flow produced — either a brand-new asset to insert, or
+/// a restock against a bulk pool that already exists.
+sealed class AddAssetResult {
+  const AddAssetResult();
+}
+
+/// A brand-new asset row (individual, or a new bulk pool).
+class NewAssetResult extends AddAssetResult {
+  const NewAssetResult(this.asset);
+  final AssetItem asset;
+}
+
+/// "We bought more" — add units to an existing bulk item, with the same
+/// cost/supplier paperwork as the "Add stock" action on the asset detail
+/// screen.
+class BulkRestockResult extends AddAssetResult {
+  const BulkRestockResult({
+    required this.tagId,
+    required this.quantity,
+    this.unitCost,
+    this.supplier,
+    this.note,
+    this.purchasedAt,
+  });
+
+  final String tagId;
+  final int quantity;
+  final double? unitCost;
+  final String? supplier;
+  final String? note;
+
+  /// ISO yyyy-MM-dd, or null.
+  final String? purchasedAt;
+}
+
 /// The actual "add asset" form fields, shared between [AddAssetScreen]
 /// (full page, used on mobile) and the desktop modal dialog. Keeping the
 /// fields in one place means the mobile and desktop entry points can never
@@ -18,7 +53,8 @@ class AddAssetForm extends StatefulWidget {
     super.key,
     required this.nextTagId,
     required this.categories,
-    required this.onSave,
+    required this.onSubmit,
+    this.existingBulk = const [],
     this.onCancel,
     this.compact = false,
   });
@@ -31,7 +67,12 @@ class AddAssetForm extends StatefulWidget {
   /// non-empty.
   final List<AssetCategory> categories;
 
-  final ValueChanged<AssetItem> onSave;
+  /// Bulk items already in the inventory. When non-empty and the admin
+  /// picks "Bulk quantity", they can choose to top up one of these instead
+  /// of creating a new pool.
+  final List<AssetItem> existingBulk;
+
+  final ValueChanged<AddAssetResult> onSubmit;
 
   /// Shown as a "Cancel" button next to the save button when provided
   /// (desktop dialog). When null, only the save button is shown full width
@@ -50,11 +91,19 @@ class _AddAssetFormState extends State<AddAssetForm> {
   final descriptionController = TextEditingController();
   late final tagController = TextEditingController(text: widget.nextTagId);
   final quantityController = TextEditingController();
-  final unitController = TextEditingController();
   final reorderController = TextEditingController();
+  final unitCostController = TextEditingController();
+  final supplierController = TextEditingController();
   late String category;
   DateTime? purchaseDate;
   Uint8List? imageBytes;
+
+  /// Bulk only: when true, the form tops up an existing pool ([_restockTag])
+  /// instead of creating a new asset. Only reachable when
+  /// [AddAssetForm.existingBulk] is non-empty.
+  bool _restock = false;
+  late String? _restockTag =
+      widget.existingBulk.isEmpty ? null : widget.existingBulk.first.tagId;
 
   /// Where this asset goes once saved. `false` -> an active asset that can
   /// be borrowed (status `available`); `true` -> a backup "stock item"
@@ -88,7 +137,16 @@ class _AddAssetFormState extends State<AddAssetForm> {
           orElse: () => widget.categories.first,
         );
         tracking = match.defaultTracking;
+        if (!_isBulk) _restock = false;
       }
+    });
+  }
+
+  void _setTracking(AssetTracking value) {
+    setState(() {
+      tracking = value;
+      _trackingTouched = true;
+      if (value != AssetTracking.bulk) _restock = false;
     });
   }
 
@@ -98,10 +156,20 @@ class _AddAssetFormState extends State<AddAssetForm> {
     descriptionController.dispose();
     tagController.dispose();
     quantityController.dispose();
-    unitController.dispose();
     reorderController.dispose();
+    unitCostController.dispose();
+    supplierController.dispose();
     super.dispose();
   }
+
+  void _toast(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  static String _ymd(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
 
   Future<void> _pickPurchaseDate() async {
     final now = DateTime.now();
@@ -152,16 +220,16 @@ class _AddAssetFormState extends State<AddAssetForm> {
   }
 
   void _save() {
+    if (_restock) {
+      _submitRestock();
+      return;
+    }
     if (nameController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter an asset name.')),
-      );
+      _toast('Please enter an asset name.');
       return;
     }
     if (purchaseDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please add the date of purchase.')),
-      );
+      _toast('Please add the date of purchase.');
       return;
     }
     int? quantity;
@@ -169,37 +237,64 @@ class _AddAssetFormState extends State<AddAssetForm> {
     if (_isBulk) {
       quantity = int.tryParse(quantityController.text.trim());
       if (quantity == null || quantity < 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Enter the quantity on hand (0 or more).')),
-        );
+        _toast('Enter the quantity on hand (0 or more).');
         return;
       }
       final rawReorder = reorderController.text.trim();
       if (rawReorder.isNotEmpty) {
         reorder = int.tryParse(rawReorder);
         if (reorder == null || reorder < 0) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('The reorder point must be a whole number.')),
-          );
+          _toast('The reorder point must be a whole number.');
           return;
         }
       }
     }
-    widget.onSave(
-      AssetItem(
-        name: nameController.text.trim(),
-        tagId: tagController.text.trim(),
-        category: category,
-        description: descriptionController.text.trim(),
-        status: (!_isBulk && toStock) ? AssetStatus.inStock : AssetStatus.available,
-        purchaseDate: purchaseDate!,
-        imageBytes: imageBytes,
-        tracking: tracking,
-        quantityTotal: _isBulk ? quantity : null,
-        reorderPoint: _isBulk ? reorder : null,
-        unitLabel: _isBulk && unitController.text.trim().isNotEmpty
-            ? unitController.text.trim()
-            : null,
+    widget.onSubmit(
+      NewAssetResult(
+        AssetItem(
+          name: nameController.text.trim(),
+          tagId: tagController.text.trim(),
+          category: category,
+          description: descriptionController.text.trim(),
+          status: (!_isBulk && toStock) ? AssetStatus.inStock : AssetStatus.available,
+          purchaseDate: purchaseDate!,
+          imageBytes: imageBytes,
+          tracking: tracking,
+          quantityTotal: _isBulk ? quantity : null,
+          reorderPoint: _isBulk ? reorder : null,
+        ),
+      ),
+    );
+  }
+
+  void _submitRestock() {
+    if (_restockTag == null) {
+      _toast('Pick a bulk item to add stock to.');
+      return;
+    }
+    final qty = int.tryParse(quantityController.text.trim());
+    if (qty == null || qty <= 0) {
+      _toast('Enter how many units were added.');
+      return;
+    }
+    final rawCost = unitCostController.text.trim();
+    final cost = rawCost.isEmpty ? null : double.tryParse(rawCost);
+    if (rawCost.isNotEmpty && (cost == null || cost < 0)) {
+      _toast('Enter a valid unit cost, or leave it blank.');
+      return;
+    }
+    widget.onSubmit(
+      BulkRestockResult(
+        tagId: _restockTag!,
+        quantity: qty,
+        unitCost: cost,
+        supplier: supplierController.text.trim().isEmpty
+            ? null
+            : supplierController.text.trim(),
+        note: descriptionController.text.trim().isEmpty
+            ? null
+            : descriptionController.text.trim(),
+        purchasedAt: purchaseDate == null ? null : _ymd(purchaseDate!),
       ),
     );
   }
@@ -211,149 +306,228 @@ class _AddAssetFormState extends State<AddAssetForm> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        _label('Asset name'),
-        TextField(
-          controller: nameController,
-          decoration: const InputDecoration(hintText: 'e.g. Epson projector'),
-        ),
-        SizedBox(height: gap),
-        _label('Asset tag ID'),
-        TextField(
-          controller: tagController,
-          readOnly: true,
-          style: const TextStyle(
-            color: AppTheme.primary,
-            fontFamily: 'monospace',
-            fontSize: 19,
-          ),
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: AppTheme.mint,
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(18),
-              borderSide: const BorderSide(color: AppTheme.primary, width: 2),
-            ),
-          ),
-        ),
-        SizedBox(height: gap),
-        _label('Category'),
-        DropdownButtonFormField<String>(
-          // Options come from widget.categories, kept in sync with the
-          // category filter chips on the inventory list and the cards on
-          // the Categories tab, so every asset added here can actually be
-          // found under one of those filters — including any category the
-          // admin has added since. 'Maintenance' was previously offered
-          // here too, but that's an asset *status* (see AssetStatus), not
-          // a category, so it's been removed to avoid the two concepts
-          // colliding.
-          initialValue: category,
-          items: [
-            for (final c in widget.categories)
-              DropdownMenuItem(value: c.value, child: Text(c.displayName)),
-          ],
-          onChanged: (value) => _selectCategory(value!),
-        ),
-        SizedBox(height: gap),
         _label('How is it tracked?'),
         _trackingSelector(),
         SizedBox(height: gap),
-        if (_isBulk) ...[
-          _label('Quantity on hand'),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                flex: 2,
-                child: TextField(
-                  controller: quantityController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(hintText: 'e.g. 50'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: TextField(
-                  controller: unitController,
-                  textCapitalization: TextCapitalization.none,
-                  decoration: const InputDecoration(hintText: 'unit — pcs'),
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: gap),
-          _label('Reorder point (optional)'),
-          TextField(
-            controller: reorderController,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              hintText: 'Warn when available stock drops to this',
-            ),
-          ),
-          SizedBox(height: gap),
-        ] else ...[
-          _label('Add to'),
-          _destinationSelector(),
+        if (_isBulk && widget.existingBulk.isNotEmpty) ...[
+          _label('Add stock to'),
+          _bulkModeSelector(),
           SizedBox(height: gap),
         ],
-        _label('Date of purchase'),
-        InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: _pickPurchaseDate,
-          child: InputDecorator(
-            decoration: const InputDecoration(
-              suffixIcon: Icon(Icons.calendar_today_outlined, size: 20),
-            ),
-            child: Text(
-              purchaseDate == null
-                  ? 'Select date'
-                  : AssetItem.formatDate(purchaseDate!),
-              style: TextStyle(
-                color: purchaseDate == null ? AppTheme.muted : AppTheme.darkGreen,
-                fontSize: 16,
-              ),
-            ),
-          ),
-        ),
-        SizedBox(height: gap),
-        _label('Asset photo (optional)'),
-        _photoPicker(),
-        SizedBox(height: gap),
-        _label('Description'),
-        TextField(
-          controller: descriptionController,
-          minLines: 3,
-          maxLines: 4,
-          decoration: const InputDecoration(
-            hintText: 'Serial no., condition, accessories included...',
-          ),
-        ),
-        SizedBox(height: widget.compact ? 22 : 40),
-        if (widget.onCancel != null)
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: widget.onCancel,
-                  child: const Text('Cancel'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: _save,
-                  icon: const Icon(Icons.qr_code_2, size: 22),
-                  label: const Text('Generate QR and save'),
-                ),
-              ),
-            ],
-          )
+        if (_restock)
+          ..._restockFields(gap)
         else
-          ElevatedButton.icon(
-            onPressed: _save,
-            icon: const Icon(Icons.qr_code_2, size: 26),
-            label: const Text('Generate QR and save'),
-          ),
+          ..._newAssetFields(gap),
+        SizedBox(height: widget.compact ? 22 : 40),
+        _saveRow(),
       ],
+    );
+  }
+
+  // --- "Add to an existing bulk item" ------------------------------------
+
+  Widget _bulkModeSelector() {
+    return Row(
+      children: [
+        Expanded(
+          child: _destinationOption(
+            selected: !_restock,
+            icon: Icons.add_box_outlined,
+            title: 'A new bulk item',
+            subtitle: 'Create a new pool',
+            onTap: () => setState(() => _restock = false),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _destinationOption(
+            selected: _restock,
+            icon: Icons.add_shopping_cart_outlined,
+            title: 'An existing one',
+            subtitle: 'Bought more of it',
+            onTap: () => setState(() => _restock = true),
+          ),
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _restockFields(double gap) {
+    return [
+      _label('Which item?'),
+      DropdownButtonFormField<String>(
+        initialValue: _restockTag,
+        items: [
+          for (final a in widget.existingBulk)
+            DropdownMenuItem(
+              value: a.tagId,
+              child: Text('${a.name}  (${a.stockLabel})'),
+            ),
+        ],
+        onChanged: (value) => setState(() => _restockTag = value),
+      ),
+      SizedBox(height: gap),
+      _label('Quantity to add'),
+      TextField(
+        controller: quantityController,
+        keyboardType: TextInputType.number,
+        decoration: const InputDecoration(hintText: 'e.g. 25'),
+      ),
+      SizedBox(height: gap),
+      _label('Unit cost (optional)'),
+      TextField(
+        controller: unitCostController,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: const InputDecoration(hintText: 'e.g. 120.00', prefixText: '₱ '),
+      ),
+      SizedBox(height: gap),
+      _label('Supplier (optional)'),
+      TextField(
+        controller: supplierController,
+        textCapitalization: TextCapitalization.words,
+        decoration: const InputDecoration(hintText: 'Where it was bought'),
+      ),
+      SizedBox(height: gap),
+      _label('Date bought (optional)'),
+      _datePickerField(optional: true),
+      SizedBox(height: gap),
+      _label('Note (optional)'),
+      TextField(
+        controller: descriptionController,
+        minLines: 2,
+        maxLines: 3,
+        decoration: const InputDecoration(hintText: 'PO number, remarks...'),
+      ),
+    ];
+  }
+
+  // --- new asset (individual, or a new bulk pool) ----------------------
+
+  List<Widget> _newAssetFields(double gap) {
+    return [
+      _label('Asset name'),
+      TextField(
+        controller: nameController,
+        decoration: const InputDecoration(hintText: 'e.g. Epson projector'),
+      ),
+      SizedBox(height: gap),
+      _label('Asset tag ID'),
+      TextField(
+        controller: tagController,
+        readOnly: true,
+        style: const TextStyle(
+          color: AppTheme.primary,
+          fontFamily: 'monospace',
+          fontSize: 19,
+        ),
+        decoration: InputDecoration(
+          filled: true,
+          fillColor: AppTheme.mint,
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(18),
+            borderSide: const BorderSide(color: AppTheme.primary, width: 2),
+          ),
+        ),
+      ),
+      SizedBox(height: gap),
+      _label('Category'),
+      DropdownButtonFormField<String>(
+        initialValue: category,
+        items: [
+          for (final c in widget.categories)
+            DropdownMenuItem(value: c.value, child: Text(c.displayName)),
+        ],
+        onChanged: (value) => _selectCategory(value!),
+      ),
+      SizedBox(height: gap),
+      if (_isBulk) ...[
+        _label('Quantity on hand'),
+        TextField(
+          controller: quantityController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(hintText: 'e.g. 50'),
+        ),
+        SizedBox(height: gap),
+        _label('Reorder point (optional)'),
+        TextField(
+          controller: reorderController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            hintText: 'Warn when available stock drops to this',
+          ),
+        ),
+        SizedBox(height: gap),
+      ] else ...[
+        _label('Add to'),
+        _destinationSelector(),
+        SizedBox(height: gap),
+      ],
+      _label('Date of purchase'),
+      _datePickerField(optional: false),
+      SizedBox(height: gap),
+      _label('Asset photo (optional)'),
+      _photoPicker(),
+      SizedBox(height: gap),
+      _label('Description'),
+      TextField(
+        controller: descriptionController,
+        minLines: 3,
+        maxLines: 4,
+        decoration: const InputDecoration(
+          hintText: 'Serial no., condition, accessories included...',
+        ),
+      ),
+    ];
+  }
+
+  Widget _datePickerField({required bool optional}) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: _pickPurchaseDate,
+      child: InputDecorator(
+        decoration: const InputDecoration(
+          suffixIcon: Icon(Icons.calendar_today_outlined, size: 20),
+        ),
+        child: Text(
+          purchaseDate == null
+              ? (optional ? 'Select date (optional)' : 'Select date')
+              : AssetItem.formatDate(purchaseDate!),
+          style: TextStyle(
+            color: purchaseDate == null ? AppTheme.muted : AppTheme.darkGreen,
+            fontSize: 16,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _saveRow() {
+    final label = _restock ? 'Add to stock' : 'Generate QR and save';
+    final icon = _restock ? Icons.add_shopping_cart_outlined : Icons.qr_code_2;
+    if (widget.onCancel != null) {
+      return Row(
+        children: [
+          Expanded(
+            child: OutlinedButton(
+              onPressed: widget.onCancel,
+              child: const Text('Cancel'),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: _save,
+              icon: Icon(icon, size: 22),
+              label: Text(label),
+            ),
+          ),
+        ],
+      );
+    }
+    return ElevatedButton.icon(
+      onPressed: _save,
+      icon: Icon(icon, size: 26),
+      label: Text(label),
     );
   }
 
@@ -410,10 +584,7 @@ class _AddAssetFormState extends State<AddAssetForm> {
             icon: Icons.qr_code_2,
             title: 'Individual',
             subtitle: 'One tagged unit',
-            onTap: () => setState(() {
-              tracking = AssetTracking.individual;
-              _trackingTouched = true;
-            }),
+            onTap: () => _setTracking(AssetTracking.individual),
           ),
         ),
         const SizedBox(width: 10),
@@ -423,10 +594,7 @@ class _AddAssetFormState extends State<AddAssetForm> {
             icon: Icons.inventory_2_outlined,
             title: 'Bulk quantity',
             subtitle: 'Counted stock',
-            onTap: () => setState(() {
-              tracking = AssetTracking.bulk;
-              _trackingTouched = true;
-            }),
+            onTap: () => _setTracking(AssetTracking.bulk),
           ),
         ),
       ],
