@@ -174,12 +174,14 @@ function record_return_inspection(mysqli $mysqli, int $requestId, array $assetId
     if (!in_array($condition, ['good', 'fair', 'poor', 'damaged'], true)) $condition = 'good';
     $notes = trim((string) ($inspection['notes'] ?? ''));
     if ($notes === '') $notes = null;
-    $daysUsed = isset($inspection['days_used']) && is_numeric($inspection['days_used'])
+    $clientDaysUsed = isset($inspection['days_used']) && is_numeric($inspection['days_used'])
         ? max(0, (int) $inspection['days_used'])
         : null;
     $photos = is_array($inspection['photos'] ?? null) ? $inspection['photos'] : [];
 
-    $meta = $mysqli->prepare('SELECT title, borrow_date, return_date FROM requests WHERE id = ?');
+    $meta = $mysqli->prepare(
+        'SELECT title, borrow_date, return_date, borrow_on, return_on FROM requests WHERE id = ?'
+    );
     $meta->bind_param('i', $requestId);
     $meta->execute();
     $metaRow = $meta->get_result()->fetch_assoc() ?: [];
@@ -187,12 +189,43 @@ function record_return_inspection(mysqli $mysqli, int $requestId, array $assetId
     $title = $metaRow['title'] ?? null;
     $borrowDate = $metaRow['borrow_date'] ?? null;
     $returnDate = $metaRow['return_date'] ?? null;
+    $borrowOn = $metaRow['borrow_on'] ?? null;
+    $returnOn = $metaRow['return_on'] ?? null;
+
+    // Prefer real date math over the client's estimate: days_used is the
+    // actual calendar days out (today − borrow_on), days_late is how far
+    // past return_on the return landed. Fall back to the client value only
+    // when the request has no comparable dates. DATEDIFF via the DB so the
+    // arithmetic matches the overdue check elsewhere and is DST-safe.
+    $today = date('Y-m-d');
+    $daysUsed = $clientDaysUsed;
+    $daysLate = null;
+    if ($borrowOn !== null || $returnOn !== null) {
+        $dq = $mysqli->prepare(
+            'SELECT GREATEST(0, DATEDIFF(CURDATE(), ?)) AS used, ' .
+            'GREATEST(0, DATEDIFF(CURDATE(), ?)) AS late'
+        );
+        $bo = $borrowOn ?? $today;
+        $ro = $returnOn ?? $today;
+        $dq->bind_param('ss', $bo, $ro);
+        $dq->execute();
+        $dr = $dq->get_result()->fetch_assoc() ?: ['used' => null, 'late' => null];
+        $dq->close();
+        if ($borrowOn !== null && $dr['used'] !== null) $daysUsed = (int) $dr['used'];
+        if ($returnOn !== null && $dr['late'] !== null) $daysLate = (int) $dr['late'];
+    }
 
     $ins = $mysqli->prepare(
-        'INSERT INTO asset_returns (request_id, request_title, borrow_date, return_date, days_used, asset_condition, notes) ' .
-        'VALUES (?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO asset_returns ' .
+        '(request_id, request_title, borrow_date, return_date, borrow_on, return_on, ' .
+        'days_used, days_late, asset_condition, notes) ' .
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
-    $ins->bind_param('isssiss', $requestId, $title, $borrowDate, $returnDate, $daysUsed, $condition, $notes);
+    $ins->bind_param(
+        'isssssiiss',
+        $requestId, $title, $borrowDate, $returnDate, $borrowOn, $returnOn,
+        $daysUsed, $daysLate, $condition, $notes
+    );
     $ins->execute();
     $returnId = $ins->insert_id;
     $ins->close();
@@ -510,6 +543,16 @@ if ($method === 'PUT') {
         elseif ($status === 'checked_out') {
             if ($cur !== 'approved') {
                 throw new Exception('Only an approved (reserved) request can be handed out.');
+            }
+            // Don't start a loan that's already overdue on paper — the dates
+            // are almost certainly a data-entry mistake.
+            $handoutReturnOn = $reqRow['return_on']
+                ?? iso_date_or_null($reqRow['return_date'] ?? null);
+            if ($handoutReturnOn !== null && $handoutReturnOn < date('Y-m-d')) {
+                throw new Exception(
+                    "This request's return date ($handoutReturnOn) has already passed — "
+                    . 'update the loan dates before handing the assets out.'
+                );
             }
             $q = $mysqli->prepare(
                 'SELECT a.id, a.name, a.tracking, a.status, a.quantity_total, a.quantity_out, ' .

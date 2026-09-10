@@ -127,7 +127,8 @@ class AssetCard extends StatelessWidget {
                           fontSize: (isMobile ? 12.0 : 13.0) * scale,
                         ),
                       ),
-                      if (asset.isPastLifespan ||
+                      if (asset.isLoanOverdue ||
+                          asset.isPastLifespan ||
                           asset.isDamaged ||
                           asset.hasDamagedStock ||
                           asset.isLowStock) ...[
@@ -136,6 +137,8 @@ class AssetCard extends StatelessWidget {
                           spacing: 6 * scale,
                           runSpacing: 6 * scale,
                           children: [
+                            if (asset.isLoanOverdue)
+                              OverdueLoanBadge(days: asset.overdueDays),
                             if (asset.isPastLifespan)
                               LifespanWarningBadge(years: asset.lifespanYears),
                             if (asset.isDamaged || asset.hasDamagedStock)

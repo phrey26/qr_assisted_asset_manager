@@ -101,6 +101,7 @@ class AssetItem {
     this.currentHolder,
     this.currentHolderDepartment,
     this.dueBack,
+    this.overdueDays = 0,
   });
 
   final String name;
@@ -127,6 +128,10 @@ class AssetItem {
   final String? currentHolder;
   final String? currentHolderDepartment;
   final String? dueBack;
+
+  /// Whole days this asset's active loan is past its return date, derived
+  /// server-side (`assets.php` GET). 0 when it isn't out or isn't overdue.
+  final int overdueDays;
 
   /// Expected service life in years for this asset's category, or null when
   /// the category isn't age-tracked. Resolved from the category at fetch
@@ -201,6 +206,10 @@ class AssetItem {
   /// [isPastLifespan] is. Never flagged for bulk items.
   bool get isDamaged => !isBulk && lastConditionRaw == 'damaged';
 
+  /// Whether this asset's active loan is past its return date — surfaced as
+  /// an "Overdue" warning badge alongside [isDamaged] / [isPastLifespan].
+  bool get isLoanOverdue => overdueDays > 0;
+
   /// Whether this asset is a backup ("stock") item — kept off the main
   /// inventory and not available to be borrowed until it's activated.
   bool get isInStock => status.isStock;
@@ -260,6 +269,7 @@ class AssetItem {
         currentHolder: _str(json['current_holder']),
         currentHolderDepartment: _str(json['current_holder_department']),
         dueBack: _str(json['due_back']),
+        overdueDays: (json['overdue_days'] as num?)?.toInt() ?? 0,
       );
 
   /// Trims a JSON string, returning null for null/blank.
@@ -424,6 +434,7 @@ class AssetItem {
     String? currentHolder,
     String? currentHolderDepartment,
     String? dueBack,
+    int? overdueDays,
   }) =>
       AssetItem(
         name: name ?? this.name,
@@ -448,5 +459,6 @@ class AssetItem {
         currentHolderDepartment:
             currentHolderDepartment ?? this.currentHolderDepartment,
         dueBack: dueBack ?? this.dueBack,
+        overdueDays: overdueDays ?? this.overdueDays,
       );
 }

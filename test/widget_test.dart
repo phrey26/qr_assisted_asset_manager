@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:qr_assisted_asset_management/main.dart';
 import 'package:qr_assisted_asset_management/models/asset.dart';
 import 'package:qr_assisted_asset_management/models/asset_request.dart';
+import 'package:qr_assisted_asset_management/models/asset_return.dart';
 import 'package:qr_assisted_asset_management/models/availability.dart';
 import 'package:qr_assisted_asset_management/screens/edit_profile_screen.dart';
 import 'package:qr_assisted_asset_management/screens/login_screen.dart';
@@ -284,6 +285,72 @@ void main() {
       'status': 'checked_out',
     });
     expect(r.status, RequestStatus.checkedOut);
+  });
+
+  test('AssetRequest.isOverdue is derived from returnOn + checked-out status', () {
+    AssetRequest req(RequestStatus status, DateTime returnOn) => AssetRequest(
+          title: 'T',
+          requester: 'Rey',
+          department: 'D',
+          borrowDate: 'x',
+          returnDate: 'x',
+          borrowOn: returnOn.subtract(const Duration(days: 2)),
+          returnOn: returnOn,
+          status: status,
+        );
+
+    final threeDaysAgo = DateTime.now().subtract(const Duration(days: 3));
+    final nextWeek = DateTime.now().add(const Duration(days: 7));
+
+    // Checked out and past the return date → overdue.
+    final late = req(RequestStatus.checkedOut, threeDaysAgo);
+    expect(late.isOverdue, isTrue);
+    expect(late.daysOverdue, 3);
+    expect(late.overdueLabel, '3 days overdue');
+
+    // Past date but only reserved (not handed out) → not overdue.
+    expect(req(RequestStatus.approved, threeDaysAgo).isOverdue, isFalse);
+    // Checked out but not due yet → not overdue.
+    expect(req(RequestStatus.checkedOut, nextWeek).isOverdue, isFalse);
+    // Already returned → never overdue.
+    expect(req(RequestStatus.returned, threeDaysAgo).isOverdue, isFalse);
+  });
+
+  test('AssetItem.isLoanOverdue and AssetInspection lateness parse from JSON', () {
+    final asset = AssetItem.fromJson({
+      'name': 'Projector',
+      'tag_id': 'CSDO-IT1-0007',
+      'category_value': 'IT Equipment',
+      'description': '',
+      'status': 'in_use',
+      'purchase_date': '2024-01-01',
+      'current_holder': 'Rey',
+      'due_back': 'Sep 16, 2026',
+      'overdue_days': 5,
+    });
+    expect(asset.overdueDays, 5);
+    expect(asset.isLoanOverdue, isTrue);
+    expect(asset.copyWith().isLoanOverdue, isTrue);
+
+    final onTime = AssetItem.fromJson({
+      'name': 'X', 'tag_id': 'CSDO-IT1-0008', 'category_value': 'IT Equipment',
+      'description': '', 'status': 'available', 'purchase_date': '2024-01-01',
+    });
+    expect(onTime.overdueDays, 0);
+    expect(onTime.isLoanOverdue, isFalse);
+
+    final lateReturn = AssetInspection.fromJson({
+      'id': 1, 'asset_condition': 'good', 'created_at': '2026-09-20 10:00:00',
+      'days_used': 6, 'days_late': 4,
+    });
+    expect(lateReturn.daysLate, 4);
+    expect(lateReturn.wasLate, isTrue);
+
+    final onTimeReturn = AssetInspection.fromJson({
+      'id': 2, 'asset_condition': 'good', 'created_at': '2026-09-16 10:00:00',
+      'days_used': 2, 'days_late': 0,
+    });
+    expect(onTimeReturn.wasLate, isFalse);
   });
 
   test('WindowAvailabilityReport parses per-asset free counts and conflicts', () {

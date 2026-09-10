@@ -181,6 +181,18 @@ class _InspectionTile extends StatelessWidget {
               style: const TextStyle(color: AppTheme.muted, fontSize: 12.5),
             ),
           ),
+        if (inspection.wasLate)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              'Returned ${inspection.daysLate} day${inspection.daysLate == 1 ? '' : 's'} late',
+              style: const TextStyle(
+                color: Color(0xFFC84040),
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
         if (inspection.notes != null) ...[
           const SizedBox(height: 6),
           Text(

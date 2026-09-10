@@ -111,13 +111,18 @@ class _ReturnInspectionBodyState extends State<_ReturnInspectionBody> {
   List<AssignedAsset> get _bulkLines =>
       widget.request.assignedAssets.where((a) => a.isBulk).toList();
 
-  /// Best-effort "days out": today minus the loan's borrow date (inclusive),
-  /// falling back to the stored borrow/return span.
+  /// Pre-fill for "days out": actual calendar days from the loan's borrow
+  /// date to today. Prefers the machine-comparable `borrowOn`, falling back
+  /// to parsing the display string. The backend recomputes this from its own
+  /// DATE columns on submit, so this is just a sensible default in the field.
   int? _estimatedDays() {
-    final borrow = AssetItem.tryParseDate(widget.request.borrowDate);
+    final borrow = widget.request.borrowOn ??
+        AssetItem.tryParseDate(widget.request.borrowDate);
     if (borrow == null) return null;
-    final end = AssetItem.tryParseDate(widget.request.returnDate) ?? DateTime.now();
-    final days = end.difference(DateTime(borrow.year, borrow.month, borrow.day)).inDays + 1;
+    final now = DateTime.now();
+    final days = DateTime(now.year, now.month, now.day)
+        .difference(DateTime(borrow.year, borrow.month, borrow.day))
+        .inDays;
     return days < 1 ? 1 : days;
   }
 

@@ -66,7 +66,12 @@ if ($method === 'GET') {
         '  WHERE ra.asset_id = a.id ORDER BY r.id DESC LIMIT 1) AS last_condition, ' .
         $holderCol('requester') . ' AS current_holder, ' .
         $holderCol('department') . ' AS current_holder_department, ' .
-        $holderCol('return_date') . ' AS due_back ' .
+        $holderCol('return_date') . ' AS due_back, ' .
+        // Days this asset's active loan is overdue (0 / null = not overdue).
+        '(SELECT GREATEST(0, DATEDIFF(CURDATE(), r.return_on)) ' .
+        '   FROM request_assets ra2 JOIN requests r ON r.id = ra2.request_id ' .
+        "  WHERE ra2.asset_id = a.id AND r.status = 'checked_out' AND r.return_on IS NOT NULL " .
+        '  ORDER BY r.id DESC LIMIT 1) AS overdue_days ' .
         'FROM assets a JOIN categories c ON c.id = a.category_id ' .
         'ORDER BY a.id DESC'
     );
@@ -81,6 +86,7 @@ if ($method === 'GET') {
         $row['quantity_out'] = (int) $row['quantity_out'];
         $row['quantity_damaged'] = (int) $row['quantity_damaged'];
         $row['reorder_point'] = $row['reorder_point'] === null ? null : (int) $row['reorder_point'];
+        $row['overdue_days'] = $row['overdue_days'] === null ? 0 : (int) $row['overdue_days'];
         $rows[] = $row;
     }
     echo json_encode($rows);

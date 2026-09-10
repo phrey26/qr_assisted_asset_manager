@@ -529,6 +529,10 @@ class _InventoryTable extends StatelessWidget {
                           asset.formattedPurchaseDate,
                           style: const TextStyle(color: AppTheme.muted),
                         ),
+                        if (asset.isLoanOverdue) ...[
+                          const SizedBox(width: 8),
+                          OverdueLoanBadge(compact: true, days: asset.overdueDays),
+                        ],
                         if (asset.isPastLifespan) ...[
                           const SizedBox(width: 8),
                           LifespanWarningBadge(

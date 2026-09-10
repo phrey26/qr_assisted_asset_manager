@@ -254,12 +254,26 @@ CREATE TABLE IF NOT EXISTS asset_returns (
   request_title VARCHAR(200) NULL,
   borrow_date VARCHAR(50) NULL,
   return_date VARCHAR(50) NULL,
+  -- Machine-comparable copies of the loan window, snapshotted from the
+  -- request at return time. `days_used` is the actual calendar days out
+  -- (returned_at − borrow_on) and `days_late` is how many days past
+  -- return_on the return happened (0 = on time). Both computed server-side
+  -- from the DATE columns when available; NULL for a legacy return whose
+  -- request had no comparable dates.
+  borrow_on DATE NULL,
+  return_on DATE NULL,
   days_used INT NULL,
+  days_late INT NULL,
   asset_condition VARCHAR(20) NOT NULL DEFAULT 'good',  -- good | fair | poor | damaged
   notes VARCHAR(500) NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_asset_returns_request (request_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- Upgrading a database created before returns tracked lateness. Safe to re-run.
+ALTER TABLE asset_returns
+  ADD COLUMN IF NOT EXISTS borrow_on DATE NULL AFTER return_date,
+  ADD COLUMN IF NOT EXISTS return_on DATE NULL AFTER borrow_on,
+  ADD COLUMN IF NOT EXISTS days_late INT NULL AFTER days_used;
 
 CREATE TABLE IF NOT EXISTS asset_return_assets (
   return_id INT NOT NULL,

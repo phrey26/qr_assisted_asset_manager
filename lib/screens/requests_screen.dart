@@ -143,12 +143,23 @@ class RequestsScreenState extends State<RequestsScreen> {
   }
 
   List<AssetRequest> get filtered {
-    if (filter == 'All') return requests;
-    return requests.where((r) => r.status.label == filter).toList();
+    final base = switch (filter) {
+      'All' => requests,
+      'Overdue' => requests.where((r) => r.isOverdue).toList(),
+      _ => requests.where((r) => r.status.label == filter).toList(),
+    };
+    // Overdue loans float to the top; the rest keep the server order
+    // (newest first). Using two passes keeps it stable.
+    return [
+      ...base.where((r) => r.isOverdue),
+      ...base.where((r) => !r.isOverdue),
+    ];
   }
 
   int get pendingCount =>
       requests.where((r) => r.status == RequestStatus.pending).length;
+
+  int get overdueCount => requests.where((r) => r.isOverdue).length;
 
   /// Applies [status] locally right away, then syncs it to the backend;
   /// reverted (with an error snackbar) if that call fails.
@@ -495,7 +506,9 @@ class RequestsScreenState extends State<RequestsScreen> {
                     Expanded(
                       child: PageHeader(
                         title: 'Requests',
-                        subtitle: '$pendingCount pending approval',
+                        subtitle: overdueCount > 0
+                            ? '$pendingCount pending · $overdueCount overdue'
+                            : '$pendingCount pending approval',
                         showMark: false,
                       ),
                     ),
@@ -624,7 +637,9 @@ class RequestsScreenState extends State<RequestsScreen> {
   }
 
   Widget _filters() {
-    const filters = ['All', 'Pending', 'Approved', 'Checked out', 'Returned', 'Rejected'];
+    const filters = [
+      'All', 'Pending', 'Approved', 'Checked out', 'Overdue', 'Returned', 'Rejected',
+    ];
     return FilterChipRow(
       options: filters,
       selected: filter,
@@ -671,6 +686,41 @@ class _RequestStatusPill extends StatelessWidget {
           fontWeight: FontWeight.w800,
           fontSize: 14 * scale,
         ),
+      ),
+    );
+  }
+}
+
+/// Small red "Overdue · Nd" pill shown next to the status pill on any
+/// checked-out request whose return date has passed.
+class _OverduePill extends StatelessWidget {
+  const _OverduePill({required this.days});
+
+  final int days;
+
+  @override
+  Widget build(BuildContext context) {
+    final scale = Responsive.uiScale(context);
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 12 * scale, vertical: 7 * scale),
+      decoration: BoxDecoration(
+        color: AppTheme.redTint,
+        borderRadius: BorderRadius.circular(30),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.alarm_outlined, size: 13 * scale, color: const Color(0xFFC84040)),
+          SizedBox(width: 4 * scale),
+          Text(
+            'Overdue · ${days}d',
+            style: TextStyle(
+              color: const Color(0xFFC84040),
+              fontWeight: FontWeight.w800,
+              fontSize: 12.5 * scale,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -810,7 +860,20 @@ class _RequestsTable extends StatelessWidget {
                   style: cellStyle,
                 ),
               ),
-              SizedBox(width: _statusWidth, child: _RequestStatusPill(status: request.status)),
+              SizedBox(
+                width: _statusWidth,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _RequestStatusPill(status: request.status),
+                    if (request.isOverdue) ...[
+                      const SizedBox(height: 4),
+                      _OverduePill(days: request.daysOverdue),
+                    ],
+                  ],
+                ),
+              ),
               SizedBox(width: _actionsWidth, child: _tableActions(request)),
             ],
           ),
@@ -993,7 +1056,15 @@ class _RequestCard extends StatelessWidget {
                         style: TextStyle(color: AppTheme.muted, fontSize: 12 * scale),
                       ),
                       SizedBox(height: 8 * scale),
-                      _RequestStatusPill(status: request.status),
+                      Wrap(
+                        spacing: 6 * scale,
+                        runSpacing: 6 * scale,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          _RequestStatusPill(status: request.status),
+                          if (request.isOverdue) _OverduePill(days: request.daysOverdue),
+                        ],
+                      ),
                     ],
                   ),
                 ),

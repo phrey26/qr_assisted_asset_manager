@@ -104,6 +104,10 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _requestHeading(request),
+            if (request.isOverdue) ...[
+              const SizedBox(height: 20),
+              _overdueBanner(request),
+            ],
             const SizedBox(height: 24),
             _infoCard(request),
             const SizedBox(height: 24),
@@ -125,6 +129,10 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _requestHeading(request, desktop: true),
+                if (request.isOverdue) ...[
+                  const SizedBox(height: 24),
+                  _overdueBanner(request),
+                ],
                 const SizedBox(height: 30),
                 _infoCard(request, desktop: true),
                 const SizedBox(height: 24),
@@ -215,6 +223,47 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     );
   }
 
+  /// Red banner on a checked-out request whose return date has passed.
+  Widget _overdueBanner(AssetRequest request) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppTheme.redTint,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFF3C6C4), width: 2),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.alarm_outlined, color: Color(0xFFC84040)),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'This loan is ${request.overdueLabel}',
+                  style: const TextStyle(
+                    color: Color(0xFFC84040),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'The assets were due back ${request.returnDate} and have not been '
+                  'returned. Follow up with ${request.requester}, then mark the '
+                  'request returned once the assets are back.',
+                  style: const TextStyle(color: Color(0xFFC84040), fontSize: 13, height: 1.4),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _infoCard(AssetRequest request, {bool desktop = false}) {
     return Container(

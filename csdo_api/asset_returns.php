@@ -30,7 +30,7 @@ $currentlyOut = $asset['status'] === 'in_use';
 
 // Inspections linked to this asset, newest first.
 $stmt = $mysqli->prepare(
-    'SELECT r.id, r.request_title, r.borrow_date, r.return_date, r.days_used, ' .
+    'SELECT r.id, r.request_title, r.borrow_date, r.return_date, r.days_used, r.days_late, ' .
     'r.asset_condition, r.notes, r.created_at ' .
     'FROM asset_returns r JOIN asset_return_assets ra ON ra.return_id = r.id ' .
     'WHERE ra.asset_id = ? ORDER BY r.id DESC'
@@ -45,6 +45,7 @@ $daysTotal = 0;
 while ($row = $res->fetch_assoc()) {
     $row['id'] = (int) $row['id'];
     $row['days_used'] = $row['days_used'] === null ? null : (int) $row['days_used'];
+    $row['days_late'] = $row['days_late'] === null ? null : (int) $row['days_late'];
     if ($row['days_used'] !== null) $daysTotal += $row['days_used'];
     $row['photos'] = [];
     $inspections[$row['id']] = $row;

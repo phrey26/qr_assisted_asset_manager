@@ -64,6 +64,7 @@ class AssetInspection {
     this.borrowDate,
     this.returnDate,
     this.daysUsed,
+    this.daysLate,
     this.notes,
     this.photos = const [],
   });
@@ -75,8 +76,15 @@ class AssetInspection {
   final String? borrowDate;
   final String? returnDate;
   final int? daysUsed;
+
+  /// Whole days past the loan's return date this return was recorded — 0 if
+  /// on time, null for a legacy return with no comparable dates.
+  final int? daysLate;
+
   final String? notes;
   final List<Uint8List> photos;
+
+  bool get wasLate => (daysLate ?? 0) > 0;
 
   factory AssetInspection.fromJson(Map<String, dynamic> json) {
     final rawPhotos = (json['photos'] as List<dynamic>? ?? []);
@@ -91,6 +99,7 @@ class AssetInspection {
       borrowDate: json['borrow_date'] as String?,
       returnDate: json['return_date'] as String?,
       daysUsed: (json['days_used'] as num?)?.toInt(),
+      daysLate: (json['days_late'] as num?)?.toInt(),
       notes: (json['notes'] as String?)?.trim().isEmpty ?? true
           ? null
           : json['notes'] as String,

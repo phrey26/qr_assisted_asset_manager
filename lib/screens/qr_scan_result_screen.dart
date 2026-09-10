@@ -222,7 +222,10 @@ class _QrScanResultScreenState extends State<QrScanResultScreen> {
                   'Currently with',
                   asset.dueBack == null
                       ? asset.currentHolder!
-                      : '${asset.currentHolder!} · due back ${asset.dueBack}',
+                      : asset.isLoanOverdue
+                          ? '${asset.currentHolder!} · due back ${asset.dueBack} · '
+                              '${asset.overdueDays} day${asset.overdueDays == 1 ? '' : 's'} overdue'
+                          : '${asset.currentHolder!} · due back ${asset.dueBack}',
                 ),
               _detailRow(
                 'Last seen',

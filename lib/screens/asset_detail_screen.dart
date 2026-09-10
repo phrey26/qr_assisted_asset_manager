@@ -443,6 +443,10 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
           children: [
             _assetHeading(asset, categoryColor, categoryIcon),
             const SizedBox(height: 28),
+            if (asset.isLoanOverdue) ...[
+              _overdueWarningBanner(asset),
+              const SizedBox(height: 20),
+            ],
             if (asset.isPastLifespan) ...[
               _lifespanWarningBanner(),
               const SizedBox(height: 20),
@@ -499,6 +503,10 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
               children: [
                 _assetHeading(asset, categoryColor, categoryIcon, desktop: true),
                 const SizedBox(height: 30),
+                if (asset.isLoanOverdue) ...[
+                  _overdueWarningBanner(asset),
+                  const SizedBox(height: 24),
+                ],
                 if (asset.isPastLifespan) ...[
                   _lifespanWarningBanner(),
                   const SizedBox(height: 24),
@@ -1088,6 +1096,51 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     );
   }
 
+  /// Banner shown when this asset's active loan is past its return date —
+  /// mirrors [_damagedWarningBanner]. The holder / due date is in the
+  /// custody card below.
+  Widget _overdueWarningBanner(AssetItem asset) {
+    final holder = asset.currentHolder == null ? '' : ' by ${asset.currentHolder}';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppTheme.redTint,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFF3C6C4), width: 2),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.alarm_outlined, color: Color(0xFFC84040)),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'This asset is ${asset.overdueDays} day'
+                  '${asset.overdueDays == 1 ? '' : 's'} overdue',
+                  style: const TextStyle(
+                    color: Color(0xFFC84040),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'It was due back${asset.dueBack == null ? '' : ' ${asset.dueBack}'}$holder '
+                  'and has not been returned. Follow up with the borrower.',
+                  style: const TextStyle(color: Color(0xFFC84040), fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Where the asset is: its home location, who's responsible for it, who
   /// currently has it on loan, and where it was last physically seen (from
   /// the scan "sighting" flow). This is the "help me find it" card.
@@ -1099,7 +1152,13 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
       if (asset.currentHolderDepartment != null) asset.currentHolderDepartment!,
     ];
     var holderText = holderParts.join(' · ');
-    if (asset.dueBack != null) holderText += '\nDue back ${asset.dueBack}';
+    if (asset.dueBack != null) {
+      holderText += '\nDue back ${asset.dueBack}';
+      if (asset.isLoanOverdue) {
+        holderText += ' · ${asset.overdueDays} day'
+            '${asset.overdueDays == 1 ? '' : 's'} overdue';
+      }
+    }
 
     final seenAt = asset.formattedLastScannedAt;
     final String lastSeenText;

@@ -254,6 +254,26 @@ class AssetRequest {
 
   RequestStatus status;
 
+  /// Whole days this loan is past its return date — 0 unless the request is
+  /// [RequestStatus.checkedOut] (physically out) and [returnOn] is before
+  /// today. Derived, so it stays correct after a local status change without
+  /// a reload.
+  int get daysOverdue {
+    if (status != RequestStatus.checkedOut || returnOn == null) return 0;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final due = DateTime(returnOn!.year, returnOn!.month, returnOn!.day);
+    final diff = today.difference(due).inDays;
+    return diff > 0 ? diff : 0;
+  }
+
+  /// Whether this loan is overdue — checked out and past [returnOn].
+  bool get isOverdue => daysOverdue > 0;
+
+  /// "4 days overdue" / "1 day overdue".
+  String get overdueLabel =>
+      '$daysOverdue day${daysOverdue == 1 ? '' : 's'} overdue';
+
   /// The requester's own signature — normally filled in on submission,
   /// signing over their printed name.
   Signatory requesterSignature;
