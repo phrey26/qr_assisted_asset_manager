@@ -138,4 +138,39 @@ void main() {
     expect(saved.tagId, 'CSDO-IT-0042');
     expect(saved.name, draft.name);
   });
+
+  test('isPastLifespan follows the category lifespan, not a hard-coded category', () {
+    AssetItem asset({
+      required int purchaseYear,
+      int? lifespanYears,
+      AssetTracking tracking = AssetTracking.individual,
+    }) =>
+        AssetItem(
+          name: 'Thing',
+          tagId: 'CSDO-XX1-0001',
+          category: 'Anything',
+          description: '',
+          status: AssetStatus.available,
+          purchaseDate: DateTime(purchaseYear, 1, 1),
+          tracking: tracking,
+          quantityTotal: tracking == AssetTracking.bulk ? 10 : null,
+          lifespanYears: lifespanYears,
+        );
+
+    final old = DateTime.now().year - 8;
+    final recent = DateTime.now().year - 1;
+
+    // A category with a lifespan flags its aged assets...
+    expect(asset(purchaseYear: old, lifespanYears: 5).isPastLifespan, isTrue);
+    // ...but not ones still within it.
+    expect(asset(purchaseYear: recent, lifespanYears: 5).isPastLifespan, isFalse);
+    // No lifespan on the category => never flagged, however old.
+    expect(asset(purchaseYear: old, lifespanYears: null).isPastLifespan, isFalse);
+    // Bulk pools are never flagged.
+    expect(
+      asset(purchaseYear: old, lifespanYears: 5, tracking: AssetTracking.bulk)
+          .isPastLifespan,
+      isFalse,
+    );
+  });
 }

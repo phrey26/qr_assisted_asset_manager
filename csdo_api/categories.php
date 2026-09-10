@@ -5,7 +5,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'GET') {
     $result = $mysqli->query(
-        'SELECT id, display_name, value, icon_code_point, color_value, default_tracking ' .
+        'SELECT id, display_name, value, icon_code_point, color_value, default_tracking, lifespan_years ' .
         'FROM categories ORDER BY id ASC'
     );
     $rows = [];
@@ -14,6 +14,7 @@ if ($method === 'GET') {
         $row['icon_code_point'] = (int) $row['icon_code_point'];
         $row['color_value'] = (int) $row['color_value'];
         $row['default_tracking'] = $row['default_tracking'] ?: 'individual';
+        $row['lifespan_years'] = $row['lifespan_years'] === null ? null : (int) $row['lifespan_years'];
         $rows[] = $row;
     }
     echo json_encode($rows);
@@ -28,6 +29,11 @@ if ($method === 'POST') {
     $colorValue = $body['color_value'] ?? null;
     $defaultTracking = trim($body['default_tracking'] ?? 'individual');
     if (!in_array($defaultTracking, ['individual', 'bulk'], true)) $defaultTracking = 'individual';
+    // Optional. null / absent / 0 / non-numeric all mean "no lifespan tracking".
+    $lifespanYears = isset($body['lifespan_years']) && is_numeric($body['lifespan_years'])
+        && (int) $body['lifespan_years'] > 0
+        ? (int) $body['lifespan_years']
+        : null;
 
     if ($displayName === '' || $value === '' || $iconCodePoint === null || $colorValue === null) {
         fail(400, 'display_name, value, icon_code_point, and color_value are required.');
@@ -43,12 +49,12 @@ if ($method === 'POST') {
     $stmt->close();
 
     $stmt = $mysqli->prepare(
-        'INSERT INTO categories (display_name, value, icon_code_point, color_value, default_tracking) ' .
-        'VALUES (?, ?, ?, ?, ?)'
+        'INSERT INTO categories (display_name, value, icon_code_point, color_value, default_tracking, lifespan_years) ' .
+        'VALUES (?, ?, ?, ?, ?, ?)'
     );
     $iconCodePoint = (int) $iconCodePoint;
     $colorValue = (int) $colorValue;
-    $stmt->bind_param('ssiis', $displayName, $value, $iconCodePoint, $colorValue, $defaultTracking);
+    $stmt->bind_param('ssiisi', $displayName, $value, $iconCodePoint, $colorValue, $defaultTracking, $lifespanYears);
 
     if (!$stmt->execute()) {
         $stmt->close();
@@ -65,6 +71,7 @@ if ($method === 'POST') {
         'icon_code_point' => $iconCodePoint,
         'color_value' => $colorValue,
         'default_tracking' => $defaultTracking,
+        'lifespan_years' => $lifespanYears,
     ]);
     exit;
 }

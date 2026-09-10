@@ -136,7 +136,8 @@ class AssetCard extends StatelessWidget {
                           spacing: 6 * scale,
                           runSpacing: 6 * scale,
                           children: [
-                            if (asset.isPastLifespan) const LifespanWarningBadge(),
+                            if (asset.isPastLifespan)
+                              LifespanWarningBadge(years: asset.lifespanYears),
                             if (asset.isDamaged || asset.hasDamagedStock)
                               const DamagedWarningBadge(),
                             if (asset.isLowStock) const LowStockBadge(),

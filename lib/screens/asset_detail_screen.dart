@@ -960,11 +960,16 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         ),
       );
 
-  /// Banner shown when this asset is IT equipment past its expected
-  /// [AssetItem.itEquipmentLifespanYears]-year lifespan, so the admin
-  /// notices it during their review rather than having to check the
-  /// purchase date by hand.
+  /// Banner shown when this asset is past the expected lifespan set on its
+  /// category, so the admin notices it during their review rather than
+  /// having to check the purchase date by hand.
   Widget _lifespanWarningBanner() {
+    final years = widget.asset.lifespanYears;
+    final detail = years == null
+        ? 'This asset is past the expected lifespan set for its category. '
+            'Consider inspecting or replacing it.'
+        : '${widget.asset.category} assets are expected to last $years years from their '
+            'date of purchase. Consider inspecting or replacing this item.';
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
@@ -973,16 +978,16 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFF3C6C4), width: 2),
       ),
-      child: const Row(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.warning_amber_rounded, color: Color(0xFFC84040)),
-          SizedBox(width: 14),
+          const Icon(Icons.warning_amber_rounded, color: Color(0xFFC84040)),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                const Text(
                   'This asset is past its expected lifespan',
                   style: TextStyle(
                     color: Color(0xFFC84040),
@@ -990,11 +995,10 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                     fontSize: 15,
                   ),
                 ),
-                SizedBox(height: 4),
+                const SizedBox(height: 4),
                 Text(
-                  'IT equipment is expected to last ${AssetItem.itEquipmentLifespanYears} years from its '
-                  'date of purchase. Consider inspecting or replacing this item.',
-                  style: TextStyle(color: Color(0xFFC84040), fontSize: 13),
+                  detail,
+                  style: const TextStyle(color: Color(0xFFC84040), fontSize: 13),
                 ),
               ],
             ),

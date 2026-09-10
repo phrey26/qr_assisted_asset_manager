@@ -16,6 +16,7 @@ class AssetCategory {
     required this.icon,
     required this.color,
     this.defaultTracking = AssetTracking.individual,
+    this.lifespanYears,
   });
 
   /// Label shown on the category card (e.g. 'Vehicles').
@@ -38,7 +39,17 @@ class AssetCategory {
   /// [AssetTracking].
   final AssetTracking defaultTracking;
 
+  /// Expected service life in whole years for individual assets in this
+  /// category. `null` means this category isn't age-tracked at all — its
+  /// assets are never flagged as past their lifespan (e.g. furniture,
+  /// documents). Set by the admin in the "Add new category" dialog and
+  /// consumed by [AssetItem.isPastLifespan].
+  final int? lifespanYears;
+
   bool get isBulkByDefault => defaultTracking == AssetTracking.bulk;
+
+  /// Whether assets in this category are flagged once they pass a set age.
+  bool get tracksLifespan => lifespanYears != null;
 
   /// Whether [category] (an [AssetItem.category] string) belongs to this
   /// category. Matched case-insensitively since category is free text
@@ -54,6 +65,7 @@ class AssetCategory {
         color: Color(json['color_value'] as int),
         defaultTracking:
             AssetTrackingX.fromApiValue(json['default_tracking'] as String?),
+        lifespanYears: (json['lifespan_years'] as num?)?.toInt(),
       );
 
   /// Resolves a stored code point back to one of the curated [iconChoices].
@@ -74,6 +86,7 @@ class AssetCategory {
         'icon_code_point': icon.codePoint,
         'color_value': color.toARGB32(),
         'default_tracking': defaultTracking.apiValue,
+        'lifespan_years': lifespanYears,
       };
 
   /// The categories the app ships with.
@@ -83,6 +96,9 @@ class AssetCategory {
       value: 'IT Equipment',
       icon: Icons.devices_outlined,
       color: AppTheme.mint,
+      // Matches the 5-year value the app hard-coded before lifespans moved
+      // onto the category. The other built-ins aren't age-tracked.
+      lifespanYears: 5,
     ),
     AssetCategory(
       displayName: 'Furniture',

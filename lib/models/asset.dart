@@ -93,12 +93,20 @@ class AssetItem {
     this.quantityOut = 0,
     this.quantityDamaged = 0,
     this.reorderPoint,
+    this.lifespanYears,
   });
 
   final String name;
   final String tagId;
   final String category;
   final String description;
+
+  /// Expected service life in years for this asset's category, or null when
+  /// the category isn't age-tracked. Resolved from the category at fetch
+  /// time (`assets.php` GET joins it in as `category_lifespan_years`), so it
+  /// reflects the category's current setting each time the inventory loads.
+  /// Drives [isPastLifespan].
+  final int? lifespanYears;
 
   /// Mutable so the admin can change it from the inventory page — e.g.
   /// flagging an asset as under maintenance, or bringing it back once
@@ -166,14 +174,6 @@ class AssetItem {
   /// [isPastLifespan] is. Never flagged for bulk items.
   bool get isDamaged => !isBulk && lastConditionRaw == 'damaged';
 
-  /// How many years an "IT equipment" asset is expected to remain in
-  /// service before it's flagged as past its lifespan.
-  static const itEquipmentLifespanYears = 5;
-
-  /// Whether this asset belongs to the IT equipment category. Matched
-  /// case-insensitively since category is free text elsewhere in the app.
-  bool get isItEquipment => category.toLowerCase() == 'it equipment';
-
   /// Whether this asset is a backup ("stock") item — kept off the main
   /// inventory and not available to be borrowed until it's activated.
   bool get isInStock => status.isStock;
@@ -188,13 +188,14 @@ class AssetItem {
       status == AssetStatus.available ||
       status == AssetStatus.inUse;
 
-  /// Whether this asset is IT equipment that is past its
-  /// [itEquipmentLifespanYears]-year expected lifespan, based on
-  /// [purchaseDate]. Non-IT-equipment assets are never flagged.
+  /// Whether this asset is past the expected lifespan set on its category,
+  /// based on [purchaseDate]. Assets whose category isn't age-tracked
+  /// ([lifespanYears] is null) and bulk pools are never flagged.
   bool get isPastLifespan {
-    if (isBulk || !isItEquipment) return false;
+    final years = lifespanYears;
+    if (isBulk || years == null || years <= 0) return false;
     final limit = DateTime(
-      purchaseDate.year + itEquipmentLifespanYears,
+      purchaseDate.year + years,
       purchaseDate.month,
       purchaseDate.day,
     );
@@ -222,6 +223,7 @@ class AssetItem {
         quantityOut: (json['quantity_out'] as num?)?.toInt() ?? 0,
         quantityDamaged: (json['quantity_damaged'] as num?)?.toInt() ?? 0,
         reorderPoint: (json['reorder_point'] as num?)?.toInt(),
+        lifespanYears: (json['category_lifespan_years'] as num?)?.toInt(),
       );
 
   /// The fields `csdo_api/assets.php` (POST) expects in its request body.
@@ -265,8 +267,8 @@ class AssetItem {
       category: 'IT equipment',
       description: 'Shared office printer.',
       status: AssetStatus.available,
-      // Purchased more than 5 years ago, so this shows up flagged as
-      // past its expected lifespan.
+      // Purchased long ago: flagged as past its lifespan once its category
+      // ("IT Equipment") carries a lifespan_years (5 for the built-in).
       purchaseDate: DateTime(2019, 4, 18),
     ),
     AssetItem(
@@ -340,6 +342,7 @@ class AssetItem {
     int? quantityOut,
     int? quantityDamaged,
     int? reorderPoint,
+    int? lifespanYears,
   }) =>
       AssetItem(
         name: name ?? this.name,
@@ -355,5 +358,6 @@ class AssetItem {
         quantityOut: quantityOut ?? this.quantityOut,
         quantityDamaged: quantityDamaged ?? this.quantityDamaged,
         reorderPoint: reorderPoint ?? this.reorderPoint,
+        lifespanYears: lifespanYears ?? this.lifespanYears,
       );
 }

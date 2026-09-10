@@ -3,16 +3,20 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 
-/// Small pill warning shown wherever an IT equipment asset is displayed
-/// past its expected [AssetItem.itEquipmentLifespanYears]-year lifespan.
-/// Shared by the inventory card, the desktop table, and the asset detail
-/// page so the warning looks the same everywhere it appears.
+/// Small pill warning shown wherever an asset is displayed past the
+/// expected lifespan set on its category. Shared by the inventory card, the
+/// desktop table, and the asset detail page so the warning looks the same
+/// everywhere it appears.
 class LifespanWarningBadge extends StatelessWidget {
-  const LifespanWarningBadge({super.key, this.compact = false});
+  const LifespanWarningBadge({super.key, this.compact = false, this.years});
 
   /// When true, renders as a smaller icon-only badge suited to tight
   /// spaces like a data table cell.
   final bool compact;
+
+  /// The category's expected lifespan in years, shown in the tooltip. Null
+  /// falls back to a number-less message.
+  final int? years;
 
   @override
   Widget build(BuildContext context) {
@@ -20,7 +24,9 @@ class LifespanWarningBadge extends StatelessWidget {
 
     if (compact) {
       return Tooltip(
-        message: 'Past its 5-year expected lifespan',
+        message: years == null
+            ? 'Past its expected lifespan'
+            : 'Past its $years-year expected lifespan',
         child: Container(
           padding: EdgeInsets.all(6 * scale),
           decoration: const BoxDecoration(

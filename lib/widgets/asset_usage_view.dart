@@ -6,8 +6,9 @@ import '../theme/app_theme.dart';
 import 'image_viewer_screen.dart';
 
 /// Renders an asset's condition & usage: a stat strip (times borrowed,
-/// total days used, current condition), a wear note for IT equipment past
-/// its lifespan, and the list of return inspections with their photos.
+/// total days used, current condition), a wear note for an asset past the
+/// lifespan set on its category, and the list of return inspections with
+/// their photos.
 class AssetUsageView extends StatelessWidget {
   const AssetUsageView({super.key, required this.history, required this.asset});
 
@@ -34,7 +35,7 @@ class AssetUsageView extends StatelessWidget {
         if (asset.isPastLifespan) ...[
           const SizedBox(height: 14),
           _wearNote(
-            'Past its ${AssetItem.itEquipmentLifespanYears}-year expected lifespan — '
+            'Past its ${asset.lifespanYears}-year expected lifespan — '
             'weigh the wear below when deciding whether to keep it in service.',
           ),
         ],

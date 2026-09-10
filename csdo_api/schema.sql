@@ -52,9 +52,21 @@ CREATE TABLE IF NOT EXISTS categories (
   -- pools). Only a default for the Add Asset form — the binding flag is
   -- assets.tracking, so a category can hold a mix. See bulk_items.sql.
   default_tracking VARCHAR(12) NOT NULL DEFAULT 'individual',
+  -- Expected service life, in whole years, for individual assets in this
+  -- category. NULL means "don't track a lifespan" (e.g. documents): those
+  -- assets are never flagged by age. A number N flags an asset once its
+  -- purchase_date is more than N years ago. Read by isPastLifespan in
+  -- lib/models/asset.dart via the join in assets.php (GET).
+  lifespan_years INT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ALTER TABLE categories ADD COLUMN IF NOT EXISTS default_tracking VARCHAR(12) NOT NULL DEFAULT 'individual';
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS lifespan_years INT NULL;
+-- Upgrading a database seeded before per-category lifespans: give the
+-- built-in "IT Equipment" category the 5-year value the app used to
+-- hard-code, so its assets keep being flagged. Safe to re-run.
+UPDATE categories SET lifespan_years = 5
+  WHERE value = 'IT Equipment' AND lifespan_years IS NULL;
 
 CREATE TABLE IF NOT EXISTS assets (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -166,7 +178,7 @@ CREATE TABLE IF NOT EXISTS asset_events (
 -- days they were out, plus (in the child tables) which assets it covers and
 -- photos of them as returned. Feeds the "Condition & usage" card on the
 -- asset detail screen so wear from actual use is visible, not just the
--- 5-year lifespan warning. Safe to re-run.
+-- per-category lifespan warning. Safe to re-run.
 CREATE TABLE IF NOT EXISTS asset_returns (
   id INT AUTO_INCREMENT PRIMARY KEY,
   request_id INT NULL,

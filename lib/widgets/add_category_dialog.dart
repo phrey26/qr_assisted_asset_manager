@@ -32,6 +32,7 @@ class _AddCategoryDialog extends StatefulWidget {
 
 class _AddCategoryDialogState extends State<_AddCategoryDialog> {
   final controller = TextEditingController();
+  final lifespanController = TextEditingController();
   IconData icon = AssetCategory.iconChoices.first;
   Color color = AssetCategory.colorChoices.first;
   AssetTracking tracking = AssetTracking.individual;
@@ -40,6 +41,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
   @override
   void dispose() {
     controller.dispose();
+    lifespanController.dispose();
     super.dispose();
   }
 
@@ -56,6 +58,17 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
       setState(() => error = 'A category with this name already exists.');
       return;
     }
+    // Optional. Blank means "don't flag these assets by age".
+    int? lifespanYears;
+    final rawLifespan = lifespanController.text.trim();
+    if (rawLifespan.isNotEmpty) {
+      final parsed = int.tryParse(rawLifespan);
+      if (parsed == null || parsed <= 0) {
+        setState(() => error = 'Lifespan must be a whole number of years, or blank.');
+        return;
+      }
+      lifespanYears = parsed;
+    }
     Navigator.pop(
       context,
       AssetCategory(
@@ -64,6 +77,7 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
         icon: icon,
         color: color,
         defaultTracking: tracking,
+        lifespanYears: lifespanYears,
       ),
     );
   }
@@ -152,6 +166,30 @@ class _AddCategoryDialogState extends State<_AddCategoryDialog> {
             const SizedBox(height: 4),
             const Text(
               'Just the default when adding an asset — you can switch it per asset.',
+              style: TextStyle(color: AppTheme.muted, fontSize: 12, height: 1.35),
+            ),
+            const SizedBox(height: 22),
+            const Text(
+              'Expected lifespan',
+              style: TextStyle(color: AppTheme.darkGreen, fontWeight: FontWeight.w700, fontSize: 15),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: lifespanController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                hintText: 'e.g. 5',
+                suffixText: 'years',
+              ),
+              onChanged: (_) {
+                if (error != null) setState(() => error = null);
+              },
+              onSubmitted: (_) => _submit(),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Assets in this category are flagged once they pass this age. '
+              'Leave blank for things that don\'t age out (e.g. furniture).',
               style: TextStyle(color: AppTheme.muted, fontSize: 12, height: 1.35),
             ),
           ],

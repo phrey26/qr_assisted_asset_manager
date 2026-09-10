@@ -48,6 +48,7 @@ if ($method === 'GET') {
     $result = $mysqli->query(
         'SELECT a.id, a.tag_id, a.name, a.category_id, c.value AS category_value, ' .
         'c.default_tracking AS category_default_tracking, ' .
+        'c.lifespan_years AS category_lifespan_years, ' .
         'a.description, a.status, a.purchase_date, a.image_base64, ' .
         'a.tracking, a.quantity_total, a.quantity_out, a.quantity_damaged, ' .
         'a.reorder_point, ' .
@@ -61,6 +62,8 @@ if ($method === 'GET') {
     while ($row = $result->fetch_assoc()) {
         $row['id'] = (int) $row['id'];
         $row['category_id'] = (int) $row['category_id'];
+        $row['category_lifespan_years'] = $row['category_lifespan_years'] === null
+            ? null : (int) $row['category_lifespan_years'];
         $row['tracking'] = $row['tracking'] ?: 'individual';
         $row['quantity_total'] = $row['quantity_total'] === null ? null : (int) $row['quantity_total'];
         $row['quantity_out'] = (int) $row['quantity_out'];
