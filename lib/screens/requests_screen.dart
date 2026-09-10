@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -29,6 +30,7 @@ void _openRequestDetail(
   BuildContext context,
   AssetRequest request, {
   required Future<void> Function(AssetRequest request) onApprove,
+  required Future<void> Function(AssetRequest request) onHandOut,
   required Future<void> Function(AssetRequest request) onMarkReturned,
   required void Function(AssetRequest request, RequestStatus status) onSetStatus,
 }) {
@@ -38,6 +40,7 @@ void _openRequestDetail(
       builder: (_) => RequestDetailScreen(
         request: request,
         onApprove: () => onApprove(request),
+        onHandOut: () => onHandOut(request),
         onMarkReturned: () => onMarkReturned(request),
         onReject: () => onSetStatus(request, RequestStatus.rejected),
         onCancel: () => onSetStatus(request, RequestStatus.pending),
@@ -150,30 +153,18 @@ class RequestsScreenState extends State<RequestsScreen> {
   /// Applies [status] locally right away, then syncs it to the backend;
   /// reverted (with an error snackbar) if that call fails.
   ///
-  /// Only handles the transitions that carry no asset assignment —
-  /// rejecting a pending request, or cancelling an approval. Both release
-  /// whatever assets the request was holding (back to `available`);
-  /// approving goes through [_approveRequest] instead, since it has to
-  /// collect the assets first.
+  /// Handles the transitions that touch no physical assets: rejecting a
+  /// pending request, or cancelling an approval (which only *reserved* the
+  /// assets — nothing was handed out). Handing out and returning go through
+  /// [_handOut] / [_markReturned]; approving through [_approveRequest].
   Future<void> _setStatus(AssetRequest request, RequestStatus status) async {
     final previousStatus = request.status;
     final previousAssigned = List<AssignedAsset>.from(request.assignedAssets);
-    final wasApproved = previousStatus == RequestStatus.approved;
-    final freedIndividual =
-        previousAssigned.where((a) => !a.isBulk).map((a) => a.tagId).toList();
-    final bulkRestore = {
-      for (final a in previousAssigned)
-        if (a.isBulk) a.tagId: -a.quantity,
-    };
 
     setState(() {
       request.status = status;
       request.assignedAssets = const [];
     });
-    if (wasApproved && freedIndividual.isNotEmpty) {
-      widget.onApplyAssetStatuses(freedIndividual, AssetStatus.available);
-    }
-    if (wasApproved && bulkRestore.isNotEmpty) widget.onApplyBulkOut(bulkRestore);
     if (request.id == null) return;
     try {
       await ApiService.updateRequestStatus(id: request.id!, status: status.apiValue);
@@ -183,24 +174,18 @@ class RequestsScreenState extends State<RequestsScreen> {
         request.status = previousStatus;
         request.assignedAssets = previousAssigned;
       });
-      if (wasApproved && freedIndividual.isNotEmpty) {
-        widget.onApplyAssetStatuses(freedIndividual, AssetStatus.inUse);
-      }
-      if (wasApproved && bulkRestore.isNotEmpty) {
-        widget.onApplyBulkOut({for (final e in bulkRestore.entries) e.key: -e.value});
-      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not update the request\'s status: $e')),
       );
     }
   }
 
-  /// Approve flow: the admin must pick the assets to hand out before the
-  /// request can be approved. On confirm, those assets are marked `inUse`
-  /// (locally and on the backend, in one transaction); any assets that
-  /// were assigned before but dropped from the new selection are freed.
+  /// Approve flow: the admin picks the assets before the request can be
+  /// approved. On confirm those assets are *reserved* for the loan window
+  /// (a `request_assets` row each) — nothing is marked In use and no stock
+  /// moves until the assets are handed out ([_handOut]). Re-approving
+  /// replaces the previous reservation.
   Future<void> _approveRequest(AssetRequest request) async {
-    final wasApproved = request.status == RequestStatus.approved;
     final previousAssigned = List<AssignedAsset>.from(request.assignedAssets);
     final previousIndividualTags = previousAssigned
         .where((a) => !a.isBulk)
@@ -251,36 +236,21 @@ class RequestsScreenState extends State<RequestsScreen> {
 
     final previousStatus = request.status;
 
-    final newIndividualTags =
-        picked.where((p) => !p.asset.isBulk).map((p) => p.asset.tagId).toList();
-    final newBulkQty = {
-      for (final p in picked)
-        if (p.asset.isBulk) p.asset.tagId: p.quantity,
-    };
-
-    // Individual assets dropped from the selection since last time → free.
-    final freedIndividual =
-        previousIndividualTags.toSet().difference(newIndividualTags.toSet());
-    // Net bulk delta = (new take) − (old take) per pool.
-    final bulkDeltas = <String, int>{};
-    for (final tag in {...previousBulkQty.keys, ...newBulkQty.keys}) {
-      final delta = (newBulkQty[tag] ?? 0) - (previousBulkQty[tag] ?? 0);
-      if (delta != 0) bulkDeltas[tag] = delta;
-    }
-
     setState(() {
       request.status = RequestStatus.approved;
-      request.assignedAssets = picked
-          .map((p) => AssignedAsset.fromAsset(p.asset, quantity: p.quantity))
-          .toList();
+      // Reserved, not out: individual assets stay `available` until hand-out.
+      request.assignedAssets = [
+        for (final p in picked)
+          AssignedAsset(
+            tagId: p.asset.tagId,
+            name: p.asset.name,
+            category: p.asset.category,
+            status: AssetStatus.available,
+            tracking: p.asset.tracking,
+            quantity: p.asset.isBulk ? p.quantity : 1,
+          ),
+      ];
     });
-    if (freedIndividual.isNotEmpty) {
-      widget.onApplyAssetStatuses(freedIndividual, AssetStatus.available);
-    }
-    if (newIndividualTags.isNotEmpty) {
-      widget.onApplyAssetStatuses(newIndividualTags, AssetStatus.inUse);
-    }
-    if (bulkDeltas.isNotEmpty) widget.onApplyBulkOut(bulkDeltas);
 
     if (request.id == null) return;
     try {
@@ -295,18 +265,64 @@ class RequestsScreenState extends State<RequestsScreen> {
         request.status = previousStatus;
         request.assignedAssets = previousAssigned;
       });
-      // Undo the optimistic inventory changes.
-      if (newIndividualTags.isNotEmpty) {
-        widget.onApplyAssetStatuses(newIndividualTags, AssetStatus.available);
-      }
-      if (previousIndividualTags.isNotEmpty && wasApproved) {
-        widget.onApplyAssetStatuses(previousIndividualTags, AssetStatus.inUse);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not approve the request: $e')),
+      );
+    }
+  }
+
+  /// Hand-out flow: an approved (reserved) request's assets are physically
+  /// handed over now — individual units flip to In use, bulk pools decrement
+  /// available stock. Locally optimistic, reverted on a backend failure.
+  Future<void> _handOut(AssetRequest request) async {
+    if (request.status != RequestStatus.approved) return;
+    final previousStatus = request.status;
+    final assigned = List<AssignedAsset>.from(request.assignedAssets);
+    final individualTags =
+        assigned.where((a) => !a.isBulk).map((a) => a.tagId).toList();
+    final bulkDeltas = {
+      for (final a in assigned)
+        if (a.isBulk) a.tagId: a.quantity,
+    };
+
+    setState(() {
+      request.status = RequestStatus.checkedOut;
+      request.assignedAssets = assigned
+          .map((a) => AssignedAsset(
+                tagId: a.tagId,
+                name: a.name,
+                category: a.category,
+                status: a.isBulk ? AssetStatus.available : AssetStatus.inUse,
+                tracking: a.tracking,
+                quantity: a.quantity,
+              ))
+          .toList();
+    });
+    if (individualTags.isNotEmpty) {
+      widget.onApplyAssetStatuses(individualTags, AssetStatus.inUse);
+    }
+    if (bulkDeltas.isNotEmpty) widget.onApplyBulkOut(bulkDeltas);
+
+    if (request.id == null) return;
+    try {
+      await ApiService.updateRequestStatus(
+        id: request.id!,
+        status: RequestStatus.checkedOut.apiValue,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        request.status = previousStatus;
+        request.assignedAssets = assigned;
+      });
+      if (individualTags.isNotEmpty) {
+        widget.onApplyAssetStatuses(individualTags, AssetStatus.available);
       }
       if (bulkDeltas.isNotEmpty) {
         widget.onApplyBulkOut({for (final e in bulkDeltas.entries) e.key: -e.value});
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not approve the request: $e')),
+        SnackBar(content: Text('Could not hand out the assets: $e')),
       );
     }
   }
@@ -533,6 +549,7 @@ class RequestsScreenState extends State<RequestsScreen> {
                       context,
                       request,
                       onApprove: _approveRequest,
+                      onHandOut: _handOut,
                       onMarkReturned: _markReturned,
                       onSetStatus: _setStatus,
                     ),
@@ -540,6 +557,15 @@ class RequestsScreenState extends State<RequestsScreen> {
                       context,
                       request,
                       onApprove: _approveRequest,
+                      onHandOut: _handOut,
+                      onMarkReturned: _markReturned,
+                      onSetStatus: _setStatus,
+                    ),
+                    onHandOut: (request) => _openRequestDetail(
+                      context,
+                      request,
+                      onApprove: _approveRequest,
+                      onHandOut: _handOut,
                       onMarkReturned: _markReturned,
                       onSetStatus: _setStatus,
                     ),
@@ -547,6 +573,7 @@ class RequestsScreenState extends State<RequestsScreen> {
                       context,
                       request,
                       onApprove: _approveRequest,
+                      onHandOut: _handOut,
                       onMarkReturned: _markReturned,
                       onSetStatus: _setStatus,
                     ),
@@ -555,6 +582,7 @@ class RequestsScreenState extends State<RequestsScreen> {
                       context,
                       request,
                       onApprove: _approveRequest,
+                      onHandOut: _handOut,
                       onMarkReturned: _markReturned,
                       onSetStatus: _setStatus,
                     ),
@@ -582,6 +610,7 @@ class RequestsScreenState extends State<RequestsScreen> {
                       context,
                       filtered[index],
                       onApprove: _approveRequest,
+                      onHandOut: _handOut,
                       onMarkReturned: _markReturned,
                       onSetStatus: _setStatus,
                     ),
@@ -595,7 +624,7 @@ class RequestsScreenState extends State<RequestsScreen> {
   }
 
   Widget _filters() {
-    const filters = ['All', 'Pending', 'Approved', 'Returned', 'Rejected'];
+    const filters = ['All', 'Pending', 'Approved', 'Checked out', 'Returned', 'Rejected'];
     return FilterChipRow(
       options: filters,
       selected: filter,
@@ -618,6 +647,7 @@ class _RequestStatusPill extends StatelessWidget {
         background = AppTheme.cream;
         foreground = const Color(0xFF9A6512);
       case RequestStatus.approved:
+      case RequestStatus.checkedOut:
         background = AppTheme.mint;
         foreground = AppTheme.primary;
       case RequestStatus.returned:
@@ -659,6 +689,7 @@ class _RequestsTable extends StatelessWidget {
     required this.requests,
     required this.onOpen,
     required this.onApprove,
+    required this.onHandOut,
     required this.onReject,
     required this.onCancel,
     required this.onReturn,
@@ -667,6 +698,7 @@ class _RequestsTable extends StatelessWidget {
   final List<AssetRequest> requests;
   final void Function(AssetRequest request) onOpen;
   final void Function(AssetRequest request) onApprove;
+  final void Function(AssetRequest request) onHandOut;
   final void Function(AssetRequest request) onReject;
   final void Function(AssetRequest request) onCancel;
   final void Function(AssetRequest request) onReturn;
@@ -827,10 +859,10 @@ class _RequestsTable extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           IconButton(
-            onPressed: () => onReturn(request),
-            icon: const Icon(Icons.assignment_turned_in_outlined),
+            onPressed: () => onHandOut(request),
+            icon: const Icon(Icons.outbound_outlined),
             color: AppTheme.primary,
-            tooltip: 'Review to mark returned',
+            tooltip: 'Review to hand out',
             iconSize: 20,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
@@ -845,6 +877,17 @@ class _RequestsTable extends StatelessWidget {
             constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
           ),
         ],
+      );
+    }
+    if (request.status == RequestStatus.checkedOut) {
+      return IconButton(
+        onPressed: () => onReturn(request),
+        icon: const Icon(Icons.assignment_turned_in_outlined),
+        color: AppTheme.primary,
+        tooltip: 'Review to mark returned',
+        iconSize: 20,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
       );
     }
     return const SizedBox.shrink();
@@ -1057,6 +1100,59 @@ class _NewRequestFormState extends State<NewRequestForm> {
       setState(() {
         borrowDate = picked.start;
         returnDate = picked.end;
+      });
+      // The window changed — re-check every linked line against the new dates.
+      for (final row in [...logisticsRows, ...equipmentRows]) {
+        _scheduleFeasibility(row);
+      }
+    }
+  }
+
+  /// Debounced, coarse availability check for one linked line. Fires only
+  /// when the line has a category, valid dates and a positive quantity;
+  /// otherwise it just clears any stale outlook. The endpoint it calls
+  /// (`request_feasibility.php`) returns a bucket only — no inventory detail.
+  void _scheduleFeasibility(_ItemFormRow row) {
+    row.debounce?.cancel();
+    row.debounce = Timer(
+      const Duration(milliseconds: 500),
+      () => _runFeasibility(row),
+    );
+  }
+
+  Future<void> _runFeasibility(_ItemFormRow row) async {
+    final category = row.categoryValue;
+    final b = borrowDate;
+    final r = returnDate;
+    final rawQty = row.quantityController.text.trim();
+    final qty = rawQty.isEmpty ? 1 : int.tryParse(rawQty);
+    if (category == null || b == null || r == null || qty == null || qty <= 0) {
+      if (row.feasibilityOutlook != null || row.feasibilityLoading) {
+        setState(() {
+          row.feasibilityOutlook = null;
+          row.feasibilityLoading = false;
+        });
+      }
+      return;
+    }
+    setState(() => row.feasibilityLoading = true);
+    try {
+      final outlook = await ApiService.fetchRequestFeasibility(
+        category: category,
+        from: AssetRequest.isoDate(b)!,
+        to: AssetRequest.isoDate(r)!,
+        quantity: qty,
+      );
+      if (!mounted) return;
+      setState(() {
+        row.feasibilityOutlook = outlook;
+        row.feasibilityLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        row.feasibilityOutlook = null;
+        row.feasibilityLoading = false;
       });
     }
   }
@@ -1434,6 +1530,7 @@ class _NewRequestFormState extends State<NewRequestForm> {
                   keyboardType: TextInputType.number,
                   textAlign: TextAlign.center,
                   decoration: const InputDecoration(hintText: 'Qty'),
+                  onChanged: (_) => _scheduleFeasibility(row),
                 ),
               ),
               SizedBox(
@@ -1471,18 +1568,87 @@ class _NewRequestFormState extends State<NewRequestForm> {
                     child: Text(category.displayName),
                   ),
               ],
-              onChanged: (value) => setState(() => row.categoryValue = value),
+              onChanged: (value) {
+                setState(() {
+                  row.categoryValue = value;
+                  if (value == null) row.feasibilityOutlook = null;
+                });
+                _scheduleFeasibility(row);
+              },
             ),
+            if (row.feasibilityLoading || row.feasibilityOutlook != null) ...[
+              const SizedBox(height: 4),
+              _feasibilityHint(row),
+            ],
           ],
         ],
       ),
     );
   }
+
+  /// A coarse availability hint for a linked line. Deliberately shows only
+  /// the outlook bucket from `request_feasibility.php` — never counts, asset
+  /// names, or which requests hold what — so a requester can't read the
+  /// inventory off this form.
+  Widget _feasibilityHint(_ItemFormRow row) {
+    if (row.feasibilityLoading) {
+      return const Row(
+        children: [
+          SizedBox(
+            width: 12,
+            height: 12,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          SizedBox(width: 8),
+          Text(
+            'Checking availability for your dates…',
+            style: TextStyle(color: AppTheme.muted, fontSize: 12),
+          ),
+        ],
+      );
+    }
+    final (IconData icon, Color color, String text) = switch (row.feasibilityOutlook) {
+      'ok' => (
+          Icons.check_circle_outline,
+          AppTheme.primary,
+          'Likely available for your dates',
+        ),
+      'partial' => (
+          Icons.error_outline,
+          const Color(0xFF9A6512),
+          'Limited for your dates — the office will confirm what it can provide',
+        ),
+      'none' => (
+          Icons.highlight_off,
+          const Color(0xFFC84040),
+          'Not available for your dates — the office may offer an alternative',
+        ),
+      _ => (
+          Icons.help_outline,
+          AppTheme.muted,
+          'Availability will be confirmed by the office',
+        ),
+    };
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(color: color, fontSize: 12, height: 1.3),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 /// Holds the state for one logistics/equipment row in [NewRequestForm] —
-/// the item name and amount controllers, plus an optional link to the
-/// inventory category being asked for.
+/// the item name and amount controllers, an optional link to the inventory
+/// category being asked for, and the coarse availability outlook for that
+/// category + the request's dates (from `request_feasibility.php`).
 class _ItemFormRow {
   final nameController = TextEditingController();
   final quantityController = TextEditingController();
@@ -1490,7 +1656,14 @@ class _ItemFormRow {
   /// The [AssetCategory.value] this line is linked to, or null for free text.
   String? categoryValue;
 
+  /// `'ok' | 'partial' | 'none' | 'unknown'`, or null when not linked / not
+  /// yet checked. Never carries counts or item details.
+  String? feasibilityOutlook;
+  bool feasibilityLoading = false;
+  Timer? debounce;
+
   void dispose() {
+    debounce?.cancel();
     nameController.dispose();
     quantityController.dispose();
   }

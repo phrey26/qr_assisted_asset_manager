@@ -1,10 +1,13 @@
 <?php
 require __DIR__ . '/db.php';
 
-// Read-only: how much of each asset is free for a given loan window, so the
-// approval picker (lib/widgets/asset_assignment_sheet.dart) and the new-
-// request form can show real "N free for these dates" numbers instead of a
-// point-in-time "is it out right now" guess.
+// Read-only: how much of each asset is free for a given loan window, for
+// the ADMIN approval picker (lib/widgets/asset_assignment_sheet.dart). The
+// response itemises the inventory (tag IDs, per-asset counts, the titles of
+// clashing requests), so it must not be exposed to requesters — the
+// new-request form uses request_feasibility.php, which returns only a
+// coarse outlook. When this project grows real roles, gate this endpoint
+// behind an admin check.
 //
 //   GET availability.php?from=YYYY-MM-DD&to=YYYY-MM-DD[&exclude_request=ID]
 //

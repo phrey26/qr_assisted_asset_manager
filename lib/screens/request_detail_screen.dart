@@ -16,6 +16,7 @@ class RequestDetailScreen extends StatefulWidget {
     super.key,
     required this.request,
     this.onApprove,
+    this.onHandOut,
     this.onMarkReturned,
     this.onReject,
     this.onCancel,
@@ -24,12 +25,17 @@ class RequestDetailScreen extends StatefulWidget {
   final AssetRequest request;
 
   /// Invoked when the admin approves a pending request. Opens the asset
-  /// picker and completes once the request has been approved (or the admin
-  /// backed out). When null, no approve action is shown (mirrors
-  /// [onReject]/[onCancel]).
+  /// picker and completes once the request has been approved (its assets
+  /// reserved) or the admin backed out. When null, no approve action is
+  /// shown (mirrors [onReject]/[onCancel]).
   final Future<void> Function()? onApprove;
 
-  /// Invoked when the admin marks an approved request's borrowed assets as
+  /// Invoked when the admin hands the reserved assets over for an approved
+  /// request — flipping them to physically out. Completes once the backend
+  /// has been updated.
+  final Future<void> Function()? onHandOut;
+
+  /// Invoked when the admin marks a checked-out request's borrowed assets as
   /// returned — freeing them and closing the loan. Completes once the
   /// backend has been updated.
   final Future<void> Function()? onMarkReturned;
@@ -48,6 +54,11 @@ class RequestDetailScreen extends StatefulWidget {
 class _RequestDetailScreenState extends State<RequestDetailScreen> {
   Future<void> _approve() async {
     await widget.onApprove?.call();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _handOut() async {
+    await widget.onHandOut?.call();
     if (mounted) setState(() {});
   }
 
@@ -134,7 +145,9 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
       case RequestStatus.pending:
         return (AppTheme.cream, const Color(0xFF9A6512), Icons.hourglass_top_rounded);
       case RequestStatus.approved:
-        return (AppTheme.mint, AppTheme.primary, Icons.check_circle_outline);
+        return (AppTheme.mint, AppTheme.primary, Icons.event_available_outlined);
+      case RequestStatus.checkedOut:
+        return (AppTheme.mint, AppTheme.primary, Icons.outbound_outlined);
       case RequestStatus.returned:
         return (AppTheme.slateTint, AppTheme.muted, Icons.assignment_turned_in_outlined);
       case RequestStatus.rejected:
@@ -248,10 +261,7 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
           if (request.logistics.isNotEmpty) _itemsRow('Logistics', request.logistics),
           if (request.equipment.isNotEmpty) _itemsRow('Equipment', request.equipment),
           if (request.assignedAssets.isNotEmpty)
-            _assignedAssetsRow(
-              request.assignedAssets,
-              returned: request.status == RequestStatus.returned,
-            ),
+            _assignedAssetsRow(request.assignedAssets, status: request.status),
           _detailRow('Status', request.status.label, isLast: true),
         ],
       ),
@@ -344,20 +354,26 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     );
   }
 
-  /// The real inventory assets handed out for this request (picked by the
-  /// admin on approval). Each shows its name and tag ID, plus its current
-  /// status while the loan is active — or a plain "Returned" tag once the
-  /// loan is closed, since by then the assets are back in the pool (and may
-  /// even be out on a different loan).
-  Widget _assignedAssetsRow(List<AssignedAsset> assets, {required bool returned}) {
+  /// The real inventory assets tied to this request (picked by the admin on
+  /// approval). While the request is only [RequestStatus.approved] they're
+  /// *reserved* — shown with a neutral "Reserved" tag, since nothing has
+  /// physically moved yet. Once [RequestStatus.checkedOut] each shows its
+  /// live status / "on loan" count; once [RequestStatus.returned] a plain
+  /// "Returned" tag, as the assets are back in the pool by then.
+  Widget _assignedAssetsRow(
+    List<AssignedAsset> assets, {
+    required RequestStatus status,
+  }) {
+    final returned = status == RequestStatus.returned;
+    final reserved = status == RequestStatus.approved;
     return Padding(
       padding: const EdgeInsets.only(bottom: 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Assigned assets',
-            style: TextStyle(
+          Text(
+            reserved ? 'Reserved assets' : 'Assigned assets',
+            style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w800,
               color: AppTheme.darkGreen,
@@ -391,37 +407,15 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                   ),
                   const SizedBox(width: 10),
                   if (returned)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: AppTheme.slateTint,
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                      child: const Text(
-                        'Returned',
-                        style: TextStyle(
-                          color: AppTheme.muted,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14,
-                        ),
-                      ),
+                    _pill('Returned', AppTheme.slateTint, AppTheme.muted)
+                  else if (reserved)
+                    _pill(
+                      asset.isBulk ? '${asset.quantity} reserved' : 'Reserved',
+                      AppTheme.slateTint,
+                      AppTheme.darkGreen,
                     )
                   else if (asset.isBulk)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: AppTheme.cream,
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                      child: Text(
-                        '${asset.quantity} on loan',
-                        style: const TextStyle(
-                          color: Color(0xFF9A6512),
-                          fontWeight: FontWeight.w800,
-                          fontSize: 13,
-                        ),
-                      ),
-                    )
+                    _pill('${asset.quantity} on loan', AppTheme.cream, const Color(0xFF9A6512))
                   else
                     StatusChip(status: asset.status),
                 ],
@@ -431,6 +425,15 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
       ),
     );
   }
+
+  Widget _pill(String text, Color bg, Color fg) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(30)),
+        child: Text(
+          text,
+          style: TextStyle(color: fg, fontWeight: FontWeight.w800, fontSize: 13),
+        ),
+      );
 
   /// The four printed names from the paper slip — requester, adviser,
   /// principal/office head, and dean — laid out side by side on desktop
@@ -672,16 +675,16 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
       return _desktopActionsBar([reject, const SizedBox(width: 12), approve]);
     }
     if (request.status == RequestStatus.approved) {
-      final markReturned = ElevatedButton.icon(
-        onPressed: widget.onMarkReturned == null ? null : _markReturned,
+      final handOut = ElevatedButton.icon(
+        onPressed: widget.onHandOut == null ? null : _handOut,
         style: desktop
             ? ElevatedButton.styleFrom(
                 minimumSize: _desktopMinSize,
                 padding: _desktopButtonPadding,
               )
             : null,
-        icon: const Icon(Icons.assignment_turned_in_outlined, size: 20),
-        label: const Text('Mark as returned'),
+        icon: const Icon(Icons.outbound_outlined, size: 20),
+        label: const Text('Hand out assets'),
       );
       final cancel = FilledButton.icon(
         onPressed: widget.onCancel == null ? null : _cancel,
@@ -693,19 +696,49 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            markReturned,
+            handOut,
             const SizedBox(height: 10),
             cancel,
             const SizedBox(height: 10),
             const Text(
-              'Marking as returned frees the assigned assets and closes this loan.',
+              'The assets are reserved for these dates. Handing them out marks '
+              'them physically borrowed; cancelling releases the reservation.',
               textAlign: TextAlign.center,
               style: TextStyle(color: AppTheme.muted, fontSize: 13),
             ),
           ],
         );
       }
-      return _desktopActionsBar([cancel, const SizedBox(width: 12), markReturned]);
+      return _desktopActionsBar([cancel, const SizedBox(width: 12), handOut]);
+    }
+    if (request.status == RequestStatus.checkedOut) {
+      final markReturned = ElevatedButton.icon(
+        onPressed: widget.onMarkReturned == null ? null : _markReturned,
+        style: desktop
+            ? ElevatedButton.styleFrom(
+                minimumSize: _desktopMinSize,
+                padding: _desktopButtonPadding,
+              )
+            : null,
+        icon: const Icon(Icons.assignment_turned_in_outlined, size: 20),
+        label: const Text('Mark as returned'),
+      );
+      if (!desktop) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            markReturned,
+            const SizedBox(height: 10),
+            const Text(
+              'These assets are out on loan. Marking them returned frees them '
+              'and closes this loan.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppTheme.muted, fontSize: 13),
+            ),
+          ],
+        );
+      }
+      return _desktopActionsBar([markReturned]);
     }
     if (request.status == RequestStatus.returned) {
       return Container(
@@ -767,6 +800,7 @@ class _RequestStatusPill extends StatelessWidget {
         background = AppTheme.cream;
         foreground = const Color(0xFF9A6512);
       case RequestStatus.approved:
+      case RequestStatus.checkedOut:
         background = AppTheme.mint;
         foreground = AppTheme.primary;
       case RequestStatus.returned:

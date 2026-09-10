@@ -267,6 +267,25 @@ void main() {
     expect(legacy.returnOn, isNull);
   });
 
+  test('RequestStatus.checkedOut maps to/from the backend "checked_out" slug', () {
+    expect(RequestStatus.checkedOut.apiValue, 'checked_out');
+    expect(RequestStatus.approved.apiValue, 'approved');
+    expect(RequestStatusApiX.fromApiValue('checked_out'), RequestStatus.checkedOut);
+    expect(RequestStatusApiX.fromApiValue('approved'), RequestStatus.approved);
+    expect(RequestStatus.checkedOut.label, 'Checked out');
+
+    final r = AssetRequest.fromJson({
+      'id': 9,
+      'title': 'T',
+      'requester': 'R',
+      'department': 'D',
+      'borrow_date': 'Sep 15, 2026',
+      'return_date': 'Sep 16, 2026',
+      'status': 'checked_out',
+    });
+    expect(r.status, RequestStatus.checkedOut);
+  });
+
   test('WindowAvailabilityReport parses per-asset free counts and conflicts', () {
     final report = WindowAvailabilityReport.fromJson({
       'from': '2026-09-15',

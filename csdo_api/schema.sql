@@ -135,10 +135,16 @@ CREATE TABLE IF NOT EXISTS requests (
   -- csdo_api/availability.php and the 'approved' branch of requests.php.
   borrow_on DATE NULL,
   return_on DATE NULL,
-  -- One of: 'pending', 'approved', 'rejected', 'returned'. 'returned' is a
-  -- terminal state for an approved request whose assets have been brought
-  -- back (they're freed to 'available', but the request_assets link rows
-  -- are kept as a record of what was lent). Plain VARCHAR, no ENUM/CHECK.
+  -- One of: 'pending', 'approved', 'checked_out', 'rejected', 'returned'.
+  --   pending      – submitted, awaiting a decision
+  --   approved     – assets RESERVED for the loan window; nothing physical
+  --                  has moved (assets stay 'available', stock unchanged)
+  --   checked_out  – the reserved assets have been physically handed over
+  --                  (individual units -> 'in_use', bulk stock decremented)
+  --   returned     – terminal; the borrowed assets came back and were freed,
+  --                  but the request_assets rows are kept as a record
+  --   rejected     – terminal; declined
+  -- Plain VARCHAR, no ENUM/CHECK, so the set can grow without a migration.
   status VARCHAR(20) NOT NULL DEFAULT 'pending',
   requester_signature VARCHAR(150),
   adviser_signature VARCHAR(150),
@@ -162,6 +168,18 @@ UPDATE requests SET return_on = COALESCE(
 ) WHERE return_on IS NULL;
 -- Speeds up the overlap scan (status + date window) the checks run per approval.
 ALTER TABLE requests ADD INDEX IF NOT EXISTS idx_requests_window (status, borrow_on, return_on);
+-- Under the old model 'approved' meant the assets were already physically
+-- out. The new model splits that into 'approved' (RESERVED — nothing has
+-- moved) and 'checked_out' (handed over). Migrate an existing 'approved'
+-- row to 'checked_out' only when one of its individual assets is actually
+-- 'in_use' — the unambiguous "this was out under the old model" signal.
+-- Safe to re-run: a genuinely-reserved request under the new model never
+-- has an in_use asset, so it is left alone.
+UPDATE requests r
+  JOIN request_assets ra ON ra.request_id = r.id
+  JOIN assets a ON a.id = ra.asset_id
+  SET r.status = 'checked_out'
+  WHERE r.status = 'approved' AND a.status = 'in_use';
 
 CREATE TABLE IF NOT EXISTS request_items (
   id INT AUTO_INCREMENT PRIMARY KEY,

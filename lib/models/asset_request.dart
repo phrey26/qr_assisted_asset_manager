@@ -3,20 +3,28 @@ import 'dart:typed_data';
 
 import 'asset.dart';
 
-/// [returned] is a terminal state for an approved request whose borrowed
-/// assets have been brought back — the assets are freed to `available`
-/// again, but the request keeps its record of what was lent.
-enum RequestStatus { pending, approved, rejected, returned }
+/// The lifecycle of a borrow request.
+///
+/// [approved] only *reserves* the picked assets for the loan window —
+/// nothing physical has moved. [checkedOut] is when those reserved assets
+/// are actually handed over (individual units become `in_use`, bulk stock
+/// is decremented). [returned] is terminal: the borrowed assets came back
+/// and were freed, but the request keeps its record of what was lent.
+/// [rejected] is terminal too.
+enum RequestStatus { pending, approved, checkedOut, rejected, returned }
 
 extension RequestStatusApiX on RequestStatus {
   /// The value stored in the `requests.status` column / sent to
   /// `csdo_api/requests.php`.
-  String get apiValue => name;
+  String get apiValue =>
+      this == RequestStatus.checkedOut ? 'checked_out' : name;
 
   static RequestStatus fromApiValue(String value) {
     switch (value) {
       case 'approved':
         return RequestStatus.approved;
+      case 'checked_out':
+        return RequestStatus.checkedOut;
       case 'rejected':
         return RequestStatus.rejected;
       case 'returned':
@@ -65,6 +73,8 @@ extension RequestStatusX on RequestStatus {
         return 'Pending';
       case RequestStatus.approved:
         return 'Approved';
+      case RequestStatus.checkedOut:
+        return 'Checked out';
       case RequestStatus.rejected:
         return 'Rejected';
       case RequestStatus.returned:

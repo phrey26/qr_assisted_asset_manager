@@ -46,12 +46,13 @@ function next_tag_id(mysqli $mysqli, string $prefix): string {
 
 if ($method === 'GET') {
     // The current-holder columns are derived, not stored. Each is a single
-    // correlated subquery over the approved request holding this asset (the
-    // borrow flow only ever assigns an 'available' asset, so there's at most
-    // one; ORDER BY r.id DESC LIMIT 1 keeps it safe regardless).
+    // correlated subquery over the request that currently has this asset
+    // physically handed out ('checked_out'). A merely reserved ('approved')
+    // request doesn't hold the asset yet, so it isn't a current holder.
+    // ORDER BY r.id DESC LIMIT 1 keeps it safe if more than one ever matches.
     $holderCol = fn(string $col) =>
         "(SELECT r.$col FROM request_assets ra2 JOIN requests r ON r.id = ra2.request_id " .
-        "  WHERE ra2.asset_id = a.id AND r.status = 'approved' ORDER BY r.id DESC LIMIT 1)";
+        "  WHERE ra2.asset_id = a.id AND r.status = 'checked_out' ORDER BY r.id DESC LIMIT 1)";
     $result = $mysqli->query(
         'SELECT a.id, a.tag_id, a.name, a.category_id, c.value AS category_value, ' .
         'c.default_tracking AS category_default_tracking, ' .

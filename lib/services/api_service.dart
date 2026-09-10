@@ -670,6 +670,34 @@ class ApiService {
     return WindowAvailabilityReport.fromJson((body as Map).cast<String, dynamic>());
   }
 
+  /// Requester-safe feasibility check for the new-request form: given a
+  /// category, a loan window and a quantity, returns only a coarse outlook —
+  /// `'ok'`, `'partial'`, `'none'` or `'unknown'` — never asset names,
+  /// counts or which requests hold what. See `csdo_api/request_feasibility.php`.
+  static Future<String> fetchRequestFeasibility({
+    required String category,
+    required String from,
+    required String to,
+    required int quantity,
+  }) async {
+    final uri = Uri.parse(
+      '$baseUrl/request_feasibility.php'
+      '?category=${Uri.encodeQueryComponent(category)}'
+      '&from=${Uri.encodeQueryComponent(from)}'
+      '&to=${Uri.encodeQueryComponent(to)}'
+      '&quantity=$quantity',
+    );
+    final response =
+        await http.get(uri).timeout(_timeout, onTimeout: _timeoutError);
+    final body = jsonDecode(response.body);
+    if (response.statusCode != 200) {
+      throw Exception(
+        (body is Map ? body['error'] : null) ?? 'Failed to check availability',
+      );
+    }
+    return (body is Map ? body['outlook'] as String? : null) ?? 'unknown';
+  }
+
   /// Submits a new asset request. [request] should be built via
   /// [AssetRequest.toJson]. Returns the new request's database id.
   static Future<int> addRequest(Map<String, dynamic> request) async {

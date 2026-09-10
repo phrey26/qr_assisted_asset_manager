@@ -224,21 +224,6 @@ function condition_label(string $slug): string {
     }
 }
 
-/**
- * Frees the request's assets ([release_request_assets]) and also drops the
- * request_assets link rows. Used whenever a request leaves the approved
- * state without completing a loan — a cancelled approval, a rejection, or a
- * deletion. Caller owns the surrounding transaction.
- */
-function free_request_assets(mysqli $mysqli, int $requestId): void {
-    release_request_assets($mysqli, $requestId, 'released');
-
-    $stmt = $mysqli->prepare('DELETE FROM request_assets WHERE request_id = ?');
-    $stmt->bind_param('i', $requestId);
-    $stmt->execute();
-    $stmt->close();
-}
-
 if ($method === 'GET') {
     $result = $mysqli->query(
         'SELECT id, title, requester, department, venue, borrow_date, return_date, ' .
@@ -415,7 +400,176 @@ if ($method === 'PUT') {
 
     $mysqli->begin_transaction();
     try {
-        if ($status === 'returned') {
+        // The request's current state — every transition below is validated
+        // against it. FOR UPDATE so a concurrent status change on the same
+        // request serialises behind this one.
+        $curStmt = $mysqli->prepare(
+            'SELECT status, title, borrow_on, return_on, borrow_date, return_date ' .
+            'FROM requests WHERE id = ? FOR UPDATE'
+        );
+        $curStmt->bind_param('i', $id);
+        $curStmt->execute();
+        $reqRow = $curStmt->get_result()->fetch_assoc();
+        $curStmt->close();
+        if (!$reqRow) throw new Exception('No request with that id.');
+        $cur = $reqRow['status'];
+        $requestTitle = $reqRow['title'] ?? null;
+
+        if (!in_array($status, ['pending', 'approved', 'checked_out', 'rejected', 'returned'], true)) {
+            throw new Exception("Unknown request status '$status'.");
+        }
+
+        // ---- Reserve: {pending|approved} -> approved ----------------------
+        // Approval only RESERVES the assets for the loan window. Nothing
+        // physical moves until hand-out ('checked_out').
+        if ($status === 'approved') {
+            if ($cur === 'checked_out') {
+                throw new Exception('Mark this request returned before re-assigning it.');
+            }
+            if (empty($assignments)) {
+                throw new Exception('Pick at least one asset to reserve before approving this request.');
+            }
+
+            // Re-approve from a clean slate: drop any prior reservation rows
+            // (nothing physical to undo — a reservation holds no asset).
+            $d = $mysqli->prepare('DELETE FROM request_assets WHERE request_id = ?');
+            $d->bind_param('i', $id);
+            $d->execute();
+            $d->close();
+
+            $tagList = array_keys($assignments);
+            $ph = implode(',', array_fill(0, count($tagList), '?'));
+            $ty = str_repeat('s', count($tagList));
+            // FOR UPDATE locks the candidate rows for the rest of this
+            // transaction, so two admins reserving overlapping requests that
+            // share an asset are serialised — the second blocks here until
+            // the first commits, then sees its committed quantity.
+            $stmt = $mysqli->prepare(
+                'SELECT id, tag_id, name, tracking, quantity_total, quantity_out, quantity_damaged ' .
+                "FROM assets WHERE tag_id IN ($ph) FOR UPDATE"
+            );
+            $stmt->bind_param($ty, ...$tagList);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            $found = [];
+            while ($r = $res->fetch_assoc()) {
+                $found[$r['tag_id']] = $r;
+            }
+            $stmt->close();
+            if (count($found) !== count($tagList)) {
+                throw new Exception('One or more of the selected assets no longer exists.');
+            }
+
+            // Double-booking guard: reject if any picked asset is already
+            // reserved OR out ('approved'/'checked_out') for another request
+            // whose loan window overlaps this one. Falls back to parsing the
+            // display date strings for legacy rows; if the window still can't
+            // be resolved the check is skipped.
+            $winFrom = $reqRow['borrow_on'] ?? iso_date_or_null($reqRow['borrow_date'] ?? null);
+            $winTo = $reqRow['return_on'] ?? iso_date_or_null($reqRow['return_date'] ?? null);
+            if ($winFrom !== null && $winTo !== null) {
+                $commitments = overlapping_asset_commitments($mysqli, $winFrom, $winTo, $id, true);
+                foreach ($found as $tag => $asset) {
+                    $entry = $commitments[(int) $asset['id']] ?? null;
+                    if ($entry === null) continue;
+                    $committed = (int) $entry['committed'];
+                    $clashLabel = conflict_summary($entry['conflicts']);
+                    if (($asset['tracking'] ?? 'individual') === 'bulk') {
+                        $windowFree = (int) $asset['quantity_total']
+                            - (int) $asset['quantity_damaged'] - $committed;
+                        if ($assignments[$tag] > $windowFree) {
+                            throw new Exception(
+                                "Not enough \"{$asset['name']}\" for $winFrom to $winTo — asked for "
+                                . "{$assignments[$tag]}, only " . max(0, $windowFree)
+                                . " free for that period ($committed already booked by $clashLabel)."
+                            );
+                        }
+                    } elseif ($committed >= 1) {
+                        throw new Exception(
+                            "\"{$asset['name']}\" is already booked for an overlapping period by $clashLabel."
+                        );
+                    }
+                }
+            }
+
+            $link = $mysqli->prepare(
+                'INSERT INTO request_assets (request_id, asset_id, quantity) VALUES (?, ?, ?)'
+            );
+            foreach ($found as $tag => $asset) {
+                $assetId = (int) $asset['id'];
+                $qty = ($asset['tracking'] ?? 'individual') === 'bulk' ? $assignments[$tag] : 1;
+                $link->bind_param('iii', $id, $assetId, $qty);
+                $link->execute();
+            }
+            $link->close();
+        }
+
+        // ---- Hand out: approved -> checked_out --------------------------
+        // The reserved assets are physically handed over now: individual
+        // units flip to 'in_use', bulk pools decrement available stock.
+        elseif ($status === 'checked_out') {
+            if ($cur !== 'approved') {
+                throw new Exception('Only an approved (reserved) request can be handed out.');
+            }
+            $q = $mysqli->prepare(
+                'SELECT a.id, a.name, a.tracking, a.status, a.quantity_total, a.quantity_out, ' .
+                'ra.quantity ' .
+                'FROM request_assets ra JOIN assets a ON a.id = ra.asset_id ' .
+                'WHERE ra.request_id = ? FOR UPDATE'
+            );
+            $q->bind_param('i', $id);
+            $q->execute();
+            $qres = $q->get_result();
+            $lines = [];
+            while ($r = $qres->fetch_assoc()) {
+                $lines[] = $r;
+            }
+            $q->close();
+            if (empty($lines)) {
+                throw new Exception('This request has no reserved assets to hand out.');
+            }
+
+            $markIndividual = $mysqli->prepare(
+                "UPDATE assets SET status = 'in_use' WHERE id = ? AND status = 'available'"
+            );
+            $takeBulk = $mysqli->prepare(
+                'UPDATE assets SET quantity_out = quantity_out + ? ' .
+                'WHERE id = ? AND quantity_total - quantity_out >= ?'
+            );
+            foreach ($lines as $line) {
+                $assetId = (int) $line['id'];
+                $qty = (int) $line['quantity'];
+                if (($line['tracking'] ?? 'individual') === 'bulk') {
+                    $takeBulk->bind_param('iii', $qty, $assetId, $qty);
+                    $takeBulk->execute();
+                    if ($takeBulk->affected_rows < 1) {
+                        $free = (int) $line['quantity_total'] - (int) $line['quantity_out'];
+                        throw new Exception(
+                            "Not enough \"{$line['name']}\" in stock to hand out — asked for $qty, $free available."
+                        );
+                    }
+                    log_stock_movement($mysqli, $assetId, 'lent', $qty, null, $requestTitle, $id);
+                } else {
+                    $markIndividual->bind_param('i', $assetId);
+                    $markIndividual->execute();
+                    if ($markIndividual->affected_rows < 1) {
+                        throw new Exception(
+                            "\"{$line['name']}\" is no longer available to hand out — it may have been moved "
+                            . "to stock or maintenance, or already handed to another loan."
+                        );
+                    }
+                    log_asset_event($mysqli, $assetId, 'borrowed', $requestTitle, $id);
+                }
+            }
+            $markIndividual->close();
+            $takeBulk->close();
+        }
+
+        // ---- Return: checked_out -> returned ---------------------------
+        elseif ($status === 'returned') {
+            if ($cur !== 'checked_out') {
+                throw new Exception('Only a handed-out request can be marked returned.');
+            }
             // Loan completed: free the assets but keep the request_assets
             // rows so the request still shows what was borrowed. Record the
             // return inspection (condition + photos) against those assets.
@@ -476,121 +630,23 @@ if ($method === 'PUT') {
                     );
                 }
             }
-        } else {
-            // Any other transition drops the assignment entirely. The
-            // approved branch below then re-assigns from a clean slate;
-            // pending/rejected leave the request holding nothing.
-            free_request_assets($mysqli, $id);
         }
 
-        if ($status === 'approved') {
-            if (empty($assignments)) {
-                throw new Exception('Pick at least one asset to hand out before approving this request.');
+        // ---- Cancel / reject: {pending|approved} -> {pending|rejected} --
+        // A reservation holds nothing physical, so cancelling or rejecting
+        // just drops its link rows. A checked-out request must be returned
+        // first.
+        else {
+            if ($cur === 'checked_out') {
+                throw new Exception(
+                    'Mark this request returned before ' .
+                    ($status === 'pending' ? 'cancelling its approval.' : 'rejecting it.')
+                );
             }
-
-            $tagList = array_keys($assignments);
-            $ph = implode(',', array_fill(0, count($tagList), '?'));
-            $ty = str_repeat('s', count($tagList));
-            // FOR UPDATE locks the candidate rows for the rest of this
-            // transaction, so two admins approving overlapping requests that
-            // share an asset are serialised — the second one blocks here
-            // until the first commits, then sees its committed quantity.
-            $stmt = $mysqli->prepare(
-                'SELECT id, tag_id, name, tracking, quantity_total, quantity_out, quantity_damaged ' .
-                "FROM assets WHERE tag_id IN ($ph) FOR UPDATE"
-            );
-            $stmt->bind_param($ty, ...$tagList);
-            $stmt->execute();
-            $res = $stmt->get_result();
-            $found = [];
-            while ($r = $res->fetch_assoc()) {
-                $found[$r['tag_id']] = $r;
-            }
-            $stmt->close();
-            if (count($found) !== count($tagList)) {
-                throw new Exception('One or more of the selected assets no longer exists.');
-            }
-
-            $titleStmt = $mysqli->prepare(
-                'SELECT title, borrow_on, return_on, borrow_date, return_date FROM requests WHERE id = ?'
-            );
-            $titleStmt->bind_param('i', $id);
-            $titleStmt->execute();
-            $titleRow = $titleStmt->get_result()->fetch_assoc();
-            $titleStmt->close();
-            $requestTitle = $titleRow['title'] ?? null;
-
-            // Double-booking guard: reject the approval if any picked asset
-            // is already committed to another approved request whose loan
-            // window overlaps this one. Falls back to parsing the display
-            // date strings when borrow_on/return_on aren't set (legacy rows);
-            // if the window still can't be resolved the check is skipped and
-            // only the point-in-time checks below apply.
-            $winFrom = $titleRow['borrow_on'] ?? iso_date_or_null($titleRow['borrow_date'] ?? null);
-            $winTo = $titleRow['return_on'] ?? iso_date_or_null($titleRow['return_date'] ?? null);
-            if ($winFrom !== null && $winTo !== null) {
-                $commitments = overlapping_asset_commitments($mysqli, $winFrom, $winTo, $id, true);
-                foreach ($found as $tag => $asset) {
-                    $entry = $commitments[(int) $asset['id']] ?? null;
-                    if ($entry === null) continue;
-                    $committed = (int) $entry['committed'];
-                    $clashLabel = conflict_summary($entry['conflicts']);
-                    if (($asset['tracking'] ?? 'individual') === 'bulk') {
-                        $windowFree = (int) $asset['quantity_total']
-                            - (int) $asset['quantity_damaged'] - $committed;
-                        if ($assignments[$tag] > $windowFree) {
-                            throw new Exception(
-                                "Not enough \"{$asset['name']}\" for $winFrom to $winTo — asked for "
-                                . "{$assignments[$tag]}, only " . max(0, $windowFree)
-                                . " free for that period ($committed already booked by $clashLabel)."
-                            );
-                        }
-                    } elseif ($committed >= 1) {
-                        throw new Exception(
-                            "\"{$asset['name']}\" is already booked for an overlapping period by $clashLabel."
-                        );
-                    }
-                }
-            }
-
-            $link = $mysqli->prepare(
-                'INSERT INTO request_assets (request_id, asset_id, quantity) VALUES (?, ?, ?)'
-            );
-            $markIndividual = $mysqli->prepare("UPDATE assets SET status = 'in_use' WHERE id = ?");
-            // Atomic take from a bulk pool: only succeeds while enough is free.
-            $takeBulk = $mysqli->prepare(
-                'UPDATE assets SET quantity_out = quantity_out + ? ' .
-                'WHERE id = ? AND quantity_total - quantity_out >= ?'
-            );
-
-            foreach ($found as $tag => $asset) {
-                $assetId = (int) $asset['id'];
-                $qty = $assignments[$tag];
-
-                if (($asset['tracking'] ?? 'individual') === 'bulk') {
-                    $takeBulk->bind_param('iii', $qty, $assetId, $qty);
-                    $takeBulk->execute();
-                    if ($takeBulk->affected_rows < 1) {
-                        $free = (int) $asset['quantity_total'] - (int) $asset['quantity_out'];
-                        throw new Exception(
-                            "Not enough \"{$asset['name']}\" in stock — asked for $qty, $free available."
-                        );
-                    }
-                    $link->bind_param('iii', $id, $assetId, $qty);
-                    $link->execute();
-                    log_stock_movement($mysqli, $assetId, 'lent', $qty, null, $requestTitle, $id);
-                } else {
-                    $one = 1;
-                    $link->bind_param('iii', $id, $assetId, $one);
-                    $link->execute();
-                    $markIndividual->bind_param('i', $assetId);
-                    $markIndividual->execute();
-                    log_asset_event($mysqli, $assetId, 'borrowed', $requestTitle, $id);
-                }
-            }
-            $link->close();
-            $markIndividual->close();
-            $takeBulk->close();
+            $d = $mysqli->prepare('DELETE FROM request_assets WHERE request_id = ?');
+            $d->bind_param('i', $id);
+            $d->execute();
+            $d->close();
         }
 
         $stmt = $mysqli->prepare('UPDATE requests SET status = ? WHERE id = ?');
@@ -615,9 +671,17 @@ if ($method === 'DELETE') {
 
     $mysqli->begin_transaction();
     try {
-        // Release any assets this request is holding before it goes away
-        // (the request_assets rows themselves cascade-delete with it).
-        free_request_assets($mysqli, $id);
+        // Free assets only if this request had actually been handed out — a
+        // reservation ('approved') or an untouched request holds nothing
+        // physical. The request_assets rows cascade-delete with the request.
+        $s = $mysqli->prepare('SELECT status FROM requests WHERE id = ? FOR UPDATE');
+        $s->bind_param('i', $id);
+        $s->execute();
+        $sr = $s->get_result()->fetch_assoc();
+        $s->close();
+        if ($sr && $sr['status'] === 'checked_out') {
+            release_request_assets($mysqli, $id, 'released');
+        }
 
         $stmt = $mysqli->prepare('DELETE FROM requests WHERE id = ?');
         $stmt->bind_param('i', $id);

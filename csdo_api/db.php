@@ -107,9 +107,10 @@ function iso_date_or_null($value): ?string {
  *       'conflicts' => [ {request_id, title, borrow_on, return_on, quantity}, ... ],
  *   ] ]
  * $excludeRequestId is skipped so re-approving / editing a request's own
- * assignment never conflicts with itself. An approved request whose
- * borrow_on/return_on is NULL (unparseable legacy dates) is treated as
- * spanning all time, so it always counts — deliberately conservative.
+ * assignment never conflicts with itself. Both a reservation ('approved')
+ * and an active loan ('checked_out') hold the window. An approved request
+ * whose borrow_on/return_on is NULL (unparseable legacy dates) is treated
+ * as spanning all time, so it always counts — deliberately conservative.
  *
  * Pass $forUpdate = true from inside the approval transaction: it makes this
  * a locking read so it sees rows a competing approval committed while this
@@ -127,7 +128,7 @@ function overlapping_asset_commitments(
         'SELECT ra.asset_id, ra.quantity, r.id AS request_id, r.title, ' .
         'r.borrow_on, r.return_on, r.borrow_date, r.return_date ' .
         'FROM request_assets ra JOIN requests r ON r.id = ra.request_id ' .
-        "WHERE r.status = 'approved' AND r.id <> ? " .
+        "WHERE r.status IN ('approved', 'checked_out') AND r.id <> ? " .
         "AND COALESCE(r.borrow_on, '1000-01-01') <= ? " .
         "AND COALESCE(r.return_on, '9999-12-31') >= ?" .
         ($forUpdate ? ' FOR UPDATE' : '')
