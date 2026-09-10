@@ -417,9 +417,156 @@ if ($method === 'POST') {
 if ($method === 'PUT') {
     $body = read_json_body();
     $id = $body['id'] ?? null;
-    $status = trim($body['status'] ?? '');
-    if ($id === null || $status === '') fail(400, 'id and status are required.');
+    if ($id === null) fail(400, 'id is required.');
     $id = (int) $id;
+    $action = trim((string) ($body['action'] ?? ''));
+
+    // ---- Edit a pending / rejected request's details -------------------
+    // `action: 'edit'` carries the mutable request fields (event details,
+    // loan window, item lines, routing printed names, form photo) — no
+    // status transition. Only a request that hasn't cleared CSDO yet can be
+    // edited; editing a rejected one resubmits it (back to pending, routing
+    // reset).
+    if ($action === 'edit') {
+        $title = trim((string) ($body['title'] ?? ''));
+        $requester = trim((string) ($body['requester'] ?? ''));
+        $department = trim((string) ($body['department'] ?? ''));
+        $venue = $body['venue'] ?? null;
+        $venue = $venue === null ? null : trim((string) $venue);
+        if ($venue === '') $venue = null;
+        $borrowDate = trim((string) ($body['borrow_date'] ?? ''));
+        $returnDate = trim((string) ($body['return_date'] ?? ''));
+        $borrowOn = iso_date_or_null($body['borrow_on'] ?? null) ?? iso_date_or_null($borrowDate);
+        $returnOn = iso_date_or_null($body['return_on'] ?? null) ?? iso_date_or_null($returnDate);
+        $adviserSignature = trim((string) ($body['adviser_signature'] ?? ''));
+        $principalSignature = trim((string) ($body['principal_signature'] ?? ''));
+        $deanSignature = trim((string) ($body['dean_signature'] ?? ''));
+        $hasFormImage = array_key_exists('request_form_image', $body);
+        $formImage = $hasFormImage ? $body['request_form_image'] : null;
+        $logistics = is_array($body['logistics'] ?? null) ? $body['logistics'] : [];
+        $equipment = is_array($body['equipment'] ?? null) ? $body['equipment'] : [];
+
+        if ($title === '' || $requester === '' || $department === ''
+            || $borrowDate === '' || $returnDate === '') {
+            fail(400, 'title, requester, department, borrow_date and return_date are required.');
+        }
+        if ($borrowOn !== null && $returnOn !== null && $borrowOn > $returnOn) {
+            fail(400, 'The borrow date must be on or before the return date.');
+        }
+
+        $mysqli->begin_transaction();
+        try {
+            $cur = $mysqli->prepare('SELECT status FROM requests WHERE id = ? FOR UPDATE');
+            $cur->bind_param('i', $id);
+            $cur->execute();
+            $curRow = $cur->get_result()->fetch_assoc();
+            $cur->close();
+            if (!$curRow) throw new Exception('No request with that id.');
+            $curStatus = $curRow['status'];
+            if (!in_array($curStatus, ['pending', 'rejected'], true)) {
+                throw new Exception('Only a pending or rejected request can be edited.');
+            }
+            $resubmit = $curStatus === 'rejected';
+
+            // Core fields. A rejected request being edited is a
+            // resubmission: back to 'pending', CSDO decision cleared.
+            $sql = 'UPDATE requests SET title = ?, requester = ?, department = ?, venue = ?, '
+                 . 'borrow_date = ?, return_date = ?, borrow_on = ?, return_on = ?'
+                 . ($resubmit ? ", status = 'pending', rejection_reason = NULL, "
+                              . 'decided_by_name = NULL, decided_at = NULL' : '')
+                 . ($hasFormImage ? ', request_form_image = ?' : '')
+                 . ' WHERE id = ?';
+            $u = $mysqli->prepare($sql);
+            if ($hasFormImage) {
+                $u->bind_param('sssssssssi', $title, $requester, $department, $venue,
+                    $borrowDate, $returnDate, $borrowOn, $returnOn, $formImage, $id);
+            } else {
+                $u->bind_param('ssssssssi', $title, $requester, $department, $venue,
+                    $borrowDate, $returnDate, $borrowOn, $returnOn, $id);
+            }
+            if (!$u->execute()) throw new Exception($mysqli->error);
+            $u->close();
+
+            // Replace the item lines wholesale (same category resolution as
+            // POST: link by category_id, else by category_value).
+            $del = $mysqli->prepare('DELETE FROM request_items WHERE request_id = ?');
+            $del->bind_param('i', $id);
+            $del->execute();
+            $del->close();
+
+            $categoryIdByValue = [];
+            if ($res = $mysqli->query('SELECT id, value FROM categories')) {
+                while ($cr = $res->fetch_assoc()) {
+                    $categoryIdByValue[strtolower(trim($cr['value']))] = (int) $cr['id'];
+                }
+                $res->free();
+            }
+            $itemStmt = $mysqli->prepare(
+                'INSERT INTO request_items (request_id, item_type, category_id, name, quantity) VALUES (?, ?, ?, ?, ?)'
+            );
+            foreach ([['logistics', $logistics], ['equipment', $equipment]] as [$type, $items]) {
+                foreach ($items as $item) {
+                    $name = trim($item['name'] ?? '');
+                    if ($name === '') continue;
+                    $quantity = (int) ($item['quantity'] ?? 1);
+                    if ($quantity <= 0) $quantity = 1;
+                    $categoryId = null;
+                    if (isset($item['category_id']) && is_numeric($item['category_id'])) {
+                        $categoryId = (int) $item['category_id'];
+                    } elseif (isset($item['category_value']) && is_string($item['category_value'])) {
+                        $categoryId = $categoryIdByValue[strtolower(trim($item['category_value']))] ?? null;
+                    }
+                    $itemStmt->bind_param('isisi', $id, $type, $categoryId, $name, $quantity);
+                    if (!$itemStmt->execute()) throw new Exception($mysqli->error);
+                }
+            }
+            $itemStmt->close();
+
+            // Re-sync the routing rows' printed names from the (corrected)
+            // signatory names.
+            $apName = $mysqli->prepare(
+                'UPDATE request_approvals SET printed_name = ? WHERE request_id = ? AND role = ?'
+            );
+            foreach ([
+                ['adviser', $adviserSignature],
+                ['principal', $principalSignature],
+                ['dean', $deanSignature],
+            ] as [$role, $printedName]) {
+                $printedName = ($printedName === '') ? null : $printedName;
+                $apName->bind_param('sis', $printedName, $id, $role);
+                $apName->execute();
+            }
+            $apName->close();
+
+            // A resubmitted request starts its routing over.
+            if ($resubmit) {
+                $rs = $mysqli->prepare(
+                    "UPDATE request_approvals SET status = 'pending', note = NULL, "
+                    . 'decided_by_name = NULL, decided_at = NULL WHERE request_id = ?'
+                );
+                $rs->bind_param('i', $id);
+                $rs->execute();
+                $rs->close();
+            }
+
+            // A pending/rejected request holds no reserved assets, but clear
+            // defensively so an edit can never leave an orphan reservation.
+            $dra = $mysqli->prepare('DELETE FROM request_assets WHERE request_id = ?');
+            $dra->bind_param('i', $id);
+            $dra->execute();
+            $dra->close();
+
+            $mysqli->commit();
+        } catch (Exception $e) {
+            $mysqli->rollback();
+            fail(500, 'Failed to edit request: ' . $e->getMessage());
+        }
+        echo json_encode(['message' => 'Request updated.']);
+        exit;
+    }
+
+    $status = trim($body['status'] ?? '');
+    if ($status === '') fail(400, 'status is required.');
 
     // Assets to hand out for this request, as [{tag_id, quantity}]. Required
     // (non-empty) when approving; ignored otherwise. `assignments` is the
@@ -478,7 +625,7 @@ if ($method === 'PUT') {
         $cur = $reqRow['status'];
         $requestTitle = $reqRow['title'] ?? null;
 
-        if (!in_array($status, ['pending', 'approved', 'checked_out', 'rejected', 'returned'], true)) {
+        if (!in_array($status, ['pending', 'approved', 'checked_out', 'rejected', 'withdrawn', 'returned'], true)) {
             throw new Exception("Unknown request status '$status'.");
         }
 
@@ -713,19 +860,23 @@ if ($method === 'PUT') {
             }
         }
 
-        // ---- Cancel / reject: {pending|approved} -> {pending|rejected} --
-        // A reservation holds nothing physical, so cancelling or rejecting
-        // just drops its link rows. A checked-out request must be returned
-        // first.
+        // ---- Cancel / reject / withdraw: {pending|approved} -> ... ------
+        // A reservation holds nothing physical, so cancelling, rejecting or
+        // withdrawing just drops its link rows. A checked-out request must
+        // be returned first. 'rejected' is CSDO declining it; 'withdrawn' is
+        // the office/requester pulling it — both keep a reason on file.
         else {
             if ($cur === 'checked_out') {
-                throw new Exception(
-                    'Mark this request returned before ' .
-                    ($status === 'pending' ? 'cancelling its approval.' : 'rejecting it.')
-                );
+                $verb = $status === 'pending'
+                    ? 'cancelling its approval.'
+                    : ($status === 'withdrawn' ? 'withdrawing it.' : 'rejecting it.');
+                throw new Exception('Mark this request returned before ' . $verb);
             }
-            if ($status === 'rejected' && $reason === '') {
-                throw new Exception('A reason is required when rejecting a request.');
+            if (($status === 'rejected' || $status === 'withdrawn') && $reason === '') {
+                throw new Exception(
+                    'A reason is required when '
+                    . ($status === 'withdrawn' ? 'withdrawing' : 'rejecting') . ' a request.'
+                );
             }
             $d = $mysqli->prepare('DELETE FROM request_assets WHERE request_id = ?');
             $d->bind_param('i', $id);
@@ -733,11 +884,11 @@ if ($method === 'PUT') {
             $d->close();
         }
 
-        // Stamp the CSDO decision: set the rejection reason + who/when on a
-        // reject, who/when on an approve, and clear all three when a request
-        // goes back to pending (cancelled). checked_out / returned leave the
-        // approve-time stamp in place.
-        if ($status === 'rejected') {
+        // Stamp the CSDO decision: set the reason + who/when on a reject or a
+        // withdraw, who/when on an approve, and clear all three when a
+        // request goes back to pending (cancelled). checked_out / returned
+        // leave the approve-time stamp in place.
+        if ($status === 'rejected' || $status === 'withdrawn') {
             $stmt = $mysqli->prepare(
                 'UPDATE requests SET status = ?, rejection_reason = ?, ' .
                 'decided_by_name = ?, decided_at = NOW() WHERE id = ?'
@@ -773,23 +924,63 @@ if ($method === 'PUT') {
 }
 
 if ($method === 'DELETE') {
-    $id = $_GET['id'] ?? null;
-    if ($id === null) fail(400, 'id query parameter is required.');
-    $id = (int) $id;
+    // Hard delete is for genuine mis-entries only. It's narrowed to a
+    // request that never cleared CSDO and never handed anything out
+    // ('pending' / 'rejected' / 'withdrawn'), a reason is required, and the
+    // request is copied to the request_removals audit log before the row
+    // (and its cascade of items / approvals / comments) is removed. Anything
+    // further along is pulled with a status change (withdraw / return), not
+    // deleted, so its paper trail survives.
+    $id = (int) ($_GET['id'] ?? 0);
+    $reason = trim((string) ($_GET['reason'] ?? ''));
+    $removedBy = trim((string) ($_GET['removed_by'] ?? ''));
+    if ($id <= 0) fail(400, 'id query parameter is required.');
+    if ($reason === '') fail(400, 'A reason is required to delete a request.');
 
     $mysqli->begin_transaction();
     try {
-        // Free assets only if this request had actually been handed out — a
-        // reservation ('approved') or an untouched request holds nothing
-        // physical. The request_assets rows cascade-delete with the request.
-        $s = $mysqli->prepare('SELECT status FROM requests WHERE id = ? FOR UPDATE');
+        $s = $mysqli->prepare(
+            'SELECT status, title, requester, department FROM requests WHERE id = ? FOR UPDATE'
+        );
         $s->bind_param('i', $id);
         $s->execute();
-        $sr = $s->get_result()->fetch_assoc();
+        $row = $s->get_result()->fetch_assoc();
         $s->close();
-        if ($sr && $sr['status'] === 'checked_out') {
-            release_request_assets($mysqli, $id, 'released');
+        if (!$row) throw new Exception('No request with that id.');
+
+        $status = $row['status'];
+        if (!in_array($status, ['pending', 'rejected', 'withdrawn'], true)) {
+            throw new Exception(
+                'Only a pending, rejected or withdrawn request can be deleted — '
+                . 'withdraw or return this one first.'
+            );
         }
+        // Belt and braces: a deletable request never handed anything out,
+        // but check the timeline too so a mislabelled row can't wipe history.
+        $chk = $mysqli->prepare(
+            "SELECT COUNT(*) AS n FROM asset_events WHERE request_id = ? AND event_type = 'borrowed'"
+        );
+        $chk->bind_param('i', $id);
+        $chk->execute();
+        $handedOut = (int) ($chk->get_result()->fetch_assoc()['n'] ?? 0);
+        $chk->close();
+        if ($handedOut > 0) {
+            throw new Exception('This request has a hand-out in its history and cannot be deleted.');
+        }
+
+        $removedByOrNull = $removedBy === '' ? null : $removedBy;
+        $log = $mysqli->prepare(
+            'INSERT INTO request_removals '
+            . '(request_id, title, requester, department, status_at_removal, reason, removed_by_name) '
+            . 'VALUES (?, ?, ?, ?, ?, ?, ?)'
+        );
+        $log->bind_param(
+            'issssss',
+            $id, $row['title'], $row['requester'], $row['department'],
+            $status, $reason, $removedByOrNull
+        );
+        $log->execute();
+        $log->close();
 
         $stmt = $mysqli->prepare('DELETE FROM requests WHERE id = ?');
         $stmt->bind_param('i', $id);

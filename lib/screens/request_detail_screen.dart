@@ -10,7 +10,8 @@ import '../widgets/status_chip.dart';
 /// Full detail view for a single asset request. Shows every field the
 /// requester entered, the adviser → principal → dean routing (transcribed
 /// from the photo of the signed form), the comment thread, and the
-/// approve/hand-out/return/reject/cancel actions.
+/// approve/hand-out/return/reject/cancel actions. The app-bar overflow menu
+/// adds edit / withdraw / delete for a request that hasn't been handed out.
 class RequestDetailScreen extends StatefulWidget {
   const RequestDetailScreen({
     super.key,
@@ -21,6 +22,9 @@ class RequestDetailScreen extends StatefulWidget {
     this.onMarkReturned,
     this.onReject,
     this.onCancel,
+    this.onWithdraw,
+    this.onEdit,
+    this.onDelete,
     this.onRecordStep,
     this.onPostComment,
   });
@@ -53,6 +57,20 @@ class RequestDetailScreen extends StatefulWidget {
   /// Invoked when the admin cancels a previously-approved request, moving
   /// it back to pending.
   final VoidCallback? onCancel;
+
+  /// Invoked when the admin withdraws the request (office/requester pulled
+  /// it, as opposed to a CSDO rejection) — carries the required reason.
+  /// Offered only while the request is pending or approved.
+  final Future<void> Function(String reason)? onWithdraw;
+
+  /// Invoked when the admin opens the edit form for a pending / rejected
+  /// request. Completes once the edit has been saved (or backed out of).
+  final Future<void> Function()? onEdit;
+
+  /// Invoked when the admin permanently deletes a pending / rejected /
+  /// withdrawn request. Returns true if the deletion went through, so this
+  /// screen can pop itself.
+  final Future<bool> Function()? onDelete;
 
   /// Invoked when the admin records one routing decision — `decision` is
   /// `'approved'`, `'rejected'` or `'pending'` (undo); `note` carries the
@@ -110,6 +128,52 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     setState(() {});
   }
 
+  Future<void> _withdraw() async {
+    final reason = await showReasonDialog(
+      context,
+      title: 'Withdraw this request',
+      hint: 'Why is it being withdrawn? This is kept on the record and shown '
+          'to the requester.',
+      confirmLabel: 'Withdraw',
+      destructive: true,
+    );
+    if (reason == null || !mounted) return;
+    await widget.onWithdraw?.call(reason);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _edit() async {
+    await widget.onEdit?.call();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _delete() async {
+    final ok = await widget.onDelete?.call() ?? false;
+    if (ok && mounted) Navigator.of(context).pop();
+  }
+
+  bool _canEdit(AssetRequest r) =>
+      r.status == RequestStatus.pending || r.status == RequestStatus.rejected;
+
+  bool _canWithdraw(AssetRequest r) =>
+      r.status == RequestStatus.pending || r.status == RequestStatus.approved;
+
+  bool _canDelete(AssetRequest r) =>
+      r.status == RequestStatus.pending ||
+      r.status == RequestStatus.rejected ||
+      r.status == RequestStatus.withdrawn;
+
+  /// The overflow menu items available for [r] right now, as
+  /// (value, icon, label, danger) tuples. Empty hides the menu.
+  List<(String, IconData, String, bool)> _menuItems(AssetRequest r) => [
+        if (widget.onEdit != null && _canEdit(r))
+          ('edit', Icons.edit_outlined, 'Edit request', false),
+        if (widget.onWithdraw != null && _canWithdraw(r))
+          ('withdraw', Icons.outbox_outlined, 'Withdraw request', false),
+        if (widget.onDelete != null && _canDelete(r))
+          ('delete', Icons.delete_outline, 'Delete permanently', true),
+      ];
+
   Future<void> _recordStep(ApprovalRole role, String decision) async {
     String? note;
     if (decision == 'rejected') {
@@ -151,6 +215,47 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text('Request details'),
+        actions: [
+          Builder(builder: (context) {
+            final items = _menuItems(request);
+            if (items.isEmpty) return const SizedBox.shrink();
+            return PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert),
+              tooltip: 'More actions',
+              onSelected: (value) {
+                switch (value) {
+                  case 'edit':
+                    _edit();
+                  case 'withdraw':
+                    _withdraw();
+                  case 'delete':
+                    _delete();
+                }
+              },
+              itemBuilder: (_) => [
+                for (final (value, icon, label, danger) in items)
+                  PopupMenuItem<String>(
+                    value: value,
+                    child: Row(
+                      children: [
+                        Icon(icon,
+                            size: 20,
+                            color: danger ? const Color(0xFFC84040) : AppTheme.darkGreen),
+                        const SizedBox(width: 12),
+                        Text(
+                          label,
+                          style: TextStyle(
+                            color: danger ? const Color(0xFFC84040) : AppTheme.darkGreen,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            );
+          }),
+        ],
       ),
       body: SafeArea(
         child: Responsive.isDesktop(context)
@@ -230,6 +335,8 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
         return (AppTheme.slateTint, AppTheme.muted, Icons.assignment_turned_in_outlined);
       case RequestStatus.rejected:
         return (AppTheme.redTint, const Color(0xFFC84040), Icons.highlight_off);
+      case RequestStatus.withdrawn:
+        return (AppTheme.slateTint, AppTheme.muted, Icons.outbox_outlined);
     }
   }
 
@@ -1223,9 +1330,50 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                   ],
                   const SizedBox(height: 4),
                   const Text(
-                    'Undo the rejected routing step above to reopen it.',
+                    'Undo the rejected routing step above to reopen it, or edit '
+                    'the request to resubmit it.',
                     style: TextStyle(color: Color(0xFFC84040), fontSize: 12.5),
                   ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    if (request.status == RequestStatus.withdrawn) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppTheme.slateTint,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.border, width: 2),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.outbox_outlined, color: AppTheme.muted, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'This request was withdrawn.',
+                    style: TextStyle(
+                      color: AppTheme.darkGreen,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                    ),
+                  ),
+                  if (request.rejectionReason != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      request.rejectionReason!,
+                      style: const TextStyle(color: AppTheme.muted, fontSize: 13, height: 1.4),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1273,6 +1421,7 @@ class _RequestStatusPill extends StatelessWidget {
         background = AppTheme.mint;
         foreground = AppTheme.primary;
       case RequestStatus.returned:
+      case RequestStatus.withdrawn:
         background = AppTheme.slateTint;
         foreground = AppTheme.muted;
       case RequestStatus.rejected:

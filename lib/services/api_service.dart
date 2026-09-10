@@ -717,7 +717,8 @@ class ApiService {
     return body['id'] as int;
   }
 
-  /// Updates a request's status (pending/approved/rejected/returned).
+  /// Updates a request's status
+  /// (pending/approved/checked_out/rejected/withdrawn/returned).
   ///
   /// When [status] is `approved`, [assignments] must list what's being
   /// handed out as `{tag_id, quantity}` maps — quantity is 1 for an
@@ -726,8 +727,9 @@ class ApiService {
   /// each bulk pool's available stock, all in one transaction. For any
   /// other status the backend releases whatever the request was holding, so
   /// [assignments] can be omitted.
-  /// [reason] is required by the backend when [status] is `rejected`;
-  /// [decidedBy] is the acting admin's name, recorded on the CSDO decision.
+  /// [reason] is required by the backend when [status] is `rejected` or
+  /// `withdrawn`; [decidedBy] is the acting admin's name, recorded on the
+  /// CSDO decision.
   static Future<void> updateRequestStatus({
     required int id,
     required String status,
@@ -754,6 +756,58 @@ class ApiService {
     if (response.statusCode != 200) {
       final body = jsonDecode(response.body);
       throw Exception(body['error'] ?? 'Failed to update request');
+    }
+  }
+
+  /// Saves edits to a **pending or rejected** request's details — event /
+  /// purpose, requester, department, venue, the loan window, the item lines
+  /// and the routing printed names (plus the signed-form photo). Sent as a
+  /// PUT to `requests.php` with `action: 'edit'`. Editing a rejected request
+  /// reopens it as pending with its routing reset. [body] is
+  /// [AssetRequest.toEditJson].
+  static Future<void> editRequest({
+    required int id,
+    required Map<String, dynamic> body,
+  }) async {
+    final response = await http
+        .put(
+          Uri.parse('$baseUrl/requests.php'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({...body, 'id': id, 'action': 'edit'}),
+        )
+        .timeout(_timeout, onTimeout: _timeoutError);
+
+    if (response.statusCode != 200) {
+      final b = jsonDecode(response.body);
+      throw Exception(
+        (b is Map ? b['error'] : null) ?? 'Failed to save the changes',
+      );
+    }
+  }
+
+  /// Permanently deletes a request. The backend only allows this for a
+  /// request that never reached hand-out (`pending` / `rejected` /
+  /// `withdrawn`) and requires [reason] — it's written to the
+  /// `request_removals` audit log before the row is removed. [deletedBy] is
+  /// the acting admin's name.
+  static Future<void> deleteRequest(
+    int id, {
+    required String reason,
+    String? deletedBy,
+  }) async {
+    final uri = Uri.parse(
+      '$baseUrl/requests.php?id=$id'
+      '&reason=${Uri.encodeQueryComponent(reason)}'
+      '${deletedBy != null && deletedBy.isNotEmpty ? '&removed_by=${Uri.encodeQueryComponent(deletedBy)}' : ''}',
+    );
+    final response =
+        await http.delete(uri).timeout(_timeout, onTimeout: _timeoutError);
+
+    if (response.statusCode != 200) {
+      final body = jsonDecode(response.body);
+      throw Exception(
+        (body is Map ? body['error'] : null) ?? 'Failed to delete the request',
+      );
     }
   }
 

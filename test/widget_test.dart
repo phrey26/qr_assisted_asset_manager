@@ -421,6 +421,73 @@ void main() {
     expect((body['approvals'] as List).first['role'], 'adviser');
   });
 
+  test('RequestStatus.withdrawn round-trips and toEditJson carries only '
+      'editable fields', () {
+    expect(RequestStatus.withdrawn.apiValue, 'withdrawn');
+    expect(RequestStatusApiX.fromApiValue('withdrawn'), RequestStatus.withdrawn);
+    expect(RequestStatus.withdrawn.label, 'Withdrawn');
+
+    final withdrawn = AssetRequest.fromJson({
+      'id': 4,
+      'title': 'Cancelled fair',
+      'requester': 'R',
+      'department': 'D',
+      'borrow_date': 'Sep 15, 2026',
+      'return_date': 'Sep 16, 2026',
+      'status': 'withdrawn',
+      'rejection_reason': 'Event moved off campus',
+    });
+    expect(withdrawn.status, RequestStatus.withdrawn);
+    expect(withdrawn.rejectionReason, 'Event moved off campus');
+
+    final req = AssetRequest.fromJson({
+      'id': 12,
+      'title': 'ICT week seminar',
+      'requester': 'Juan Dela Cruz',
+      'department': 'CICS',
+      'venue': 'Function Hall',
+      'borrow_date': 'Sep 15, 2026',
+      'return_date': 'Sep 16, 2026',
+      'borrow_on': '2026-09-15',
+      'return_on': '2026-09-16',
+      'status': 'rejected',
+      'adviser_signature': 'Prof. Ramos',
+      'principal_signature': 'Engr. Ibanez',
+      'dean_signature': 'Dr. Villamor',
+      'logistics': [
+        {'name': 'Foldable chairs', 'quantity': 120, 'category_value': 'Furniture'},
+      ],
+      'approvals': [
+        {'role': 'adviser', 'seq': 1, 'status': 'approved', 'printed_name': 'Prof. Ramos'},
+        {'role': 'principal', 'seq': 2, 'status': 'rejected', 'printed_name': 'Engr. Ibanez'},
+        {'role': 'dean', 'seq': 3, 'status': 'pending', 'printed_name': 'Dr. Villamor'},
+      ],
+      'comments': [
+        {'id': 1, 'author_name': 'CSDO', 'body': 'Fix the dates', 'created_at': '2026-09-10 09:00:00'},
+      ],
+    });
+
+    final edit = req.toEditJson();
+    expect(edit['action'], 'edit');
+    expect(edit['id'], 12);
+    expect(edit['title'], 'ICT week seminar');
+    expect(edit['borrow_on'], '2026-09-15');
+    expect(edit['adviser_signature'], 'Prof. Ramos');
+    expect((edit['logistics'] as List).single['name'], 'Foldable chairs');
+    // Status, routing decisions and the comment thread are never edited
+    // through this path.
+    expect(edit.containsKey('status'), isFalse);
+    expect(edit.containsKey('approvals'), isFalse);
+    expect(edit.containsKey('comments'), isFalse);
+
+    // The model's fields are mutable so an optimistic in-place edit can
+    // apply the saved changes without rebuilding the object.
+    req.title = 'Renamed seminar';
+    req.borrowOn = DateTime(2026, 10, 1);
+    expect(req.title, 'Renamed seminar');
+    expect(AssetRequest.isoDate(req.borrowOn), '2026-10-01');
+  });
+
   test('WindowAvailabilityReport parses per-asset free counts and conflicts', () {
     final report = WindowAvailabilityReport.fromJson({
       'from': '2026-09-15',

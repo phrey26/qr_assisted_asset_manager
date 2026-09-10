@@ -143,7 +143,9 @@ CREATE TABLE IF NOT EXISTS requests (
   --                  (individual units -> 'in_use', bulk stock decremented)
   --   returned     – terminal; the borrowed assets came back and were freed,
   --                  but the request_assets rows are kept as a record
-  --   rejected     – terminal; declined
+  --   rejected     – terminal; declined by CSDO (rejection_reason set)
+  --   withdrawn    – terminal; pulled by the office/requester rather than
+  --                  declined (reason also stored in rejection_reason)
   -- Plain VARCHAR, no ENUM/CHECK, so the set can grow without a migration.
   status VARCHAR(20) NOT NULL DEFAULT 'pending',
   requester_signature VARCHAR(150),
@@ -247,6 +249,25 @@ JOIN (
   UNION ALL SELECT 'dean', 3
 ) x
 WHERE NOT EXISTS (SELECT 1 FROM request_approvals ra WHERE ra.request_id = r.id);
+
+-- Audit trail of borrow requests deleted from the system — the request
+-- counterpart to asset_removals. Deliberately has NO foreign key to
+-- `requests`: the row is meant to outlive the request it describes. Only a
+-- request that never cleared CSDO / never handed anything out ('pending',
+-- 'rejected', 'withdrawn') can be hard-deleted, and the admin must give a
+-- reason; both, plus the status at the time, are captured here. Anything
+-- further along is pulled with a status change instead. Safe to re-run.
+CREATE TABLE IF NOT EXISTS request_removals (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  request_id INT NOT NULL,
+  title VARCHAR(200) NOT NULL,
+  requester VARCHAR(150) NULL,
+  department VARCHAR(150) NULL,
+  status_at_removal VARCHAR(20) NOT NULL,
+  reason VARCHAR(500) NOT NULL,
+  removed_by_name VARCHAR(150) NULL,
+  removed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS request_items (
   id INT AUTO_INCREMENT PRIMARY KEY,

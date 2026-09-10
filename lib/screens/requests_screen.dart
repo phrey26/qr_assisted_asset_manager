@@ -14,6 +14,7 @@ import '../utils/responsive.dart';
 import '../widgets/asset_assignment_sheet.dart';
 import '../widgets/filter_chip_row.dart';
 import '../widgets/page_header.dart';
+import '../widgets/reason_dialog.dart';
 import '../widgets/request_date_range_field.dart';
 import '../widgets/request_form_field.dart';
 import '../widgets/return_inspection_sheet.dart';
@@ -34,6 +35,9 @@ void _openRequestDetail(
   required Future<void> Function(AssetRequest request) onMarkReturned,
   required void Function(AssetRequest request, RequestStatus status) onSetStatus,
   required Future<void> Function(AssetRequest request, String reason) onReject,
+  required Future<void> Function(AssetRequest request, String reason) onWithdraw,
+  required Future<void> Function(AssetRequest request) onEdit,
+  required Future<bool> Function(AssetRequest request) onDelete,
   required Future<void> Function(
           AssetRequest request, ApprovalRole role, String decision, String? note)
       onRecordStep,
@@ -51,6 +55,9 @@ void _openRequestDetail(
         onMarkReturned: () => onMarkReturned(request),
         onReject: (reason) => onReject(request, reason),
         onCancel: () => onSetStatus(request, RequestStatus.pending),
+        onWithdraw: (reason) => onWithdraw(request, reason),
+        onEdit: () => onEdit(request),
+        onDelete: () => onDelete(request),
         onRecordStep: (role, decision, note) =>
             onRecordStep(request, role, decision, note),
         onPostComment: (body) => onPostComment(request, body),
@@ -212,6 +219,9 @@ class RequestsScreenState extends State<RequestsScreen> {
         onMarkReturned: _markReturned,
         onSetStatus: _setStatus,
         onReject: _rejectRequest,
+        onWithdraw: _withdrawRequest,
+        onEdit: _editRequest,
+        onDelete: _deleteRequest,
         onRecordStep: _recordApprovalStep,
         onPostComment: _postCommentOn,
         adminName: _adminName,
@@ -246,6 +256,190 @@ class RequestsScreenState extends State<RequestsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Could not reject the request: $e')),
       );
+    }
+  }
+
+  /// Withdraw — the office/requester pulls the request rather than CSDO
+  /// declining it. Same shape as [_rejectRequest]: optimistic status flip
+  /// with the reason kept, released reservation, rolled back on failure.
+  Future<void> _withdrawRequest(AssetRequest request, String reason) async {
+    final previousStatus = request.status;
+    final previousReason = request.rejectionReason;
+    final previousAssigned = List<AssignedAsset>.from(request.assignedAssets);
+    setState(() {
+      request.status = RequestStatus.withdrawn;
+      request.rejectionReason = reason;
+      request.assignedAssets = const [];
+    });
+    if (request.id == null) return;
+    try {
+      await ApiService.updateRequestStatus(
+        id: request.id!,
+        status: RequestStatus.withdrawn.apiValue,
+        reason: reason,
+        decidedBy: _adminName,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        request.status = previousStatus;
+        request.rejectionReason = previousReason;
+        request.assignedAssets = previousAssigned;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not withdraw the request: $e')),
+      );
+    }
+  }
+
+  /// Opens the edit form (only meaningful for a pending / rejected request)
+  /// and applies the saved changes onto [request] in place. Editing a
+  /// rejected request resubmits it: it goes back to pending and its routing
+  /// is reset (matching the backend). Rolled back on a save failure.
+  Future<void> _editRequest(AssetRequest request) async {
+    if (request.status != RequestStatus.pending &&
+        request.status != RequestStatus.rejected) {
+      return;
+    }
+    final edited = await _showRequestForm(editing: request);
+    if (edited == null || !mounted) return;
+
+    // Snapshot every field the edit can touch, for rollback.
+    final prev = (
+      title: request.title,
+      requester: request.requester,
+      department: request.department,
+      venue: request.venue,
+      logistics: request.logistics,
+      equipment: request.equipment,
+      borrowDate: request.borrowDate,
+      returnDate: request.returnDate,
+      borrowOn: request.borrowOn,
+      returnOn: request.returnOn,
+      adviser: request.adviserSignature,
+      principal: request.principalSignature,
+      dean: request.deanSignature,
+      formImage: request.requestFormImageBytes,
+      status: request.status,
+      reason: request.rejectionReason,
+      approvals: request.approvals
+          .map((a) => RequestApproval(
+                role: a.role,
+                seq: a.seq,
+                status: a.status,
+                printedName: a.printedName,
+                note: a.note,
+                decidedByName: a.decidedByName,
+                decidedAt: a.decidedAt,
+              ))
+          .toList(),
+    );
+    final wasRejected = request.status == RequestStatus.rejected;
+
+    setState(() {
+      request.title = edited.title;
+      request.requester = edited.requester;
+      request.department = edited.department;
+      request.venue = edited.venue;
+      request.logistics = edited.logistics;
+      request.equipment = edited.equipment;
+      request.borrowDate = edited.borrowDate;
+      request.returnDate = edited.returnDate;
+      request.borrowOn = edited.borrowOn;
+      request.returnOn = edited.returnOn;
+      request.adviserSignature = edited.adviserSignature;
+      request.principalSignature = edited.principalSignature;
+      request.deanSignature = edited.deanSignature;
+      request.requestFormImageBytes = edited.requestFormImageBytes;
+      // Re-sync each routing row's printed name from the corrected form.
+      for (final a in request.approvals) {
+        final name = switch (a.role) {
+          ApprovalRole.adviser => edited.adviserSignature.name,
+          ApprovalRole.principal => edited.principalSignature.name,
+          ApprovalRole.dean => edited.deanSignature.name,
+        }.trim();
+        a.printedName = name.isEmpty ? null : name;
+      }
+      // Editing a rejected request resubmits it.
+      if (wasRejected) {
+        request.status = RequestStatus.pending;
+        request.rejectionReason = null;
+        request.decidedByName = null;
+        request.decidedAt = null;
+        for (final a in request.approvals) {
+          a.status = ApprovalStepStatus.pending;
+          a.note = null;
+          a.decidedByName = null;
+          a.decidedAt = null;
+        }
+      }
+    });
+
+    if (request.id == null) return;
+    try {
+      await ApiService.editRequest(id: request.id!, body: edited.toEditJson());
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        request.title = prev.title;
+        request.requester = prev.requester;
+        request.department = prev.department;
+        request.venue = prev.venue;
+        request.logistics = prev.logistics;
+        request.equipment = prev.equipment;
+        request.borrowDate = prev.borrowDate;
+        request.returnDate = prev.returnDate;
+        request.borrowOn = prev.borrowOn;
+        request.returnOn = prev.returnOn;
+        request.adviserSignature = prev.adviser;
+        request.principalSignature = prev.principal;
+        request.deanSignature = prev.dean;
+        request.requestFormImageBytes = prev.formImage;
+        request.status = prev.status;
+        request.rejectionReason = prev.reason;
+        request.approvals = prev.approvals;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not save the changes: $e')),
+      );
+    }
+  }
+
+  /// Permanently deletes a pending / rejected / withdrawn request after a
+  /// required reason (kept in the backend's `request_removals` audit log).
+  /// Returns true once the row is gone, so the detail screen can pop itself.
+  Future<bool> _deleteRequest(AssetRequest request) async {
+    final reason = await showReasonDialog(
+      context,
+      title: 'Delete this request',
+      hint: 'This removes the request for good — use it only for a mistaken or '
+          'duplicate entry. Why is it being deleted?',
+      confirmLabel: 'Delete',
+      destructive: true,
+    );
+    if (reason == null || !mounted) return false;
+    if (request.id == null) {
+      setState(() => requests.remove(request));
+      return true;
+    }
+    try {
+      await ApiService.deleteRequest(
+        request.id!,
+        reason: reason,
+        deletedBy: _adminName,
+      );
+      if (!mounted) return true;
+      setState(() => requests.remove(request));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Request deleted.')),
+      );
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not delete the request: $e')),
+      );
+      return false;
     }
   }
 
@@ -551,36 +745,44 @@ class RequestsScreenState extends State<RequestsScreen> {
     }
   }
 
-  Future<void> openNewRequest() async {
+  /// Shows the request form — full-screen route on mobile, dialog on
+  /// desktop. [editing] non-null prefills it from that request and switches
+  /// its labels to "Edit request" / "Save changes"; the returned
+  /// [AssetRequest] then carries the same `id`.
+  Future<AssetRequest?> _showRequestForm({AssetRequest? editing}) {
     final user = widget.currentUser;
-    final AssetRequest? created;
     if (Responsive.isMobile(context)) {
-      created = await Navigator.of(context).push<AssetRequest>(
+      return Navigator.of(context).push<AssetRequest>(
         MaterialPageRoute(
           builder: (_) => NewRequestForm(
             fullPage: true,
             initialRequester: user?['full_name'] as String?,
             initialDepartment: user?['department'] as String?,
             categories: widget.categories,
+            editing: editing,
           ),
         ),
       );
-    } else {
-      created = await showDialog<AssetRequest>(
-        context: context,
-        builder: (_) => NewRequestForm(
-          initialRequester: user?['full_name'] as String?,
-          initialDepartment: user?['department'] as String?,
-          categories: widget.categories,
-        ),
-      );
     }
+    return showDialog<AssetRequest>(
+      context: context,
+      builder: (_) => NewRequestForm(
+        initialRequester: user?['full_name'] as String?,
+        initialDepartment: user?['department'] as String?,
+        categories: widget.categories,
+        editing: editing,
+      ),
+    );
+  }
+
+  Future<void> openNewRequest() async {
+    final created = await _showRequestForm();
     if (created == null) return;
 
     try {
       final id = await ApiService.addRequest(created.toJson());
       if (!mounted) return;
-      setState(() => requests.insert(0, AssetRequest.fromJson({...created!.toJson(), 'id': id})));
+      setState(() => requests.insert(0, AssetRequest.fromJson({...created.toJson(), 'id': id})));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -720,7 +922,8 @@ class RequestsScreenState extends State<RequestsScreen> {
 
   Widget _filters() {
     const filters = [
-      'All', 'Pending', 'Approved', 'Checked out', 'Overdue', 'Returned', 'Rejected',
+      'All', 'Pending', 'Approved', 'Checked out', 'Overdue', 'Returned',
+      'Rejected', 'Withdrawn',
     ];
     return FilterChipRow(
       options: filters,
@@ -748,6 +951,7 @@ class _RequestStatusPill extends StatelessWidget {
         background = AppTheme.mint;
         foreground = AppTheme.primary;
       case RequestStatus.returned:
+      case RequestStatus.withdrawn:
         background = AppTheme.slateTint;
         foreground = AppTheme.muted;
       case RequestStatus.rejected:
@@ -1186,15 +1390,19 @@ class _RequestCard extends StatelessWidget {
                           ],
                         ),
                       ],
-                      if (request.status == RequestStatus.rejected &&
+                      if ((request.status == RequestStatus.rejected ||
+                              request.status == RequestStatus.withdrawn) &&
                           request.rejectionReason != null) ...[
                         SizedBox(height: 6 * scale),
                         Text(
-                          'Rejected: ${request.rejectionReason}',
+                          '${request.status == RequestStatus.withdrawn ? 'Withdrawn' : 'Rejected'}: '
+                          '${request.rejectionReason}',
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: const Color(0xFFC84040),
+                            color: request.status == RequestStatus.withdrawn
+                                ? AppTheme.muted
+                                : const Color(0xFFC84040),
                             fontSize: 12 * scale,
                           ),
                         ),
@@ -1229,6 +1437,7 @@ class NewRequestForm extends StatefulWidget {
     this.initialRequester,
     this.initialDepartment,
     this.categories = const [],
+    this.editing,
   });
 
   final bool fullPage;
@@ -1242,36 +1451,68 @@ class NewRequestForm extends StatefulWidget {
   /// on each logistics/equipment line. Empty hides that field entirely.
   final List<AssetCategory> categories;
 
+  /// When non-null the form opens in "edit" mode: every field is prefilled
+  /// from this request, the headings read "Edit request" / "Save changes",
+  /// and the returned [AssetRequest] carries the same `id`. Only ever passed
+  /// for a pending / rejected request.
+  final AssetRequest? editing;
+
   @override
   State<NewRequestForm> createState() => _NewRequestFormState();
 }
 
 class _NewRequestFormState extends State<NewRequestForm> {
-  final titleController = TextEditingController();
-  late final requesterController = TextEditingController(text: widget.initialRequester ?? '');
-  late final departmentController = TextEditingController(text: widget.initialDepartment ?? '');
-  final venueController = TextEditingController();
-  DateTime? borrowDate;
-  DateTime? returnDate;
+  // Every field falls back to its "edit" value first (when the form was
+  // opened on an existing request), then the signed-in user's defaults,
+  // then blank.
+  late final titleController =
+      TextEditingController(text: widget.editing?.title ?? '');
+  late final requesterController = TextEditingController(
+      text: widget.editing?.requester ?? widget.initialRequester ?? '');
+  late final departmentController = TextEditingController(
+      text: widget.editing?.department ?? widget.initialDepartment ?? '');
+  late final venueController =
+      TextEditingController(text: widget.editing?.venue ?? '');
+  late DateTime? borrowDate = widget.editing?.borrowOn;
+  late DateTime? returnDate = widget.editing?.returnOn;
 
   // Each list always keeps at least one (possibly blank) row so the
   // section never looks empty; blank rows are simply skipped on submit.
-  final logisticsRows = [_ItemFormRow()];
-  final equipmentRows = [_ItemFormRow()];
+  late final List<_ItemFormRow> logisticsRows =
+      _initialRows(widget.editing?.logistics);
+  late final List<_ItemFormRow> equipmentRows =
+      _initialRows(widget.editing?.equipment);
 
   // The four signatory printed-name fields the paper slip always asks
   // for. The requester's printed name mirrors requesterController so it
   // doesn't have to be typed twice, but is kept as its own controller so
   // it can still be edited independently (e.g. someone else fills out
   // the form on the requester's behalf).
-  final adviserNameController = TextEditingController();
-  final principalNameController = TextEditingController();
-  final deanNameController = TextEditingController();
+  late final adviserNameController =
+      TextEditingController(text: widget.editing?.adviserSignature.name ?? '');
+  late final principalNameController =
+      TextEditingController(text: widget.editing?.principalSignature.name ?? '');
+  late final deanNameController =
+      TextEditingController(text: widget.editing?.deanSignature.name ?? '');
 
   // A single photo/scan of the filled-out, signed CSDO Request Form —
   // all four signatures are visible on it, so there's no need to collect
   // a separate image per signatory.
-  Uint8List? requestFormImageBytes;
+  late Uint8List? requestFormImageBytes = widget.editing?.requestFormImageBytes;
+
+  bool get _isEditing => widget.editing != null;
+
+  static List<_ItemFormRow> _initialRows(List<RequestedItem>? items) {
+    if (items == null || items.isEmpty) return [_ItemFormRow()];
+    return [
+      for (final it in items)
+        _ItemFormRow(
+          name: it.name,
+          quantity: it.quantity,
+          categoryValue: it.categoryValue,
+        ),
+    ];
+  }
 
   @override
   void dispose() {
@@ -1436,6 +1677,7 @@ class _NewRequestFormState extends State<NewRequestForm> {
     Navigator.pop(
       context,
       AssetRequest(
+        id: widget.editing?.id,
         title: titleController.text.trim(),
         requester: requesterName,
         department:
@@ -1496,10 +1738,10 @@ class _NewRequestFormState extends State<NewRequestForm> {
             children: [
               Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      'New request',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                      _isEditing ? 'Edit request' : 'New request',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
                     ),
                   ),
                   IconButton(
@@ -1554,7 +1796,7 @@ class _NewRequestFormState extends State<NewRequestForm> {
                   Expanded(
                     child: ElevatedButton(
                       onPressed: _submit,
-                      child: const Text('Submit request'),
+                      child: Text(_isEditing ? 'Save changes' : 'Submit request'),
                     ),
                   ),
                 ],
@@ -1572,7 +1814,8 @@ class _NewRequestFormState extends State<NewRequestForm> {
   Widget _mobilePage() {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('New request', style: TextStyle(fontWeight: FontWeight.w800)),
+        title: Text(_isEditing ? 'Edit request' : 'New request',
+            style: const TextStyle(fontWeight: FontWeight.w800)),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           tooltip: 'Back',
@@ -1629,7 +1872,7 @@ class _NewRequestFormState extends State<NewRequestForm> {
                             minimumSize: const Size(0, 52),
                             textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
                           ),
-                          child: const Text('Submit request'),
+                          child: Text(_isEditing ? 'Save changes' : 'Submit request'),
                         ),
                       ),
                     ],
@@ -1879,6 +2122,11 @@ class _NewRequestFormState extends State<NewRequestForm> {
 /// category being asked for, and the coarse availability outlook for that
 /// category + the request's dates (from `request_feasibility.php`).
 class _ItemFormRow {
+  _ItemFormRow({String? name, int? quantity, this.categoryValue}) {
+    if (name != null && name.isNotEmpty) nameController.text = name;
+    if (quantity != null && quantity > 0) quantityController.text = '$quantity';
+  }
+
   final nameController = TextEditingController();
   final quantityController = TextEditingController();
 

@@ -10,8 +10,10 @@ import 'asset.dart';
 /// are actually handed over (individual units become `in_use`, bulk stock
 /// is decremented). [returned] is terminal: the borrowed assets came back
 /// and were freed, but the request keeps its record of what was lent.
-/// [rejected] is terminal too.
-enum RequestStatus { pending, approved, checkedOut, rejected, returned }
+/// [rejected] is terminal too — declined by CSDO. [withdrawn] is the same
+/// shape as [rejected] but the request was pulled (by the office or the
+/// requester) rather than declined; it also keeps a reason on the record.
+enum RequestStatus { pending, approved, checkedOut, rejected, returned, withdrawn }
 
 extension RequestStatusApiX on RequestStatus {
   /// The value stored in the `requests.status` column / sent to
@@ -29,6 +31,8 @@ extension RequestStatusApiX on RequestStatus {
         return RequestStatus.rejected;
       case 'returned':
         return RequestStatus.returned;
+      case 'withdrawn':
+        return RequestStatus.withdrawn;
       default:
         return RequestStatus.pending;
     }
@@ -79,6 +83,8 @@ extension RequestStatusX on RequestStatus {
         return 'Rejected';
       case RequestStatus.returned:
         return 'Returned';
+      case RequestStatus.withdrawn:
+        return 'Withdrawn';
     }
   }
 }
@@ -161,15 +167,18 @@ class RequestApproval {
   final int seq;
   ApprovalStepStatus status;
 
-  /// The name the signature on the paper form is over.
-  final String? printedName;
+  /// The name the signature on the paper form is over. Mutable so an edit
+  /// of the request can re-sync it from the corrected form.
+  String? printedName;
 
-  /// A remark, or the reason when this step was rejected.
-  final String? note;
+  /// A remark, or the reason when this step was rejected. Mutable so an
+  /// edit that resubmits a rejected request can clear it in place.
+  String? note;
 
-  /// The admin who recorded this step, and when.
-  final String? decidedByName;
-  final DateTime? decidedAt;
+  /// The admin who recorded this step, and when. Mutable for the same
+  /// reason as [note].
+  String? decidedByName;
+  DateTime? decidedAt;
 
   bool get isApproved => status == ApprovalStepStatus.approved;
   bool get isRejected => status == ApprovalStepStatus.rejected;
@@ -369,31 +378,34 @@ class AssetRequest {
   /// API. Null for a request built locally that hasn't been submitted yet.
   final int? id;
 
-  final String title;
-  final String requester;
-  final String department;
+  // These describe *what* is being asked for. Mutable so the "Edit request"
+  // flow (allowed only while pending/rejected) can update them in place,
+  // matching how [status] / [approvals] / [comments] are already mutated.
+  String title;
+  String requester;
+  String department;
 
   /// The venue/facility being requested (e.g. "Gymnasium"). Null when the
   /// request is for logistics/equipment only and doesn't need a venue.
-  final String? venue;
+  String? venue;
 
   /// Logistics items requested, each with the amount needed.
-  final List<RequestedItem> logistics;
+  List<RequestedItem> logistics;
 
   /// Equipment items requested, each with the amount needed.
-  final List<RequestedItem> equipment;
+  List<RequestedItem> equipment;
 
   /// The first and final dates of the requested asset loan, as the app
   /// formats them for display (e.g. "Sep 15, 2026").
-  final String borrowDate;
-  final String returnDate;
+  String borrowDate;
+  String returnDate;
 
   /// The same loan window as machine-comparable dates (from the backend's
   /// `borrow_on` / `return_on` columns). Used for the availability /
   /// double-booking checks. Null only for legacy rows whose display strings
   /// couldn't be parsed server-side.
-  final DateTime? borrowOn;
-  final DateTime? returnOn;
+  DateTime? borrowOn;
+  DateTime? returnOn;
 
   /// Kept as a compatibility alias for code consuming older request data.
   @Deprecated('Use borrowDate and returnDate instead.')
@@ -435,8 +447,8 @@ class AssetRequest {
   /// Why CSDO declined the request (set with [RequestStatus.rejected]), and
   /// who recorded the CSDO decision / when.
   String? rejectionReason;
-  final String? decidedByName;
-  final DateTime? decidedAt;
+  String? decidedByName;
+  DateTime? decidedAt;
 
   /// Whether adviser, principal and dean have all approved — the gate on
   /// CSDO being able to approve. False while any step is still pending, and
@@ -613,6 +625,32 @@ class AssetRequest {
         // its own toJson right after create) shows the pending steps.
         'approvals': approvals.map((a) => a.toJson()).toList(),
         if (rejectionReason != null) 'rejection_reason': rejectionReason,
+      };
+
+  /// Body for `csdo_api/requests.php` PUT with `action: 'edit'` — just the
+  /// fields the "Edit request" flow can change (event details, loan window,
+  /// item lines, and the routing printed names) plus the form photo. Status,
+  /// assigned assets, the comment thread and the routing *decisions* are
+  /// never touched through this path. Editing a rejected request reopens it
+  /// as pending with its routing reset (the backend does that).
+  Map<String, dynamic> toEditJson() => {
+        'action': 'edit',
+        if (id != null) 'id': id,
+        'title': title,
+        'requester': requester,
+        'department': department,
+        'venue': venue,
+        'borrow_date': borrowDate,
+        'return_date': returnDate,
+        'borrow_on': isoDate(borrowOn),
+        'return_on': isoDate(returnOn),
+        'adviser_signature': adviserSignature.name,
+        'principal_signature': principalSignature.name,
+        'dean_signature': deanSignature.name,
+        'request_form_image':
+            requestFormImageBytes == null ? null : base64Encode(requestFormImageBytes!),
+        'logistics': logistics.map((item) => item.toJson()).toList(),
+        'equipment': equipment.map((item) => item.toJson()).toList(),
       };
 
   static List<AssetRequest> samples = [
