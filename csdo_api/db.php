@@ -76,6 +76,105 @@ function log_stock_movement(
     $stmt->close();
 }
 
+/**
+ * Normalises a date to a 'Y-m-d' string, accepting either an ISO date
+ * ('2026-09-15') or the app's display format ('Sep 15, 2026'). Returns null
+ * when the value is empty or can't be parsed.
+ */
+function iso_date_or_null($value): ?string {
+    if (!is_string($value)) return null;
+    $value = trim($value);
+    if ($value === '') return null;
+    foreach (['Y-m-d', 'M j, Y', 'M d, Y'] as $fmt) {
+        $d = DateTime::createFromFormat('!' . $fmt, $value);
+        if ($d instanceof DateTime) {
+            $errors = DateTime::getLastErrors();
+            $clean = $errors === false
+                || ((($errors['warning_count'] ?? 0) === 0) && (($errors['error_count'] ?? 0) === 0));
+            if ($clean) return $d->format('Y-m-d');
+        }
+    }
+    $ts = strtotime($value);
+    return $ts === false ? null : date('Y-m-d', $ts);
+}
+
+/**
+ * How many units of each asset are already committed to OTHER approved
+ * requests whose loan window overlaps the candidate window [$from, $to]
+ * (inclusive, 'Y-m-d' strings), keyed by asset id:
+ *   [ assetId => [
+ *       'committed' => <int total units across the overlapping requests>,
+ *       'conflicts' => [ {request_id, title, borrow_on, return_on, quantity}, ... ],
+ *   ] ]
+ * $excludeRequestId is skipped so re-approving / editing a request's own
+ * assignment never conflicts with itself. An approved request whose
+ * borrow_on/return_on is NULL (unparseable legacy dates) is treated as
+ * spanning all time, so it always counts — deliberately conservative.
+ *
+ * Pass $forUpdate = true from inside the approval transaction: it makes this
+ * a locking read so it sees rows a competing approval committed while this
+ * one was blocked on the shared asset lock, instead of this transaction's
+ * older snapshot.
+ */
+function overlapping_asset_commitments(
+    mysqli $mysqli,
+    string $from,
+    string $to,
+    int $excludeRequestId = 0,
+    bool $forUpdate = false
+): array {
+    $stmt = $mysqli->prepare(
+        'SELECT ra.asset_id, ra.quantity, r.id AS request_id, r.title, ' .
+        'r.borrow_on, r.return_on, r.borrow_date, r.return_date ' .
+        'FROM request_assets ra JOIN requests r ON r.id = ra.request_id ' .
+        "WHERE r.status = 'approved' AND r.id <> ? " .
+        "AND COALESCE(r.borrow_on, '1000-01-01') <= ? " .
+        "AND COALESCE(r.return_on, '9999-12-31') >= ?" .
+        ($forUpdate ? ' FOR UPDATE' : '')
+    );
+    if ($stmt === false) return [];
+    $stmt->bind_param('iss', $excludeRequestId, $to, $from);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    $out = [];
+    while ($row = $res->fetch_assoc()) {
+        $assetId = (int) $row['asset_id'];
+        if (!isset($out[$assetId])) $out[$assetId] = ['committed' => 0, 'conflicts' => []];
+        $out[$assetId]['committed'] += (int) $row['quantity'];
+        $out[$assetId]['conflicts'][] = [
+            'request_id' => (int) $row['request_id'],
+            'title' => $row['title'],
+            'borrow_on' => $row['borrow_on'] ?? $row['borrow_date'],
+            'return_on' => $row['return_on'] ?? $row['return_date'],
+            'quantity' => (int) $row['quantity'],
+        ];
+    }
+    $stmt->close();
+    return $out;
+}
+
+/**
+ * A short human label for a list of conflicting requests (as produced by
+ * [overlapping_asset_commitments]) — e.g.
+ *   "ICT week seminar" (2026-09-15 to 2026-09-16) and 1 more
+ * Names at most the first two, then a count of the rest.
+ */
+function conflict_summary(array $conflicts): string {
+    if (empty($conflicts)) return 'another approved request';
+    $labels = [];
+    foreach (array_slice($conflicts, 0, 2) as $c) {
+        $fromLabel = (string) ($c['borrow_on'] ?? '');
+        $toLabel = (string) ($c['return_on'] ?? '');
+        $range = ($fromLabel !== '' && $toLabel !== '') ? " ($fromLabel to $toLabel)" : '';
+        $title = (string) ($c['title'] ?? ('Request #' . ($c['request_id'] ?? '?')));
+        $labels[] = '"' . $title . '"' . $range;
+    }
+    $extra = count($conflicts) - count($labels);
+    $text = implode(', ', $labels);
+    if ($extra > 0) $text .= " and $extra more";
+    return $text;
+}
+
 /** Reads and JSON-decodes the request body as an assoc array (empty array if none/invalid). */
 function read_json_body(): array {
     $raw = file_get_contents('php://input');

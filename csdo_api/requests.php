@@ -14,7 +14,10 @@ function load_items(mysqli $mysqli, array $requestIds): array {
     $placeholders = implode(',', array_fill(0, count($requestIds), '?'));
     $types = str_repeat('i', count($requestIds));
     $stmt = $mysqli->prepare(
-        "SELECT request_id, item_type, name, quantity FROM request_items WHERE request_id IN ($placeholders)"
+        'SELECT ri.request_id, ri.item_type, ri.category_id, ri.name, ri.quantity, ' .
+        'c.value AS category_value ' .
+        'FROM request_items ri LEFT JOIN categories c ON c.id = ri.category_id ' .
+        "WHERE ri.request_id IN ($placeholders)"
     );
     $stmt->bind_param($types, ...$requestIds);
     $stmt->execute();
@@ -24,6 +27,8 @@ function load_items(mysqli $mysqli, array $requestIds): array {
         $byRequest[(int) $row['request_id']][$bucket][] = [
             'name' => $row['name'],
             'quantity' => (int) $row['quantity'],
+            'category_id' => $row['category_id'] === null ? null : (int) $row['category_id'],
+            'category_value' => $row['category_value'],
         ];
     }
     $stmt->close();
@@ -236,7 +241,8 @@ function free_request_assets(mysqli $mysqli, int $requestId): void {
 
 if ($method === 'GET') {
     $result = $mysqli->query(
-        'SELECT id, title, requester, department, venue, borrow_date, return_date, status, ' .
+        'SELECT id, title, requester, department, venue, borrow_date, return_date, ' .
+        'borrow_on, return_on, status, ' .
         'requester_signature, adviser_signature, principal_signature, dean_signature, ' .
         'request_form_image, created_at FROM requests ORDER BY id DESC'
     );
@@ -271,6 +277,10 @@ if ($method === 'POST') {
     if ($venue === '') $venue = null;
     $borrowDate = trim($body['borrow_date'] ?? '');
     $returnDate = trim($body['return_date'] ?? '');
+    // Machine-comparable loan window. Prefer an explicit ISO value sent by
+    // the app; fall back to parsing the human string ("Sep 15, 2026").
+    $borrowOn = iso_date_or_null($body['borrow_on'] ?? null) ?? iso_date_or_null($borrowDate);
+    $returnOn = iso_date_or_null($body['return_on'] ?? null) ?? iso_date_or_null($returnDate);
     $status = trim($body['status'] ?? 'pending');
     $requesterSignature = trim($body['requester_signature'] ?? '');
     $adviserSignature = trim($body['adviser_signature'] ?? '');
@@ -283,22 +293,28 @@ if ($method === 'POST') {
     if ($title === '' || $requester === '' || $department === '' || $borrowDate === '' || $returnDate === '') {
         fail(400, 'title, requester, department, borrow_date, and return_date are required.');
     }
+    if ($borrowOn !== null && $returnOn !== null && $borrowOn > $returnOn) {
+        fail(400, 'The borrow date must be on or before the return date.');
+    }
 
     $mysqli->begin_transaction();
     try {
         $stmt = $mysqli->prepare(
-            'INSERT INTO requests (title, requester, department, venue, borrow_date, return_date, status, ' .
+            'INSERT INTO requests (title, requester, department, venue, borrow_date, return_date, ' .
+            'borrow_on, return_on, status, ' .
             'requester_signature, adviser_signature, principal_signature, dean_signature, request_form_image) ' .
-            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->bind_param(
-            'ssssssssssss',
+            'ssssssssssssss',
             $title,
             $requester,
             $department,
             $venue,
             $borrowDate,
             $returnDate,
+            $borrowOn,
+            $returnOn,
             $status,
             $requesterSignature,
             $adviserSignature,
@@ -312,8 +328,19 @@ if ($method === 'POST') {
         $requestId = $stmt->insert_id;
         $stmt->close();
 
+        // Map category value -> id so a request line can link to inventory
+        // by either category_id (numeric) or category_value (the string the
+        // app carries), case-insensitively.
+        $categoryIdByValue = [];
+        if ($res = $mysqli->query('SELECT id, value FROM categories')) {
+            while ($cr = $res->fetch_assoc()) {
+                $categoryIdByValue[strtolower(trim($cr['value']))] = (int) $cr['id'];
+            }
+            $res->free();
+        }
+
         $itemStmt = $mysqli->prepare(
-            'INSERT INTO request_items (request_id, item_type, name, quantity) VALUES (?, ?, ?, ?)'
+            'INSERT INTO request_items (request_id, item_type, category_id, name, quantity) VALUES (?, ?, ?, ?, ?)'
         );
         foreach ([['logistics', $logistics], ['equipment', $equipment]] as [$type, $items]) {
             foreach ($items as $item) {
@@ -321,7 +348,13 @@ if ($method === 'POST') {
                 if ($name === '') continue;
                 $quantity = (int) ($item['quantity'] ?? 1);
                 if ($quantity <= 0) $quantity = 1;
-                $itemStmt->bind_param('issi', $requestId, $type, $name, $quantity);
+                $categoryId = null;
+                if (isset($item['category_id']) && is_numeric($item['category_id'])) {
+                    $categoryId = (int) $item['category_id'];
+                } elseif (isset($item['category_value']) && is_string($item['category_value'])) {
+                    $categoryId = $categoryIdByValue[strtolower(trim($item['category_value']))] ?? null;
+                }
+                $itemStmt->bind_param('isisi', $requestId, $type, $categoryId, $name, $quantity);
                 if (!$itemStmt->execute()) {
                     throw new Exception($mysqli->error);
                 }
@@ -458,8 +491,13 @@ if ($method === 'PUT') {
             $tagList = array_keys($assignments);
             $ph = implode(',', array_fill(0, count($tagList), '?'));
             $ty = str_repeat('s', count($tagList));
+            // FOR UPDATE locks the candidate rows for the rest of this
+            // transaction, so two admins approving overlapping requests that
+            // share an asset are serialised — the second one blocks here
+            // until the first commits, then sees its committed quantity.
             $stmt = $mysqli->prepare(
-                "SELECT id, tag_id, name, tracking, quantity_total, quantity_out FROM assets WHERE tag_id IN ($ph)"
+                'SELECT id, tag_id, name, tracking, quantity_total, quantity_out, quantity_damaged ' .
+                "FROM assets WHERE tag_id IN ($ph) FOR UPDATE"
             );
             $stmt->bind_param($ty, ...$tagList);
             $stmt->execute();
@@ -473,12 +511,47 @@ if ($method === 'PUT') {
                 throw new Exception('One or more of the selected assets no longer exists.');
             }
 
-            $titleStmt = $mysqli->prepare('SELECT title FROM requests WHERE id = ?');
+            $titleStmt = $mysqli->prepare(
+                'SELECT title, borrow_on, return_on, borrow_date, return_date FROM requests WHERE id = ?'
+            );
             $titleStmt->bind_param('i', $id);
             $titleStmt->execute();
             $titleRow = $titleStmt->get_result()->fetch_assoc();
             $titleStmt->close();
             $requestTitle = $titleRow['title'] ?? null;
+
+            // Double-booking guard: reject the approval if any picked asset
+            // is already committed to another approved request whose loan
+            // window overlaps this one. Falls back to parsing the display
+            // date strings when borrow_on/return_on aren't set (legacy rows);
+            // if the window still can't be resolved the check is skipped and
+            // only the point-in-time checks below apply.
+            $winFrom = $titleRow['borrow_on'] ?? iso_date_or_null($titleRow['borrow_date'] ?? null);
+            $winTo = $titleRow['return_on'] ?? iso_date_or_null($titleRow['return_date'] ?? null);
+            if ($winFrom !== null && $winTo !== null) {
+                $commitments = overlapping_asset_commitments($mysqli, $winFrom, $winTo, $id, true);
+                foreach ($found as $tag => $asset) {
+                    $entry = $commitments[(int) $asset['id']] ?? null;
+                    if ($entry === null) continue;
+                    $committed = (int) $entry['committed'];
+                    $clashLabel = conflict_summary($entry['conflicts']);
+                    if (($asset['tracking'] ?? 'individual') === 'bulk') {
+                        $windowFree = (int) $asset['quantity_total']
+                            - (int) $asset['quantity_damaged'] - $committed;
+                        if ($assignments[$tag] > $windowFree) {
+                            throw new Exception(
+                                "Not enough \"{$asset['name']}\" for $winFrom to $winTo — asked for "
+                                . "{$assignments[$tag]}, only " . max(0, $windowFree)
+                                . " free for that period ($committed already booked by $clashLabel)."
+                            );
+                        }
+                    } elseif ($committed >= 1) {
+                        throw new Exception(
+                            "\"{$asset['name']}\" is already booked for an overlapping period by $clashLabel."
+                        );
+                    }
+                }
+            }
 
             $link = $mysqli->prepare(
                 'INSERT INTO request_assets (request_id, asset_id, quantity) VALUES (?, ?, ?)'

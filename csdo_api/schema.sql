@@ -124,8 +124,17 @@ CREATE TABLE IF NOT EXISTS requests (
   requester VARCHAR(150) NOT NULL,
   department VARCHAR(150) NOT NULL,
   venue VARCHAR(150) NULL,
+  -- Human-readable loan dates, exactly as the app formats them ("Sep 15,
+  -- 2026"). Kept for display and backward compatibility; the machine-
+  -- comparable copies live in borrow_on / return_on below.
   borrow_date VARCHAR(50) NOT NULL,
   return_date VARCHAR(50) NOT NULL,
+  -- Machine-comparable loan window. Written on every create (and backfilled
+  -- from the strings above for rows made before this column existed). These
+  -- are what the availability / double-booking checks use — see
+  -- csdo_api/availability.php and the 'approved' branch of requests.php.
+  borrow_on DATE NULL,
+  return_on DATE NULL,
   -- One of: 'pending', 'approved', 'rejected', 'returned'. 'returned' is a
   -- terminal state for an approved request whose assets have been brought
   -- back (they're freed to 'available', but the request_assets link rows
@@ -138,15 +147,40 @@ CREATE TABLE IF NOT EXISTS requests (
   request_form_image LONGTEXT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- Upgrading a database created before the comparable loan window existed.
+-- MariaDB (XAMPP) syntax; safe to re-run. The backfill parses the app's
+-- own date format first ("Sep 15, 2026"), then a plain ISO date, and
+-- leaves the column NULL for anything it can't read (those requests are
+-- then treated as "always conflicting" by the checks — conservative).
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS borrow_on DATE NULL AFTER borrow_date;
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS return_on DATE NULL AFTER return_date;
+UPDATE requests SET borrow_on = COALESCE(
+  STR_TO_DATE(borrow_date, '%b %d, %Y'), STR_TO_DATE(borrow_date, '%Y-%m-%d')
+) WHERE borrow_on IS NULL;
+UPDATE requests SET return_on = COALESCE(
+  STR_TO_DATE(return_date, '%b %d, %Y'), STR_TO_DATE(return_date, '%Y-%m-%d')
+) WHERE return_on IS NULL;
+-- Speeds up the overlap scan (status + date window) the checks run per approval.
+ALTER TABLE requests ADD INDEX IF NOT EXISTS idx_requests_window (status, borrow_on, return_on);
 
 CREATE TABLE IF NOT EXISTS request_items (
   id INT AUTO_INCREMENT PRIMARY KEY,
   request_id INT NOT NULL,
   item_type VARCHAR(20) NOT NULL,
+  -- Optional soft link to the inventory category this line is asking for
+  -- (e.g. the "Foldable chairs" line points at the "Furniture" category).
+  -- Nullable and intentionally NOT a foreign key, so the requested line
+  -- survives the category being renamed or removed. Lets the approval
+  -- picker scope its suggestions instead of matching on the free-text name.
+  category_id INT NULL,
   name VARCHAR(150) NOT NULL,
   quantity INT NOT NULL DEFAULT 1,
   CONSTRAINT fk_request_items_request FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- Upgrading a database created before request lines could reference a
+-- category. Safe to re-run.
+ALTER TABLE request_items ADD COLUMN IF NOT EXISTS category_id INT NULL AFTER item_type;
+ALTER TABLE request_items ADD INDEX IF NOT EXISTS idx_request_items_category (category_id);
 
 -- The actual assets handed out to fulfil an approved request. The app makes
 -- the admin pick these before a request can be approved (see the asset

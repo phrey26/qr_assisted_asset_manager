@@ -132,10 +132,25 @@ class AssignedAsset {
 /// A single logistics or equipment line on a request, with how many of it
 /// are needed (e.g. "Foldable chairs" × 120).
 class RequestedItem {
-  const RequestedItem({required this.name, required this.quantity});
+  const RequestedItem({
+    required this.name,
+    required this.quantity,
+    this.categoryId,
+    this.categoryValue,
+  });
 
   final String name;
   final int quantity;
+
+  /// Optional soft link to the inventory category this line is asking for
+  /// (its `categories.id` and matching [AssetCategory.value]). Set when the
+  /// requester picked a category on the new-request form; null when the line
+  /// was left as free text. Lets the approval picker scope its suggestions
+  /// to the right pool instead of guessing from [name].
+  final int? categoryId;
+  final String? categoryValue;
+
+  bool get isLinked => categoryId != null;
 
   /// e.g. "Foldable chairs (120)", or just "Projector" when only one is
   /// needed.
@@ -143,10 +158,22 @@ class RequestedItem {
 
   factory RequestedItem.fromJson(Map<String, dynamic> json) => RequestedItem(
         name: json['name'] as String,
-        quantity: json['quantity'] as int,
+        quantity: (json['quantity'] as num).toInt(),
+        categoryId: (json['category_id'] as num?)?.toInt(),
+        categoryValue: (json['category_value'] as String?)?.trim().isEmpty ?? true
+            ? null
+            : (json['category_value'] as String),
       );
 
-  Map<String, dynamic> toJson() => {'name': name, 'quantity': quantity};
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'quantity': quantity,
+        // `category_id` is what the backend stores; `category_value` is
+        // ignored there but kept so a locally round-tripped request (built
+        // straight from its own toJson right after create) keeps the label.
+        if (categoryId != null) 'category_id': categoryId,
+        if (categoryValue != null) 'category_value': categoryValue,
+      };
 }
 
 /// A request from a requester/department to borrow a venue/facility,
@@ -164,6 +191,8 @@ class AssetRequest {
     this.equipment = const [],
     required this.borrowDate,
     required this.returnDate,
+    this.borrowOn,
+    this.returnOn,
     this.status = RequestStatus.pending,
     Signatory? requesterSignature,
     Signatory? adviserSignature,
@@ -195,9 +224,17 @@ class AssetRequest {
   /// Equipment items requested, each with the amount needed.
   final List<RequestedItem> equipment;
 
-  /// The first and final dates of the requested asset loan.
+  /// The first and final dates of the requested asset loan, as the app
+  /// formats them for display (e.g. "Sep 15, 2026").
   final String borrowDate;
   final String returnDate;
+
+  /// The same loan window as machine-comparable dates (from the backend's
+  /// `borrow_on` / `return_on` columns). Used for the availability /
+  /// double-booking checks. Null only for legacy rows whose display strings
+  /// couldn't be parsed server-side.
+  final DateTime? borrowOn;
+  final DateTime? returnOn;
 
   /// Kept as a compatibility alias for code consuming older request data.
   @Deprecated('Use borrowDate and returnDate instead.')
@@ -264,6 +301,21 @@ class AssetRequest {
     return parts.join(' · ');
   }
 
+  /// Parses a backend `borrow_on` / `return_on` value ('YYYY-MM-DD', or
+  /// null) to a local [DateTime], or null when absent/unparseable.
+  static DateTime? _parseIsoDate(Object? value) {
+    if (value is! String || value.trim().isEmpty) return null;
+    return DateTime.tryParse(value.trim());
+  }
+
+  /// Formats a [DateTime] as the `YYYY-MM-DD` string the backend's
+  /// `borrow_on` / `return_on` columns (and `availability.php`) expect.
+  static String? isoDate(DateTime? date) => date == null
+      ? null
+      : '${date.year.toString().padLeft(4, '0')}-'
+          '${date.month.toString().padLeft(2, '0')}-'
+          '${date.day.toString().padLeft(2, '0')}';
+
   /// Builds an [AssetRequest] from a `requests` row (with nested
   /// `logistics`/`equipment` arrays) returned by `csdo_api/requests.php`
   /// (GET).
@@ -281,6 +333,8 @@ class AssetRequest {
             .toList(),
         borrowDate: json['borrow_date'] as String,
         returnDate: json['return_date'] as String,
+        borrowOn: _parseIsoDate(json['borrow_on']),
+        returnOn: _parseIsoDate(json['return_on']),
         status: RequestStatusApiX.fromApiValue(json['status'] as String? ?? 'pending'),
         requesterSignature: Signatory(name: (json['requester_signature'] as String?) ?? ''),
         adviserSignature: Signatory(name: (json['adviser_signature'] as String?) ?? ''),
@@ -302,6 +356,8 @@ class AssetRequest {
         'venue': venue,
         'borrow_date': borrowDate,
         'return_date': returnDate,
+        'borrow_on': isoDate(borrowOn),
+        'return_on': isoDate(returnOn),
         'status': status.apiValue,
         'requester_signature': requesterSignature.name,
         'adviser_signature': adviserSignature.name,

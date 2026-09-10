@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../models/availability.dart';
+
 /// Thrown by [ApiService.login] when the account exists and the password is
 /// correct but the email address hasn't been verified yet. Carries the
 /// address so the caller can send the user straight to the code-entry
@@ -640,6 +642,32 @@ class ApiService {
     } else {
       throw Exception('Failed to load requests');
     }
+  }
+
+  /// Fetches how much of each asset is free for the loan window [from]–[to]
+  /// (both `YYYY-MM-DD`), from `availability.php`. [excludeRequest] is the
+  /// request being (re)approved, so its own current assignment isn't counted
+  /// against itself. Feeds the date-aware asset picker on approval.
+  static Future<WindowAvailabilityReport> fetchAvailability({
+    required String from,
+    required String to,
+    int? excludeRequest,
+  }) async {
+    final uri = Uri.parse(
+      '$baseUrl/availability.php?from=${Uri.encodeQueryComponent(from)}'
+      '&to=${Uri.encodeQueryComponent(to)}'
+      '${excludeRequest != null ? '&exclude_request=$excludeRequest' : ''}',
+    );
+    final response =
+        await http.get(uri).timeout(_timeout, onTimeout: _timeoutError);
+
+    final body = jsonDecode(response.body);
+    if (response.statusCode != 200) {
+      throw Exception(
+        (body is Map ? body['error'] : null) ?? 'Failed to load availability',
+      );
+    }
+    return WindowAvailabilityReport.fromJson((body as Map).cast<String, dynamic>());
   }
 
   /// Submits a new asset request. [request] should be built via

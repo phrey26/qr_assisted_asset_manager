@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import '../models/asset.dart';
 import '../models/asset_request.dart';
 import '../models/asset_return.dart';
+import '../models/availability.dart';
+import '../models/category.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
@@ -49,6 +51,7 @@ class RequestsScreen extends StatefulWidget {
     super.key,
     this.currentUser,
     required this.assets,
+    this.categories = const [],
     required this.onApplyAssetStatuses,
     required this.onApplyAssetCondition,
     required this.onApplyBulkOut,
@@ -58,6 +61,11 @@ class RequestsScreen extends StatefulWidget {
   /// `csdo_api/login.php`) — used to prefill "Requested by"/"Department" on
   /// [NewRequestForm]. Null falls back to the form's own blank defaults.
   final Map<String, dynamic>? currentUser;
+
+  /// The inventory categories, so a new request's logistics/equipment lines
+  /// can optionally be linked to the pool they're asking for. Shared with
+  /// the Inventory/Categories tabs (owned by `AppShell`).
+  final List<AssetCategory> categories;
 
   /// The live inventory list, owned by `AppShell`. Shown in the asset
   /// picker when approving a request; the same mutable [AssetItem] objects
@@ -203,12 +211,41 @@ class RequestsScreenState extends State<RequestsScreen> {
         if (a.isBulk) a.tagId: a.quantity,
     };
 
+    // Load date-aware availability for this request's loan window so the
+    // picker can show "N free for these dates" and lock assets already
+    // booked for an overlapping period. Skipped when the request has no
+    // comparable dates; a lookup failure just falls back to the
+    // point-in-time figures (the backend still enforces the window on
+    // approve).
+    Map<String, AssetWindowAvailability>? windowAvailability;
+    final from = AssetRequest.isoDate(request.borrowOn);
+    final to = AssetRequest.isoDate(request.returnOn);
+    if (from != null && to != null) {
+      try {
+        final report = await ApiService.fetchAvailability(
+          from: from,
+          to: to,
+          excludeRequest: request.id,
+        );
+        windowAvailability = report.byTagId;
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not check availability for the loan dates: $e'),
+          ),
+        );
+      }
+    }
+    if (!mounted) return;
+
     final picked = await showAssetAssignmentPicker(
       context,
       assets: widget.assets,
       request: request,
       preselectedTagIds: previousIndividualTags,
       preselectedQuantities: previousBulkQty,
+      windowAvailability: windowAvailability,
     );
     if (!mounted || picked == null || picked.isEmpty) return;
 
@@ -373,6 +410,7 @@ class RequestsScreenState extends State<RequestsScreen> {
             fullPage: true,
             initialRequester: user?['full_name'] as String?,
             initialDepartment: user?['department'] as String?,
+            categories: widget.categories,
           ),
         ),
       );
@@ -382,6 +420,7 @@ class RequestsScreenState extends State<RequestsScreen> {
         builder: (_) => NewRequestForm(
           initialRequester: user?['full_name'] as String?,
           initialDepartment: user?['department'] as String?,
+          categories: widget.categories,
         ),
       );
     }
@@ -941,6 +980,7 @@ class NewRequestForm extends StatefulWidget {
     this.fullPage = false,
     this.initialRequester,
     this.initialDepartment,
+    this.categories = const [],
   });
 
   final bool fullPage;
@@ -949,6 +989,10 @@ class NewRequestForm extends StatefulWidget {
   /// own name/department, when known.
   final String? initialRequester;
   final String? initialDepartment;
+
+  /// Inventory categories offered as an optional "link to inventory" choice
+  /// on each logistics/equipment line. Empty hides that field entirely.
+  final List<AssetCategory> categories;
 
   @override
   State<NewRequestForm> createState() => _NewRequestFormState();
@@ -1047,7 +1091,11 @@ class _NewRequestFormState extends State<NewRequestForm> {
         );
         return null;
       }
-      items.add(RequestedItem(name: name, quantity: quantity));
+      items.add(RequestedItem(
+        name: name,
+        quantity: quantity,
+        categoryValue: row.categoryValue,
+      ));
     }
     return items;
   }
@@ -1096,6 +1144,8 @@ class _NewRequestFormState extends State<NewRequestForm> {
         equipment: equipment,
         borrowDate: AssetItem.formatDate(borrowDate!),
         returnDate: AssetItem.formatDate(returnDate!),
+        borrowOn: borrowDate,
+        returnOn: returnDate,
         requesterSignature: Signatory(name: requesterName),
         adviserSignature: Signatory(name: adviserNameController.text.trim()),
         principalSignature: Signatory(name: principalNameController.text.trim()),
@@ -1364,48 +1414,81 @@ class _NewRequestFormState extends State<NewRequestForm> {
     final row = rows[index];
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            flex: 3,
-            child: TextField(
-              controller: row.nameController,
-              decoration: InputDecoration(hintText: hint),
+          Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: TextField(
+                  controller: row.nameController,
+                  decoration: InputDecoration(hintText: hint),
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 72,
+                child: TextField(
+                  controller: row.quantityController,
+                  keyboardType: TextInputType.number,
+                  textAlign: TextAlign.center,
+                  decoration: const InputDecoration(hintText: 'Qty'),
+                ),
+              ),
+              SizedBox(
+                width: 40,
+                child: rows.length > 1
+                    ? IconButton(
+                        onPressed: () => _removeRow(rows, index),
+                        icon: const Icon(Icons.close, size: 18),
+                        tooltip: 'Remove item',
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                      )
+                    : null,
+              ),
+            ],
+          ),
+          if (widget.categories.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            DropdownButtonFormField<String?>(
+              initialValue: row.categoryValue,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                isDense: true,
+                prefixIcon: Icon(Icons.link, size: 18),
+                hintText: 'Link to an inventory category (optional)',
+              ),
+              items: [
+                const DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text('Not linked — free text'),
+                ),
+                for (final category in widget.categories)
+                  DropdownMenuItem<String?>(
+                    value: category.value,
+                    child: Text(category.displayName),
+                  ),
+              ],
+              onChanged: (value) => setState(() => row.categoryValue = value),
             ),
-          ),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 72,
-            child: TextField(
-              controller: row.quantityController,
-              keyboardType: TextInputType.number,
-              textAlign: TextAlign.center,
-              decoration: const InputDecoration(hintText: 'Qty'),
-            ),
-          ),
-          SizedBox(
-            width: 40,
-            child: rows.length > 1
-                ? IconButton(
-                    onPressed: () => _removeRow(rows, index),
-                    icon: const Icon(Icons.close, size: 18),
-                    tooltip: 'Remove item',
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                  )
-                : null,
-          ),
+          ],
         ],
       ),
     );
   }
 }
 
-/// Holds the two controllers for one logistics/equipment row (item name +
-/// amount) in [NewRequestForm].
+/// Holds the state for one logistics/equipment row in [NewRequestForm] —
+/// the item name and amount controllers, plus an optional link to the
+/// inventory category being asked for.
 class _ItemFormRow {
   final nameController = TextEditingController();
   final quantityController = TextEditingController();
+
+  /// The [AssetCategory.value] this line is linked to, or null for free text.
+  String? categoryValue;
 
   void dispose() {
     nameController.dispose();

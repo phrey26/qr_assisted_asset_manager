@@ -622,6 +622,7 @@ class _AppShellState extends State<AppShell> {
         key: _requestsKey,
         currentUser: _user,
         assets: _assets,
+        categories: _categories,
         onApplyAssetStatuses: _applyAssetStatuses,
         onApplyAssetCondition: _applyAssetCondition,
         onApplyBulkOut: _applyBulkOut,

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qr_assisted_asset_management/main.dart';
 import 'package:qr_assisted_asset_management/models/asset.dart';
+import 'package:qr_assisted_asset_management/models/asset_request.dart';
+import 'package:qr_assisted_asset_management/models/availability.dart';
 import 'package:qr_assisted_asset_management/screens/edit_profile_screen.dart';
 import 'package:qr_assisted_asset_management/screens/login_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -209,5 +211,103 @@ void main() {
     expect(body.containsKey('tracking'), isFalse);
     // Individual asset: no reorder point in the edit body.
     expect(body.containsKey('reorder_point'), isFalse);
+  });
+
+  test('AssetRequest carries a machine-comparable loan window through JSON', () {
+    // From the backend (GET): borrow_on / return_on are ISO date strings.
+    final loaded = AssetRequest.fromJson({
+      'id': 7,
+      'title': 'ICT week seminar',
+      'requester': 'Juan Dela Cruz',
+      'department': 'CICS',
+      'venue': 'CICS Function Hall',
+      'borrow_date': 'Sep 15, 2026',
+      'return_date': 'Sep 16, 2026',
+      'borrow_on': '2026-09-15',
+      'return_on': '2026-09-16',
+      'status': 'pending',
+      'logistics': [
+        {'name': 'Foldable chairs', 'quantity': 120, 'category_id': 2,
+         'category_value': 'Furniture'},
+      ],
+      'equipment': [
+        {'name': 'Projector', 'quantity': 1},
+      ],
+    });
+
+    expect(loaded.borrowOn, DateTime(2026, 9, 15));
+    expect(loaded.returnOn, DateTime(2026, 9, 16));
+    expect(loaded.logistics.single.categoryId, 2);
+    expect(loaded.logistics.single.categoryValue, 'Furniture');
+    expect(loaded.logistics.single.isLinked, isTrue);
+    expect(loaded.equipment.single.isLinked, isFalse);
+
+    // Round-trips back out as the ISO strings the backend / availability.php
+    // expect, plus the category link on each line.
+    final body = loaded.toJson();
+    expect(body['borrow_on'], '2026-09-15');
+    expect(body['return_on'], '2026-09-16');
+    expect((body['logistics'] as List).single['category_id'], 2);
+    expect((body['equipment'] as List).single.containsKey('category_id'), isFalse);
+
+    expect(AssetRequest.isoDate(DateTime(2026, 1, 5)), '2026-01-05');
+    expect(AssetRequest.isoDate(null), isNull);
+
+    // Legacy row with no comparable dates: window is just null, not a crash.
+    final legacy = AssetRequest.fromJson({
+      'id': 1,
+      'title': 'Old request',
+      'requester': 'X',
+      'department': 'Y',
+      'borrow_date': 'sometime',
+      'return_date': 'later',
+      'status': 'pending',
+    });
+    expect(legacy.borrowOn, isNull);
+    expect(legacy.returnOn, isNull);
+  });
+
+  test('WindowAvailabilityReport parses per-asset free counts and conflicts', () {
+    final report = WindowAvailabilityReport.fromJson({
+      'from': '2026-09-15',
+      'to': '2026-09-16',
+      'assets': [
+        {
+          'tag_id': 'CSDO-FU2-0001',
+          'tracking': 'bulk',
+          'window_committed': 30,
+          'window_free': 90,
+          'available_now': 120,
+          'conflicts': [
+            {
+              'request_id': 3,
+              'title': 'Sportsfest',
+              'borrow_on': '2026-09-16',
+              'return_on': '2026-09-18',
+              'quantity': 30,
+            },
+          ],
+        },
+        {
+          'tag_id': 'CSDO-IT1-0007',
+          'tracking': 'individual',
+          'window_committed': 1,
+          'window_free': 0,
+          'available_now': 0,
+          'conflicts': [],
+        },
+      ],
+    });
+
+    final pool = report.forTag('CSDO-FU2-0001')!;
+    expect(pool.isBulk, isTrue);
+    expect(pool.windowFree, 90);
+    expect(pool.conflicts.single.title, 'Sportsfest');
+    expect(pool.conflicts.single.rangeLabel, '2026-09-16 – 2026-09-18');
+
+    final unit = report.forTag('CSDO-IT1-0007')!;
+    expect(unit.isBulk, isFalse);
+    expect(unit.windowFree, 0);
+    expect(report.forTag('missing'), isNull);
   });
 }

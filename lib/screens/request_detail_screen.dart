@@ -308,9 +308,23 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
-                    child: Text(
-                      item.name,
-                      style: const TextStyle(color: AppTheme.muted, fontSize: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.name,
+                          style: const TextStyle(color: AppTheme.muted, fontSize: 16),
+                        ),
+                        if (item.categoryValue != null)
+                          Text(
+                            'Linked to ${item.categoryValue} inventory',
+                            style: const TextStyle(
+                              color: AppTheme.primary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                   const SizedBox(width: 10),

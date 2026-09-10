@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/asset.dart';
 import '../models/asset_request.dart';
+import '../models/availability.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import 'sort_dropdown.dart';
@@ -70,6 +71,7 @@ Future<List<AssetAssignment>?> showAssetAssignmentPicker(
   required AssetRequest request,
   List<String> preselectedTagIds = const [],
   Map<String, int> preselectedQuantities = const {},
+  Map<String, AssetWindowAvailability>? windowAvailability,
 }) {
   if (Responsive.isDesktop(context)) {
     return showDialog<List<AssetAssignment>>(
@@ -83,6 +85,7 @@ Future<List<AssetAssignment>?> showAssetAssignmentPicker(
             request: request,
             preselectedTagIds: preselectedTagIds,
             preselectedQuantities: preselectedQuantities,
+            windowAvailability: windowAvailability,
             inDialog: true,
           ),
         ),
@@ -106,6 +109,7 @@ Future<List<AssetAssignment>?> showAssetAssignmentPicker(
             request: request,
             preselectedTagIds: preselectedTagIds,
             preselectedQuantities: preselectedQuantities,
+            windowAvailability: windowAvailability,
             inDialog: false,
           ),
         ),
@@ -120,6 +124,7 @@ class _AssetAssignmentBody extends StatefulWidget {
     required this.request,
     required this.preselectedTagIds,
     required this.preselectedQuantities,
+    required this.windowAvailability,
     required this.inDialog,
   });
 
@@ -127,6 +132,13 @@ class _AssetAssignmentBody extends StatefulWidget {
   final AssetRequest request;
   final List<String> preselectedTagIds;
   final Map<String, int> preselectedQuantities;
+
+  /// tag ID → how much of that asset is free for [request]'s loan window, as
+  /// loaded from `availability.php` just before the picker opened. Null when
+  /// the request has no comparable dates or the lookup failed — the picker
+  /// then falls back to the point-in-time "free right now" figures.
+  final Map<String, AssetWindowAvailability>? windowAvailability;
+
   final bool inDialog;
 
   @override
@@ -152,16 +164,43 @@ class _AssetAssignmentBodyState extends State<_AssetAssignmentBody> {
     super.dispose();
   }
 
+  /// Window availability for [asset], or null when none was loaded.
+  AssetWindowAvailability? _availOf(AssetItem asset) =>
+      widget.windowAvailability?[asset.tagId];
+
+  /// The most units of [asset] that can actually be handed to this request:
+  /// the smaller of what's physically free now and what's still uncommitted
+  /// for the request's loan window. Falls back to the plain point-in-time
+  /// figure when no window availability was loaded. Never negative.
+  int _bulkCap(AssetItem asset) {
+    // Re-opening the picker for an already-approved request: this request's
+    // own units are still counted in `quantity_out` (so already netted out
+    // of `quantityAvailable`), but they're re-offerable to it, so add them
+    // back. `windowFree` from the backend already excludes this request.
+    final ownTake = widget.preselectedQuantities[asset.tagId] ?? 0;
+    final now = asset.quantityAvailable + ownTake;
+    final avail = _availOf(asset);
+    final cap = avail == null
+        ? now
+        : (now < avail.windowFree ? now : avail.windowFree);
+    return cap < 0 ? 0 : cap;
+  }
+
   bool _isLocked(AssetItem asset) {
     if (widget.preselectedTagIds.contains(asset.tagId)) return false;
-    if (asset.isBulk) return asset.quantityAvailable <= 0;
-    return asset.status == AssetStatus.inUse;
+    if (asset.isBulk) return _bulkCap(asset) <= 0;
+    if (asset.status == AssetStatus.inUse) return true;
+    // Free right now, but already claimed by another approved request whose
+    // dates overlap this one.
+    final avail = _availOf(asset);
+    return avail != null && avail.windowFree < 1;
   }
 
   /// A sensible starting count for a freshly-selected bulk pool: the amount
-  /// asked for on a matching request line, capped at what's in stock.
+  /// asked for on a matching request line, capped at what can be taken for
+  /// the loan window.
   int _defaultBulkQty(AssetItem asset) {
-    final cap = asset.quantityAvailable < 1 ? 1 : asset.quantityAvailable;
+    final cap = _bulkCap(asset) < 1 ? 1 : _bulkCap(asset);
     final preset = widget.preselectedQuantities[asset.tagId];
     if (preset != null) return preset.clamp(1, cap);
     for (final item in widget.request.allItems) {
@@ -173,7 +212,7 @@ class _AssetAssignmentBodyState extends State<_AssetAssignmentBody> {
   }
 
   void _setBulkQty(AssetItem asset, int qty) {
-    final cap = asset.quantityAvailable < 1 ? 1 : asset.quantityAvailable;
+    final cap = _bulkCap(asset) < 1 ? 1 : _bulkCap(asset);
     setState(() => _bulkQty[asset.tagId] = qty.clamp(1, cap));
   }
 
@@ -220,8 +259,7 @@ class _AssetAssignmentBodyState extends State<_AssetAssignmentBody> {
           AssetAssignment(
             asset: a,
             quantity: a.isBulk
-                ? (_bulkQty[a.tagId] ?? 1)
-                    .clamp(1, a.quantityAvailable < 1 ? 1 : a.quantityAvailable)
+                ? (_bulkQty[a.tagId] ?? 1).clamp(1, _bulkCap(a) < 1 ? 1 : _bulkCap(a))
                 : 1,
           ),
     ];
@@ -261,6 +299,27 @@ class _AssetAssignmentBodyState extends State<_AssetAssignmentBody> {
                 'Pick the assets to hand out for "${widget.request.title}". '
                 'They\'ll be marked In use until the approval is cancelled.',
                 style: const TextStyle(color: AppTheme.muted, fontSize: 13, height: 1.4),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(Icons.event_outlined, size: 14, color: AppTheme.primary),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      widget.windowAvailability != null
+                          ? 'Availability shown is for the loan window ${widget.request.dateRangeLabel}.'
+                          : 'Loan window ${widget.request.dateRangeLabel} — this request has no '
+                              'comparable dates, so figures below are "free right now".',
+                      style: const TextStyle(
+                        color: AppTheme.darkGreen,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ],
               ),
               if (equipment.isNotEmpty) ...[
                 const SizedBox(height: 8),
@@ -313,6 +372,9 @@ class _AssetAssignmentBodyState extends State<_AssetAssignmentBody> {
                       selected: _selected.contains(asset.tagId),
                       locked: _isLocked(asset),
                       quantity: _bulkQty[asset.tagId] ?? 1,
+                      maxQuantity: _bulkCap(asset),
+                      availability: _availOf(asset),
+                      windowLabel: widget.request.dateRangeLabel,
                       onTap: () => _toggle(asset),
                       onQuantityChanged: (q) => _setBulkQty(asset, q),
                     );
@@ -359,6 +421,9 @@ class _AssetRow extends StatelessWidget {
     required this.selected,
     required this.locked,
     required this.quantity,
+    required this.maxQuantity,
+    required this.availability,
+    required this.windowLabel,
     required this.onTap,
     required this.onQuantityChanged,
   });
@@ -367,14 +432,49 @@ class _AssetRow extends StatelessWidget {
   final bool selected;
   final bool locked;
   final int quantity;
+
+  /// The most units that may be taken for the request's window (bulk only).
+  final int maxQuantity;
+
+  /// Window availability for this asset, or null when none was loaded.
+  final AssetWindowAvailability? availability;
+
+  /// The request's loan window, e.g. "Sep 15, 2026 – Sep 16, 2026".
+  final String windowLabel;
+
   final VoidCallback onTap;
   final ValueChanged<int> onQuantityChanged;
 
+  /// Why this row is disabled — window conflicts take priority over the
+  /// point-in-time reasons.
+  String get _lockedNote {
+    final avail = availability;
+    if (asset.isBulk) {
+      if (avail != null && avail.windowCommitted > 0) {
+        return 'No units free for $windowLabel — ${avail.windowCommitted} booked by '
+            '${_conflictNames(avail.conflicts)}';
+      }
+      return 'Out of stock — nothing available to lend';
+    }
+    if (avail != null && avail.conflicts.isNotEmpty) {
+      return 'Booked for an overlapping period by ${_conflictNames(avail.conflicts)}';
+    }
+    return 'Already borrowed — free it by cancelling its request';
+  }
+
+  static String _conflictNames(List<WindowConflict> conflicts) {
+    if (conflicts.isEmpty) return 'another approved request';
+    final names = conflicts.take(2).map((c) => '"${c.title}"').join(', ');
+    final extra = conflicts.length - 2;
+    return extra > 0 ? '$names +$extra more' : names;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final lockedNote = asset.isBulk
-        ? 'Out of stock — nothing available to lend'
-        : 'Already borrowed — free it by cancelling its request';
+    final avail = availability;
+    final showWindowHint = !locked &&
+        avail != null &&
+        (asset.isBulk || avail.conflicts.isNotEmpty);
     return Opacity(
       opacity: locked ? 0.5 : 1,
       child: Material(
@@ -419,15 +519,27 @@ class _AssetRow extends StatelessWidget {
                       if (locked) ...[
                         const SizedBox(height: 3),
                         Text(
-                          lockedNote,
+                          _lockedNote,
                           style: const TextStyle(color: Color(0xFFC84040), fontSize: 11.5),
+                        ),
+                      ] else if (showWindowHint) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          asset.isBulk
+                              ? '${avail.windowFree} free for $windowLabel'
+                              : 'Free for $windowLabel',
+                          style: const TextStyle(color: AppTheme.primary, fontSize: 11.5),
                         ),
                       ],
                       if (asset.isBulk && selected && !locked) ...[
                         const SizedBox(height: 8),
                         _QtyStepper(
                           value: quantity,
-                          max: asset.quantityAvailable,
+                          // Never show a ceiling below the current pick — a
+                          // re-approval of a now-oversubscribed window can
+                          // leave the cap under the existing quantity; the
+                          // backend guard then reports the real shortfall.
+                          max: maxQuantity < quantity ? quantity : maxQuantity,
                           onChanged: onQuantityChanged,
                         ),
                       ],
@@ -436,7 +548,7 @@ class _AssetRow extends StatelessWidget {
                 ),
                 const SizedBox(width: 10),
                 if (asset.isBulk)
-                  _StockPill(asset: asset)
+                  _StockPill(asset: asset, windowFree: avail?.windowFree)
                 else
                   StatusChip(status: asset.status),
               ],
@@ -448,15 +560,19 @@ class _AssetRow extends StatelessWidget {
   }
 }
 
-/// Compact "12 / 50 pcs available" pill for a bulk pool in the picker.
+/// Compact "12 / 50" pill for a bulk pool in the picker. When [windowFree]
+/// is given it shows that (units free for the request's dates) as the
+/// numerator instead of the point-in-time count.
 class _StockPill extends StatelessWidget {
-  const _StockPill({required this.asset});
+  const _StockPill({required this.asset, this.windowFree});
 
   final AssetItem asset;
+  final int? windowFree;
 
   @override
   Widget build(BuildContext context) {
-    final low = asset.isLowStock || asset.quantityAvailable <= 0;
+    final free = windowFree ?? asset.quantityAvailable;
+    final low = asset.isLowStock || free <= 0;
     final (bg, fg) = low
         ? (AppTheme.redTint, const Color(0xFFC84040))
         : (AppTheme.mint, AppTheme.primary);
@@ -464,7 +580,7 @@ class _StockPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
       decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(30)),
       child: Text(
-        asset.stockLabel,
+        '$free / ${asset.quantityTotal ?? 0}',
         style: TextStyle(color: fg, fontWeight: FontWeight.w800, fontSize: 12.5),
       ),
     );
