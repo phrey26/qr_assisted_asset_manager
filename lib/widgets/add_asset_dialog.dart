@@ -9,12 +9,10 @@ import 'add_asset_form.dart';
 class AddAssetDialog extends StatelessWidget {
   const AddAssetDialog({
     super.key,
-    required this.nextTagId,
     required this.categories,
     this.existingBulk = const [],
   });
 
-  final String nextTagId;
   final List<AssetCategory> categories;
   final List<AssetItem> existingBulk;
 
@@ -45,7 +43,6 @@ class AddAssetDialog extends StatelessWidget {
                 ],
               ),
               AddAssetForm(
-                nextTagId: nextTagId,
                 categories: categories,
                 existingBulk: existingBulk,
                 compact: true,

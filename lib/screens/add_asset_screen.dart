@@ -13,12 +13,10 @@ import '../widgets/brand_mark.dart';
 class AddAssetScreen extends StatelessWidget {
   const AddAssetScreen({
     super.key,
-    required this.nextTagId,
     required this.categories,
     this.existingBulk = const [],
   });
 
-  final String nextTagId;
   final List<AssetCategory> categories;
   final List<AssetItem> existingBulk;
 
@@ -55,7 +53,6 @@ class AddAssetScreen extends StatelessWidget {
               ),
               const SizedBox(height: 48),
               AddAssetForm(
-                nextTagId: nextTagId,
                 categories: categories,
                 existingBulk: existingBulk,
                 onSubmit: (result) =>

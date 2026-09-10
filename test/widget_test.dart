@@ -119,21 +119,23 @@ void main() {
     expect(LoginScreen.routeName, '/login');
   });
 
-  test('new asset tag has the CSDO-IT prefix and does not duplicate an existing tag', () {
-    final existing = [
-      AssetItem(
-        name: 'Existing asset',
-        tagId: 'CSDO-IT-0000',
-        category: 'IT equipment',
-        description: '',
-        status: AssetStatus.available,
-        purchaseDate: DateTime(2024),
-      ),
-    ];
+  test('new asset payload carries no client-chosen tag_id; backend allocates it', () {
+    final draft = AssetItem(
+      name: 'Epson projector',
+      tagId: '', // the form leaves this empty — csdo_api/assets.php assigns it
+      category: 'IT equipment',
+      description: '',
+      status: AssetStatus.available,
+      purchaseDate: DateTime(2024),
+    );
 
-    final tagId = AssetItem.nextTagId(existing);
+    // The POST body must not include tag_id — the backend ignores any client
+    // value and hands the real one back in its response.
+    expect(draft.toJson().containsKey('tag_id'), isFalse);
 
-    expect(tagId, matches(RegExp(r'^CSDO-IT-\d{4}$')));
-    expect(existing.map((asset) => asset.tagId), isNot(contains(tagId)));
+    // The caller stamps the backend-allocated tag onto the local asset.
+    final saved = draft.copyWith(tagId: 'CSDO-IT-0042');
+    expect(saved.tagId, 'CSDO-IT-0042');
+    expect(saved.name, draft.name);
   });
 }

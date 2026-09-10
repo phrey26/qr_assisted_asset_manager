@@ -203,11 +203,12 @@ class _AppShellState extends State<AppShell> {
   // [_inventoryKey] above.
   final _categoriesKey = GlobalKey<CategoriesScreenState>();
 
-  /// Saves a new asset to the backend, then (once the insert succeeds)
-  /// drops it into the local list — the tag ID and category are already
-  /// generated/chosen locally, but showing the asset before the insert is
-  /// confirmed risks an inventory list that disagrees with the database if
-  /// the request fails.
+  /// Saves a new asset to the backend, then (once the insert succeeds) drops
+  /// it into the local list with the tag ID the backend allocated. The tag
+  /// is no longer chosen client-side — `csdo_api/assets.php` assigns it on
+  /// insert so the running number can't collide across devices — and the
+  /// asset isn't shown until the insert is confirmed, so the local list
+  /// can't disagree with the database if the request fails.
   Future<void> _addAsset(AssetItem asset) async {
     final categoryId = _categoryIds[asset.category];
     if (categoryId == null) {
@@ -216,9 +217,9 @@ class _AppShellState extends State<AppShell> {
     }
     try {
       final body = asset.toJson()..['category_id'] = categoryId;
-      await ApiService.addAsset(body);
+      final created = await ApiService.addAsset(body);
       if (!mounted) return;
-      setState(() => _assets.insert(0, asset));
+      setState(() => _assets.insert(0, asset.copyWith(tagId: created.tagId)));
     } catch (e) {
       _showSyncError('Could not save the new asset: $e');
     }
@@ -403,7 +404,6 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<void> _openAddAsset() async {
-    final tagId = AssetItem.nextTagId(_assets);
     final bulk = _assets.where((a) => a.isBulk).toList()
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     final AddAssetResult? result;
@@ -413,7 +413,6 @@ class _AppShellState extends State<AppShell> {
       result = await showDialog<AddAssetResult>(
         context: context,
         builder: (_) => AddAssetDialog(
-          nextTagId: tagId,
           categories: _categories,
           existingBulk: bulk,
         ),
@@ -423,7 +422,6 @@ class _AppShellState extends State<AppShell> {
         context,
         MaterialPageRoute(
           builder: (_) => AddAssetScreen(
-            nextTagId: tagId,
             categories: _categories,
             existingBulk: bulk,
           ),

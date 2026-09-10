@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:math';
 import 'dart:typed_data';
 
 /// The lifecycle state of an asset.
@@ -226,8 +225,9 @@ class AssetItem {
       );
 
   /// The fields `csdo_api/assets.php` (POST) expects in its request body.
+  /// No `tag_id` — it's allocated by the backend on insert and handed back
+  /// in the response (see [ApiService.addAsset]).
   Map<String, dynamic> toJson() => {
-        'tag_id': tagId,
         'name': name,
         'category_id': null, // filled in by the caller, which knows the id
         'description': description,
@@ -323,22 +323,37 @@ class AssetItem {
     return DateTime(year, month + 1, day);
   }
 
-  static String nextTagId(List<AssetItem> assets) {
-    final existingTags = assets.map((asset) => asset.tagId).toSet();
-    const tagPrefix = 'CSDO-IT-';
-    const possibleNumbers = 10000;
-    final tagFormat = RegExp(r'^CSDO-IT-\d{4}$');
-    final usedTagCount = existingTags.where(tagFormat.hasMatch).length;
-
-    if (usedTagCount >= possibleNumbers) {
-      throw StateError('All available CSDO-IT asset tag IDs have been used.');
-    }
-
-    final random = Random();
-    while (true) {
-      final number = random.nextInt(possibleNumbers).toString().padLeft(4, '0');
-      final tagId = '$tagPrefix$number';
-      if (!existingTags.contains(tagId)) return tagId;
-    }
-  }
+  /// A copy of this asset with the given fields replaced. Used to stamp the
+  /// backend-allocated [tagId] onto the asset once `csdo_api/assets.php`
+  /// (POST) returns it — the form builds the asset with an empty tag.
+  AssetItem copyWith({
+    String? name,
+    String? tagId,
+    String? category,
+    String? description,
+    AssetStatus? status,
+    DateTime? purchaseDate,
+    Uint8List? imageBytes,
+    String? lastConditionRaw,
+    AssetTracking? tracking,
+    int? quantityTotal,
+    int? quantityOut,
+    int? quantityDamaged,
+    int? reorderPoint,
+  }) =>
+      AssetItem(
+        name: name ?? this.name,
+        tagId: tagId ?? this.tagId,
+        category: category ?? this.category,
+        description: description ?? this.description,
+        status: status ?? this.status,
+        purchaseDate: purchaseDate ?? this.purchaseDate,
+        imageBytes: imageBytes ?? this.imageBytes,
+        lastConditionRaw: lastConditionRaw ?? this.lastConditionRaw,
+        tracking: tracking ?? this.tracking,
+        quantityTotal: quantityTotal ?? this.quantityTotal,
+        quantityOut: quantityOut ?? this.quantityOut,
+        quantityDamaged: quantityDamaged ?? this.quantityDamaged,
+        reorderPoint: reorderPoint ?? this.reorderPoint,
+      );
 }

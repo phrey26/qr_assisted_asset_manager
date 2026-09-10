@@ -3,6 +3,47 @@ require __DIR__ . '/db.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 
+/**
+ * Tag prefix for a category: "CSDO-" + the first two letters of the category
+ * name (uppercased, letters only, padded with X if it has fewer than two) +
+ * the category's row id + "-". The id keeps the prefix unique even when two
+ * categories start with the same two letters ("Tools" / "Toys" -> TO4 / TO7).
+ * e.g. "IT Equipment" (id 1) -> "CSDO-IT1-", "Furniture" (id 2) -> "CSDO-FU2-".
+ * Returns null when no category has that id.
+ */
+function tag_prefix_for_category(mysqli $mysqli, int $categoryId): ?string {
+    $stmt = $mysqli->prepare('SELECT value FROM categories WHERE id = ?');
+    $stmt->bind_param('i', $categoryId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    if (!$row) return null;
+    $letters = strtoupper(preg_replace('/[^A-Za-z]/', '', (string) $row['value']));
+    return 'CSDO-' . substr($letters . 'XX', 0, 2) . $categoryId . '-';
+}
+
+/**
+ * Next unused tag ID for $prefix: the highest running number already stored
+ * under that prefix, plus one, zero-padded to at least four digits (it grows
+ * past four once a prefix passes 9999). This is a best guess, not a hard
+ * guarantee — two POSTs racing each other can read the same MAX — so the
+ * caller inserts in a retry loop and asks again on a duplicate-key error.
+ */
+function next_tag_id(mysqli $mysqli, string $prefix): string {
+    $pos = strlen($prefix) + 1; // SUBSTRING() is 1-indexed; $pos is derived
+    $like = $prefix . '%';       // from strlen so it's safe to inline
+    $stmt = $mysqli->prepare(
+        'SELECT MAX(CAST(SUBSTRING(tag_id, ' . $pos . ') AS UNSIGNED)) AS max_num ' .
+        'FROM assets WHERE tag_id LIKE ?'
+    );
+    $stmt->bind_param('s', $like);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    $next = ($row && $row['max_num'] !== null) ? ((int) $row['max_num'] + 1) : 1;
+    return $prefix . str_pad((string) $next, 4, '0', STR_PAD_LEFT);
+}
+
 if ($method === 'GET') {
     $result = $mysqli->query(
         'SELECT a.id, a.tag_id, a.name, a.category_id, c.value AS category_value, ' .
@@ -33,7 +74,9 @@ if ($method === 'GET') {
 
 if ($method === 'POST') {
     $body = read_json_body();
-    $tagId = trim($body['tag_id'] ?? '');
+    // tag_id is NOT read from the request — it's allocated below, server-side,
+    // so the running number can't collide across devices and the prefix
+    // always reflects the real category. Any client-sent tag_id is ignored.
     $name = trim($body['name'] ?? '');
     $categoryId = $body['category_id'] ?? null;
     $description = (string) ($body['description'] ?? '');
@@ -53,33 +96,50 @@ if ($method === 'POST') {
     // level instead. Keep its status column at 'available' as a placeholder.
     if ($isBulk) $status = 'available';
 
-    if ($tagId === '' || $name === '' || $categoryId === null || $purchaseDate === '') {
-        fail(400, 'tag_id, name, category_id, and purchase_date are required.');
+    if ($name === '' || $categoryId === null || $purchaseDate === '') {
+        fail(400, 'name, category_id, and purchase_date are required.');
     }
     $categoryId = (int) $categoryId;
+
+    $prefix = tag_prefix_for_category($mysqli, $categoryId);
+    if ($prefix === null) fail(400, 'Unknown category_id.');
 
     $stmt = $mysqli->prepare(
         'INSERT INTO assets (tag_id, name, category_id, description, status, purchase_date, image_base64, ' .
         'tracking, quantity_total, quantity_out, reorder_point) ' .
         'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)'
     );
-    $stmt->bind_param(
-        'ssisssssii',
-        $tagId,
-        $name,
-        $categoryId,
-        $description,
-        $status,
-        $purchaseDate,
-        $imageBase64,
-        $tracking,
-        $quantityTotal,
-        $reorderPoint
-    );
 
-    if (!$stmt->execute()) {
+    // Allocate the tag ID and insert in one loop: if another POST grabbed the
+    // same number first, the UNIQUE index on tag_id rejects us with errno
+    // 1062 and we ask next_tag_id() again (it now sees the winning row).
+    $tagId = null;
+    $inserted = false;
+    for ($attempt = 0; $attempt < 6; $attempt++) {
+        $tagId = next_tag_id($mysqli, $prefix);
+        $stmt->bind_param(
+            'ssisssssii',
+            $tagId,
+            $name,
+            $categoryId,
+            $description,
+            $status,
+            $purchaseDate,
+            $imageBase64,
+            $tracking,
+            $quantityTotal,
+            $reorderPoint
+        );
+        if ($stmt->execute()) {
+            $inserted = true;
+            break;
+        }
+        if ($stmt->errno !== 1062) break; // a real failure, not a tag-id race
+    }
+    if (!$inserted) {
+        $err = $stmt->error;
         $stmt->close();
-        fail(500, 'Failed to add asset: ' . $mysqli->error);
+        fail(500, 'Failed to add asset: ' . $err);
     }
     $newId = $stmt->insert_id;
     $stmt->close();

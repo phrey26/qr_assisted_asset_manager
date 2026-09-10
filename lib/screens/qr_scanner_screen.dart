@@ -282,7 +282,7 @@ class _QrScannerScreenState extends State<QrScannerScreen>
           textInputAction: TextInputAction.search,
           onSubmitted: _handleTag,
           decoration: InputDecoration(
-            hintText: 'CSDO-IT-0231',
+            hintText: 'CSDO-IT1-0231',
             suffixIcon: IconButton(
               onPressed: () => _handleTag(tagController.text),
               icon: const Icon(Icons.arrow_forward),

@@ -51,15 +51,12 @@ class BulkRestockResult extends AddAssetResult {
 class AddAssetForm extends StatefulWidget {
   const AddAssetForm({
     super.key,
-    required this.nextTagId,
     required this.categories,
     required this.onSubmit,
     this.existingBulk = const [],
     this.onCancel,
     this.compact = false,
   });
-
-  final String nextTagId;
 
   /// Categories offered in the "Category" dropdown below. Owned by
   /// [AppShell] and shared with the Categories and Inventory tabs, so a
@@ -89,7 +86,6 @@ class AddAssetForm extends StatefulWidget {
 class _AddAssetFormState extends State<AddAssetForm> {
   final nameController = TextEditingController();
   final descriptionController = TextEditingController();
-  late final tagController = TextEditingController(text: widget.nextTagId);
   final quantityController = TextEditingController();
   final reorderController = TextEditingController();
   final unitCostController = TextEditingController();
@@ -154,7 +150,6 @@ class _AddAssetFormState extends State<AddAssetForm> {
   void dispose() {
     nameController.dispose();
     descriptionController.dispose();
-    tagController.dispose();
     quantityController.dispose();
     reorderController.dispose();
     unitCostController.dispose();
@@ -253,7 +248,9 @@ class _AddAssetFormState extends State<AddAssetForm> {
       NewAssetResult(
         AssetItem(
           name: nameController.text.trim(),
-          tagId: tagController.text.trim(),
+          // The backend allocates the tag ID on insert; the caller stamps it
+          // back onto this asset from the POST response.
+          tagId: '',
           category: category,
           description: descriptionController.text.trim(),
           status: (!_isBulk && toStock) ? AssetStatus.inStock : AssetStatus.available,
@@ -412,21 +409,29 @@ class _AddAssetFormState extends State<AddAssetForm> {
       ),
       SizedBox(height: gap),
       _label('Asset tag ID'),
-      TextField(
-        controller: tagController,
-        readOnly: true,
-        style: const TextStyle(
-          color: AppTheme.primary,
-          fontFamily: 'monospace',
-          fontSize: 19,
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        decoration: BoxDecoration(
+          color: AppTheme.mint,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppTheme.primary, width: 2),
         ),
-        decoration: InputDecoration(
-          filled: true,
-          fillColor: AppTheme.mint,
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
-            borderSide: const BorderSide(color: AppTheme.primary, width: 2),
-          ),
+        child: const Row(
+          children: [
+            Icon(Icons.qr_code_2, color: AppTheme.primary, size: 20),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Assigned automatically when you save',
+                style: TextStyle(
+                  color: AppTheme.primary,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
       SizedBox(height: gap),

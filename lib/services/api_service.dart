@@ -287,7 +287,11 @@ class ApiService {
   /// Adds a new asset to the inventory. [asset] should be built via
   /// [AssetItem.toJson] (with `category_id` filled in, since the model
   /// itself only knows the category's string value).
-  static Future<int> addAsset(Map<String, dynamic> asset) async {
+  ///
+  /// Returns the new row's `id` and the `tag_id` the backend allocated for
+  /// it — the tag is not chosen client-side, so the caller stamps the
+  /// returned value onto its local [AssetItem].
+  static Future<({int id, String tagId})> addAsset(Map<String, dynamic> asset) async {
     final response = await http
         .post(
           Uri.parse('$baseUrl/assets.php'),
@@ -300,7 +304,7 @@ class ApiService {
     if (response.statusCode != 201) {
       throw Exception(body['error'] ?? 'Failed to add asset');
     }
-    return body['id'] as int;
+    return (id: body['id'] as int, tagId: body['tag_id'] as String);
   }
 
   /// Updates an existing asset's status (e.g. flagging it under
