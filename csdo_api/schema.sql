@@ -92,6 +92,17 @@ CREATE TABLE IF NOT EXISTS assets (
   quantity_out INT NOT NULL DEFAULT 0,                  -- units on loan now (bulk)
   quantity_damaged INT NOT NULL DEFAULT 0,              -- units back from loan damaged, set aside pending repair/disposal (bulk)
   reorder_point INT NULL,                               -- low-stock threshold (bulk)
+  -- Where the asset normally lives / who is responsible for it. Free text,
+  -- both optional, editable from the asset's Edit form. This is the static
+  -- "belongs to" — the dynamic "who has it on loan right now" is derived
+  -- from the active approved request in assets.php (GET), not stored here.
+  home_location VARCHAR(150) NULL,
+  custodian VARCHAR(150) NULL,
+  -- Set every time an admin scans the asset and records where they found
+  -- it (see the 'sighting' action in assets.php PUT and the scan result
+  -- screen). last_scanned_at with no location still counts as "seen here".
+  last_location VARCHAR(150) NULL,
+  last_scanned_at DATETIME NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_assets_category FOREIGN KEY (category_id) REFERENCES categories(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -100,7 +111,11 @@ ALTER TABLE assets
   ADD COLUMN IF NOT EXISTS quantity_total   INT NULL,
   ADD COLUMN IF NOT EXISTS quantity_out     INT NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS quantity_damaged INT NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS reorder_point    INT NULL;
+  ADD COLUMN IF NOT EXISTS reorder_point    INT NULL,
+  ADD COLUMN IF NOT EXISTS home_location    VARCHAR(150) NULL,
+  ADD COLUMN IF NOT EXISTS custodian        VARCHAR(150) NULL,
+  ADD COLUMN IF NOT EXISTS last_location    VARCHAR(150) NULL,
+  ADD COLUMN IF NOT EXISTS last_scanned_at  DATETIME NULL;
 ALTER TABLE assets DROP COLUMN IF EXISTS unit_label;
 
 CREATE TABLE IF NOT EXISTS requests (
@@ -156,12 +171,14 @@ ALTER TABLE request_assets ADD COLUMN IF NOT EXISTS quantity INT NOT NULL DEFAUL
 
 -- Per-asset timeline / audit log. One row per notable thing that happened
 -- to an asset: 'added', a flow-driven status move ('available' from "Move
--- to active", 'maintenance' / 'in_stock' from "Move to stock"), or a
+-- to active", 'maintenance' / 'in_stock' from "Move to stock"), a
 -- request-driven change ('borrowed', 'returned', 'released' when a loan is
--- cancelled). `detail` carries context such as the
--- request title; `request_id` is informational only (no FK, so the line
--- survives the request being deleted). Written by log_asset_event() in
--- db.php. Safe to re-run.
+-- cancelled), an 'edited' (admin changed the asset's details), or a
+-- 'scanned' (an admin scanned it and recorded where they found it —
+-- `detail` is the location). `detail` carries context such as the request
+-- title or the sighting location; `request_id` is informational only (no
+-- FK, so the line survives the request being deleted). Written by
+-- log_asset_event() in db.php. Safe to re-run.
 CREATE TABLE IF NOT EXISTS asset_events (
   id INT AUTO_INCREMENT PRIMARY KEY,
   asset_id INT NOT NULL,

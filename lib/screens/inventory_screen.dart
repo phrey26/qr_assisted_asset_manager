@@ -40,6 +40,7 @@ extension InventorySortOptionX on InventorySortOption {
 void _openAssetDetail(
   BuildContext context,
   AssetItem asset, {
+  void Function(AssetItem asset)? onEditAsset,
   void Function(AssetItem asset, String reason, bool needsMaintenance)? onRetireAsset,
   void Function(AssetItem asset, String reason)? onDeleteAsset,
   void Function(AssetItem asset, StockSummary summary)? onBulkStockChanged,
@@ -49,6 +50,7 @@ void _openAssetDetail(
     MaterialPageRoute(
       builder: (_) => AssetDetailScreen(
         asset: asset,
+        onEdit: onEditAsset == null ? null : () => onEditAsset(asset),
         // A bulk pool is deleted (once run down to zero), never retired to
         // stock; an individual asset is retired to stock.
         removalMode:
@@ -85,6 +87,7 @@ class InventoryScreen extends StatefulWidget {
     required this.assets,
     required this.categories,
     this.onAddAsset,
+    this.onEditAsset,
     this.onRetireAsset,
     this.onDeleteAsset,
     this.onActivateAsset,
@@ -103,6 +106,11 @@ class InventoryScreen extends StatefulWidget {
   /// inline "+ Add asset" button next to the page title, matching the
   /// hi-fi desktop mockups.
   final VoidCallback? onAddAsset;
+
+  /// Invoked with an asset the admin wants to edit — opens the prefilled
+  /// Add Asset form in "edit" mode. Forwarded to [AssetDetailScreen]'s Edit
+  /// button. When null, no edit affordance is shown.
+  final void Function(AssetItem asset)? onEditAsset;
 
   /// Invoked (with the admin's reason, and whether the asset needs repair —
   /// which files it under "Maintenance" rather than plain "In stock") to
@@ -342,6 +350,7 @@ class InventoryScreenState extends State<InventoryScreen> {
                   constraints: BoxConstraints(maxWidth: maxWidth),
                   child: _InventoryTable(
                     assets: filtered,
+                    onEditAsset: widget.onEditAsset,
                     onRetireAsset: widget.onRetireAsset,
                     onDeleteAsset: widget.onDeleteAsset,
                     onBulkStockChanged: widget.onBulkStockChanged,
@@ -365,6 +374,7 @@ class InventoryScreenState extends State<InventoryScreen> {
                   onTap: () => _openAssetDetail(
                     context,
                     asset,
+                    onEditAsset: widget.onEditAsset,
                     onRetireAsset: widget.onRetireAsset,
                     onDeleteAsset: widget.onDeleteAsset,
                     onBulkStockChanged: widget.onBulkStockChanged,
@@ -440,12 +450,14 @@ class InventoryScreenState extends State<InventoryScreen> {
 class _InventoryTable extends StatelessWidget {
   const _InventoryTable({
     required this.assets,
+    this.onEditAsset,
     this.onRetireAsset,
     this.onDeleteAsset,
     this.onBulkStockChanged,
   });
 
   final List<AssetItem> assets;
+  final void Function(AssetItem asset)? onEditAsset;
   final void Function(AssetItem asset, String reason, bool needsMaintenance)? onRetireAsset;
   final void Function(AssetItem asset, String reason)? onDeleteAsset;
   final void Function(AssetItem asset, StockSummary summary)? onBulkStockChanged;
@@ -495,6 +507,7 @@ class _InventoryTable extends StatelessWidget {
                   onSelectChanged: (_) => _openAssetDetail(
                     context,
                     asset,
+                    onEditAsset: onEditAsset,
                     onRetireAsset: onRetireAsset,
                     onDeleteAsset: onDeleteAsset,
                     onBulkStockChanged: onBulkStockChanged,

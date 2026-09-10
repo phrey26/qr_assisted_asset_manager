@@ -21,6 +21,15 @@ class NewAssetResult extends AddAssetResult {
   final AssetItem asset;
 }
 
+/// An edit to an existing asset — [asset] carries the original's tag,
+/// status, tracking and quantities with the admin-editable fields (name,
+/// category, description, purchase date, photo, home location, person
+/// responsible, and — bulk only — reorder point) overwritten.
+class EditAssetResult extends AddAssetResult {
+  const EditAssetResult(this.asset);
+  final AssetItem asset;
+}
+
 /// "We bought more" — add units to an existing bulk item, with the same
 /// supplier paperwork as the "Add stock" action on the asset detail screen.
 class BulkRestockResult extends AddAssetResult {
@@ -51,9 +60,15 @@ class AddAssetForm extends StatefulWidget {
     required this.categories,
     required this.onSubmit,
     this.existingBulk = const [],
+    this.initial,
     this.onCancel,
     this.compact = false,
   });
+
+  /// When set, the form runs in "edit" mode: fields are prefilled from this
+  /// asset, the tracking selector and bulk-restock path are hidden, the tag
+  /// ID is shown read-only, and submitting produces an [EditAssetResult].
+  final AssetItem? initial;
 
   /// Categories offered in the "Category" dropdown below. Owned by
   /// [AppShell] and shared with the Categories and Inventory tabs, so a
@@ -86,9 +101,13 @@ class _AddAssetFormState extends State<AddAssetForm> {
   final quantityController = TextEditingController();
   final reorderController = TextEditingController();
   final supplierController = TextEditingController();
+  final homeLocationController = TextEditingController();
+  final custodianController = TextEditingController();
   late String category;
   DateTime? purchaseDate;
   Uint8List? imageBytes;
+
+  bool get _isEdit => widget.initial != null;
 
   /// Bulk only: when true, the form tops up an existing pool ([_restockTag])
   /// instead of creating a new asset. Only reachable when
@@ -115,6 +134,22 @@ class _AddAssetFormState extends State<AddAssetForm> {
   @override
   void initState() {
     super.initState();
+    final initial = widget.initial;
+    if (initial != null) {
+      nameController.text = initial.name;
+      descriptionController.text = initial.description;
+      homeLocationController.text = initial.homeLocation ?? '';
+      custodianController.text = initial.custodian ?? '';
+      reorderController.text = initial.reorderPoint?.toString() ?? '';
+      category = widget.categories.any((c) => c.value == initial.category)
+          ? initial.category
+          : widget.categories.first.value;
+      purchaseDate = initial.purchaseDate;
+      imageBytes = initial.imageBytes;
+      tracking = initial.tracking;
+      _trackingTouched = true; // never re-seed from the category in edit mode
+      return;
+    }
     category = widget.categories.first.value;
     tracking = widget.categories.first.defaultTracking;
   }
@@ -150,6 +185,8 @@ class _AddAssetFormState extends State<AddAssetForm> {
     quantityController.dispose();
     reorderController.dispose();
     supplierController.dispose();
+    homeLocationController.dispose();
+    custodianController.dispose();
     super.dispose();
   }
 
@@ -211,6 +248,12 @@ class _AddAssetFormState extends State<AddAssetForm> {
     if (bytes != null && mounted) setState(() => imageBytes = bytes);
   }
 
+  /// Trims a controller's text, returning null when it's blank.
+  String? _nullable(TextEditingController c) {
+    final t = c.text.trim();
+    return t.isEmpty ? null : t;
+  }
+
   void _save() {
     if (_restock) {
       _submitRestock();
@@ -227,10 +270,14 @@ class _AddAssetFormState extends State<AddAssetForm> {
     int? quantity;
     int? reorder;
     if (_isBulk) {
-      quantity = int.tryParse(quantityController.text.trim());
-      if (quantity == null || quantity < 0) {
-        _toast('Enter the quantity on hand (0 or more).');
-        return;
+      // In edit mode the quantity-on-hand field isn't shown (the count is
+      // ledger-driven via the stock actions), so only validate it on create.
+      if (!_isEdit) {
+        quantity = int.tryParse(quantityController.text.trim());
+        if (quantity == null || quantity < 0) {
+          _toast('Enter the quantity on hand (0 or more).');
+          return;
+        }
       }
       final rawReorder = reorderController.text.trim();
       if (rawReorder.isNotEmpty) {
@@ -241,6 +288,39 @@ class _AddAssetFormState extends State<AddAssetForm> {
         }
       }
     }
+
+    if (_isEdit) {
+      final initial = widget.initial!;
+      widget.onSubmit(
+        EditAssetResult(
+          AssetItem(
+            name: nameController.text.trim(),
+            tagId: initial.tagId,
+            category: category,
+            description: descriptionController.text.trim(),
+            status: initial.status,
+            purchaseDate: purchaseDate!,
+            imageBytes: imageBytes,
+            lastConditionRaw: initial.lastConditionRaw,
+            tracking: initial.tracking,
+            quantityTotal: initial.quantityTotal,
+            quantityOut: initial.quantityOut,
+            quantityDamaged: initial.quantityDamaged,
+            reorderPoint: initial.isBulk ? reorder : initial.reorderPoint,
+            lifespanYears: initial.lifespanYears,
+            homeLocation: _nullable(homeLocationController),
+            custodian: _nullable(custodianController),
+            lastLocation: initial.lastLocation,
+            lastScannedAt: initial.lastScannedAt,
+            currentHolder: initial.currentHolder,
+            currentHolderDepartment: initial.currentHolderDepartment,
+            dueBack: initial.dueBack,
+          ),
+        ),
+      );
+      return;
+    }
+
     widget.onSubmit(
       NewAssetResult(
         AssetItem(
@@ -258,6 +338,8 @@ class _AddAssetFormState extends State<AddAssetForm> {
           tracking: tracking,
           quantityTotal: _isBulk ? quantity : null,
           reorderPoint: _isBulk ? reorder : null,
+          homeLocation: _nullable(homeLocationController),
+          custodian: _nullable(custodianController),
         ),
       ),
     );
@@ -295,13 +377,17 @@ class _AddAssetFormState extends State<AddAssetForm> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        _label('How is it tracked?'),
-        _trackingSelector(),
-        SizedBox(height: gap),
-        if (_isBulk && widget.existingBulk.isNotEmpty) ...[
-          _label('Add stock to'),
-          _bulkModeSelector(),
+        // Tracking mode and the restock path are create-only. Editing an
+        // existing asset never changes how it's tracked.
+        if (!_isEdit) ...[
+          _label('How is it tracked?'),
+          _trackingSelector(),
           SizedBox(height: gap),
+          if (_isBulk && widget.existingBulk.isNotEmpty) ...[
+            _label('Add stock to'),
+            _bulkModeSelector(),
+            SizedBox(height: gap),
+          ],
         ],
         if (_restock) ..._restockFields(gap) else ..._newAssetFields(gap),
         SizedBox(height: widget.compact ? 22 : 40),
@@ -399,20 +485,25 @@ class _AddAssetFormState extends State<AddAssetForm> {
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: AppTheme.primary, width: 2),
         ),
-        child: const Row(
+        child: Row(
           children: [
-            Icon(Icons.qr_code_2, color: AppTheme.primary, size: 20),
-            SizedBox(width: 10),
+            const Icon(Icons.qr_code_2, color: AppTheme.primary, size: 20),
+            const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Assigned automatically when you save',
+                _isEdit
+                    ? widget.initial!.tagId
+                    : 'Assigned automatically when you save',
                 style: TextStyle(
                   color: AppTheme.primary,
                   fontWeight: FontWeight.w700,
                   fontSize: 15,
+                  fontFamily: _isEdit ? 'monospace' : null,
                 ),
               ),
             ),
+            if (_isEdit)
+              const Icon(Icons.lock_outline, color: AppTheme.primary, size: 16),
           ],
         ),
       ),
@@ -428,13 +519,15 @@ class _AddAssetFormState extends State<AddAssetForm> {
       ),
       SizedBox(height: gap),
       if (_isBulk) ...[
-        _label('Quantity on hand'),
-        TextField(
-          controller: quantityController,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(hintText: 'e.g. 50'),
-        ),
-        SizedBox(height: gap),
+        if (!_isEdit) ...[
+          _label('Quantity on hand'),
+          TextField(
+            controller: quantityController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(hintText: 'e.g. 50'),
+          ),
+          SizedBox(height: gap),
+        ],
         _label('Reorder point (optional)'),
         TextField(
           controller: reorderController,
@@ -444,7 +537,7 @@ class _AddAssetFormState extends State<AddAssetForm> {
           ),
         ),
         SizedBox(height: gap),
-      ] else ...[
+      ] else if (!_isEdit) ...[
         _label('Add to'),
         _destinationSelector(),
         SizedBox(height: gap),
@@ -462,6 +555,24 @@ class _AddAssetFormState extends State<AddAssetForm> {
         maxLines: 4,
         decoration: const InputDecoration(
           hintText: 'Serial no., condition, accessories included...',
+        ),
+      ),
+      SizedBox(height: gap),
+      _label('Home location (optional)'),
+      TextField(
+        controller: homeLocationController,
+        textCapitalization: TextCapitalization.words,
+        decoration: const InputDecoration(
+          hintText: 'Where it normally lives, e.g. AVR Room',
+        ),
+      ),
+      SizedBox(height: gap),
+      _label('Person responsible (optional)'),
+      TextField(
+        controller: custodianController,
+        textCapitalization: TextCapitalization.words,
+        decoration: const InputDecoration(
+          hintText: 'Who looks after it, e.g. J. Cruz',
         ),
       ),
     ];
@@ -489,8 +600,16 @@ class _AddAssetFormState extends State<AddAssetForm> {
   }
 
   Widget _saveRow() {
-    final label = _restock ? 'Add to stock' : 'Generate QR and save';
-    final icon = _restock ? Icons.add_shopping_cart_outlined : Icons.qr_code_2;
+    final label = _isEdit
+        ? 'Save changes'
+        : _restock
+        ? 'Add to stock'
+        : 'Generate QR and save';
+    final icon = _isEdit
+        ? Icons.check
+        : _restock
+        ? Icons.add_shopping_cart_outlined
+        : Icons.qr_code_2;
     if (widget.onCancel != null) {
       return Row(
         children: [

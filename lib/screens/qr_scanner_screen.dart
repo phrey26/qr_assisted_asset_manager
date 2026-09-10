@@ -10,10 +10,20 @@ import '../widgets/status_chip.dart';
 import 'qr_scan_result_screen.dart';
 
 class QrScannerScreen extends StatefulWidget {
-  const QrScannerScreen({super.key, required this.assets, this.isActive = true});
+  const QrScannerScreen({
+    super.key,
+    required this.assets,
+    this.isActive = true,
+    this.onSighting,
+  });
 
   /// The current inventory, including assets created during this session.
   final List<AssetItem> assets;
+
+  /// Records that an admin scanned an asset and, optionally, where they
+  /// found it — forwarded to the scan result (dialog on desktop, page on
+  /// mobile) so a scan can update the asset's "last seen".
+  final void Function(AssetItem asset, String? location)? onSighting;
 
   /// Whether the Scanner tab is the one currently on screen. This screen
   /// lives in [AppShell]'s IndexedStack, which keeps every tab mounted at
@@ -147,7 +157,11 @@ class _QrScannerScreenState extends State<QrScannerScreen>
     setState(() => _isShowingResult = true);
     await showDialog<void>(
       context: context,
-      builder: (_) => _ScanResultDialog(tag: tag, asset: asset),
+      builder: (_) => _ScanResultDialog(
+        tag: tag,
+        asset: asset,
+        onSighting: widget.onSighting,
+      ),
     );
     if (!mounted) return;
     setState(() => _isShowingResult = false);
@@ -160,7 +174,13 @@ class _QrScannerScreenState extends State<QrScannerScreen>
     setState(() => _isShowingResult = true);
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => QrScanResultScreen(tag: tag, asset: asset)),
+      MaterialPageRoute(
+        builder: (_) => QrScanResultScreen(
+          tag: tag,
+          asset: asset,
+          onSighting: widget.onSighting,
+        ),
+      ),
     );
     if (!mounted) return;
     setState(() => _isShowingResult = false);
@@ -477,15 +497,48 @@ class _QrScannerScreenState extends State<QrScannerScreen>
 /// dismissible popup instead of a full page. Closing it (the X button,
 /// tapping outside, or Esc) returns the scan screen to a fresh
 /// scanning-ready state.
-class _ScanResultDialog extends StatelessWidget {
-  const _ScanResultDialog({required this.tag, required this.asset});
+class _ScanResultDialog extends StatefulWidget {
+  const _ScanResultDialog({
+    required this.tag,
+    required this.asset,
+    this.onSighting,
+  });
 
   final String tag;
   final AssetItem? asset;
+  final void Function(AssetItem asset, String? location)? onSighting;
+
+  @override
+  State<_ScanResultDialog> createState() => _ScanResultDialogState();
+}
+
+class _ScanResultDialogState extends State<_ScanResultDialog> {
+  final _location = TextEditingController();
+  bool _saved = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _location.text = widget.asset?.lastLocation ?? '';
+  }
+
+  @override
+  void dispose() {
+    _location.dispose();
+    super.dispose();
+  }
+
+  void _recordSighting() {
+    final asset = widget.asset;
+    if (asset == null || widget.onSighting == null) return;
+    final loc = _location.text.trim();
+    widget.onSighting!(asset, loc.isEmpty ? null : loc);
+    setState(() => _saved = true);
+  }
 
   @override
   Widget build(BuildContext context) {
-    final asset = this.asset;
+    final asset = widget.asset;
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: ConstrainedBox(
@@ -544,7 +597,7 @@ class _ScanResultDialog extends StatelessWidget {
               const SizedBox(height: 8),
               if (asset == null)
                 Text(
-                  'No asset in the inventory matches the tag "$tag".',
+                  'No asset in the inventory matches the tag "${widget.tag}".',
                   style: const TextStyle(color: Color(0xFFC84040), fontWeight: FontWeight.w600),
                 )
               else ...[
@@ -561,15 +614,89 @@ class _ScanResultDialog extends StatelessWidget {
                 _detailRow('Asset tag ID', asset.tagId, mono: true),
                 _detailRow('Category', asset.category),
                 _detailRow('Date of purchase', asset.formattedPurchaseDate),
+                if (asset.homeLocation != null)
+                  _detailRow('Home location', asset.homeLocation!),
+                if (!asset.isBulk && asset.currentHolder != null)
+                  _detailRow(
+                    'Currently with',
+                    asset.dueBack == null
+                        ? asset.currentHolder!
+                        : '${asset.currentHolder!} · due back ${asset.dueBack}',
+                  ),
+                _detailRow(
+                  'Last seen',
+                  asset.formattedLastScannedAt == null
+                      ? 'Never scanned'
+                      : '${asset.lastLocation ?? 'Location not recorded'} · ${asset.formattedLastScannedAt}',
+                ),
                 _detailRow(
                   'Description',
-                  asset.description.isEmpty ? 'No description provided.' : asset.description,
+                  asset.description.isEmpty
+                      ? 'No description provided.'
+                      : asset.description,
                   isLast: true,
                 ),
+                if (widget.onSighting != null) ...[
+                  const SizedBox(height: 4),
+                  _sightingBox(asset),
+                ],
               ],
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _sightingBox(AssetItem asset) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.mint,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.primary, width: 1.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Found it? Note where you saw it.',
+            style: TextStyle(
+              color: AppTheme.primary,
+              fontWeight: FontWeight.w800,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _location,
+                  textCapitalization: TextCapitalization.words,
+                  onChanged: (_) {
+                    if (_saved) setState(() => _saved = false);
+                  },
+                  decoration: const InputDecoration(
+                    filled: true,
+                    fillColor: Colors.white,
+                    isDense: true,
+                    hintText: 'e.g. AVR Room, Shelf 3',
+                    prefixIcon: Icon(Icons.place_outlined),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              ElevatedButton.icon(
+                onPressed: _saved ? null : _recordSighting,
+                icon: Icon(_saved ? Icons.check : Icons.save_outlined, size: 18),
+                label: Text(_saved ? 'Saved' : 'Record'),
+                style: ElevatedButton.styleFrom(minimumSize: const Size(0, 48)),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

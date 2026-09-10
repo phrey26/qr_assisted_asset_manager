@@ -173,4 +173,41 @@ void main() {
       isFalse,
     );
   });
+
+  test('editJson carries only editable fields and the derived custody fields '
+      'round-trip through fromJson', () {
+    final asset = AssetItem.fromJson({
+      'name': 'Epson projector',
+      'tag_id': 'CSDO-IT1-0007',
+      'category_value': 'IT Equipment',
+      'description': 'Room projector',
+      'status': 'in_use',
+      'purchase_date': '2022-05-01',
+      'home_location': 'AVR Room',
+      'custodian': 'J. Cruz',
+      'last_location': 'Library A/V closet',
+      'last_scanned_at': '2025-09-10 14:45:00',
+      'current_holder': 'Maria Santos',
+      'current_holder_department': 'CSDO',
+      'due_back': '2025-09-20',
+    });
+
+    expect(asset.homeLocation, 'AVR Room');
+    expect(asset.custodian, 'J. Cruz');
+    expect(asset.lastLocation, 'Library A/V closet');
+    expect(asset.lastScannedAt, isNotNull);
+    expect(asset.currentHolder, 'Maria Santos');
+    expect(asset.dueBack, '2025-09-20');
+
+    final body = asset.editJson();
+    expect(body['action'], 'edit');
+    expect(body['tag_id'], 'CSDO-IT1-0007');
+    expect(body['home_location'], 'AVR Room');
+    expect(body['custodian'], 'J. Cruz');
+    // Never editable through this path.
+    expect(body.containsKey('status'), isFalse);
+    expect(body.containsKey('tracking'), isFalse);
+    // Individual asset: no reorder point in the edit body.
+    expect(body.containsKey('reorder_point'), isFalse);
+  });
 }

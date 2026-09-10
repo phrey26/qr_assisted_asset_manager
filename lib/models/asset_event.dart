@@ -13,6 +13,8 @@ enum AssetEventType {
   available,
   maintenance,
   inStock,
+  edited,
+  scanned,
   other,
 }
 
@@ -55,6 +57,10 @@ class AssetEvent {
         return AssetEventType.maintenance;
       case 'in_stock':
         return AssetEventType.inStock;
+      case 'edited':
+        return AssetEventType.edited;
+      case 'scanned':
+        return AssetEventType.scanned;
       default:
         return AssetEventType.other;
     }
@@ -91,6 +97,10 @@ class AssetEvent {
         return 'Put under maintenance';
       case AssetEventType.inStock:
         return 'Moved to stock';
+      case AssetEventType.edited:
+        return 'Details edited';
+      case AssetEventType.scanned:
+        return 'Scanned';
       case AssetEventType.other:
         return rawType == null || rawType!.isEmpty ? 'Updated' : rawType!;
     }
@@ -112,6 +122,10 @@ class AssetEvent {
         return Icons.build_outlined;
       case AssetEventType.inStock:
         return Icons.archive_outlined;
+      case AssetEventType.edited:
+        return Icons.edit_outlined;
+      case AssetEventType.scanned:
+        return Icons.qr_code_scanner;
       case AssetEventType.other:
         return Icons.history;
     }
@@ -135,6 +149,10 @@ class AssetEvent {
         return (AppTheme.redTint, const Color(0xFFC84040));
       case AssetEventType.inStock:
         return (AppTheme.slateTint, AppTheme.muted);
+      case AssetEventType.edited:
+        return (AppTheme.slateTint, AppTheme.muted);
+      case AssetEventType.scanned:
+        return (AppTheme.mint, AppTheme.primary);
       case AssetEventType.other:
         return (AppTheme.border, AppTheme.muted);
     }

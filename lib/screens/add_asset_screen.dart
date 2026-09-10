@@ -15,10 +15,12 @@ class AddAssetScreen extends StatelessWidget {
     super.key,
     required this.categories,
     this.existingBulk = const [],
+    this.initialAsset,
   });
 
   final List<AssetCategory> categories;
   final List<AssetItem> existingBulk;
+  final AssetItem? initialAsset;
 
   @override
   Widget build(BuildContext context) {
@@ -35,14 +37,14 @@ class AddAssetScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Row(
+              Row(
                 children: [
-                  BrandMark(size: 84),
-                  SizedBox(width: 28),
+                  const BrandMark(size: 84),
+                  const SizedBox(width: 28),
                   Expanded(
                     child: Text(
-                      'Add new asset',
-                      style: TextStyle(
+                      initialAsset == null ? 'Add new asset' : 'Edit asset',
+                      style: const TextStyle(
                         color: AppTheme.darkGreen,
                         fontSize: 30,
                         fontWeight: FontWeight.w800,
@@ -55,6 +57,7 @@ class AddAssetScreen extends StatelessWidget {
               AddAssetForm(
                 categories: categories,
                 existingBulk: existingBulk,
+                initial: initialAsset,
                 onSubmit: (result) =>
                     Navigator.pop<AddAssetResult>(context, result),
               ),

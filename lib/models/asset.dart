@@ -94,12 +94,39 @@ class AssetItem {
     this.quantityDamaged = 0,
     this.reorderPoint,
     this.lifespanYears,
+    this.homeLocation,
+    this.custodian,
+    this.lastLocation,
+    this.lastScannedAt,
+    this.currentHolder,
+    this.currentHolderDepartment,
+    this.dueBack,
   });
 
   final String name;
   final String tagId;
   final String category;
   final String description;
+
+  /// Where the asset normally lives, and who's responsible for it. Free
+  /// text, both optional, set on the asset's Edit form. Static "belongs to"
+  /// — distinct from [currentHolder], which is whoever has it on loan now.
+  final String? homeLocation;
+  final String? custodian;
+
+  /// Where an admin last physically found this asset, and when they scanned
+  /// it to record that. Written by the "sighting" action from the scan
+  /// result screen. [lastLocation] can be null (scanned without noting a
+  /// place) even when [lastScannedAt] is set.
+  final String? lastLocation;
+  final DateTime? lastScannedAt;
+
+  /// Who currently holds the asset on an approved loan, their department,
+  /// and the request's return date — all derived server-side from the
+  /// active request (not stored on the asset). Null when it isn't out.
+  final String? currentHolder;
+  final String? currentHolderDepartment;
+  final String? dueBack;
 
   /// Expected service life in years for this asset's category, or null when
   /// the category isn't age-tracked. Resolved from the category at fetch
@@ -224,7 +251,22 @@ class AssetItem {
         quantityDamaged: (json['quantity_damaged'] as num?)?.toInt() ?? 0,
         reorderPoint: (json['reorder_point'] as num?)?.toInt(),
         lifespanYears: (json['category_lifespan_years'] as num?)?.toInt(),
+        homeLocation: _str(json['home_location']),
+        custodian: _str(json['custodian']),
+        lastLocation: _str(json['last_location']),
+        lastScannedAt: DateTime.tryParse(
+          (json['last_scanned_at'] as String?) ?? '',
+        )?.toLocal(),
+        currentHolder: _str(json['current_holder']),
+        currentHolderDepartment: _str(json['current_holder_department']),
+        dueBack: _str(json['due_back']),
       );
+
+  /// Trims a JSON string, returning null for null/blank.
+  static String? _str(Object? value) {
+    final text = (value as String?)?.trim();
+    return (text == null || text.isEmpty) ? null : text;
+  }
 
   /// The fields `csdo_api/assets.php` (POST) expects in its request body.
   /// No `tag_id` — it's allocated by the backend on insert and handed back
@@ -242,7 +284,39 @@ class AssetItem {
         'tracking': tracking.apiValue,
         'quantity_total': quantityTotal,
         'reorder_point': reorderPoint,
+        'home_location': homeLocation,
+        'custodian': custodian,
       };
+
+  /// The body for `csdo_api/assets.php` PUT with `action: 'edit'`. Only the
+  /// admin-editable fields — never `tag_id` (identity), `tracking` or
+  /// `status`. `category_id` is filled in by the caller, which knows the id.
+  /// `reorder_point` is only meaningful for bulk assets.
+  Map<String, dynamic> editJson() => {
+        'action': 'edit',
+        'tag_id': tagId,
+        'name': name,
+        'category_id': null,
+        'description': description,
+        'purchase_date':
+            '${purchaseDate.year.toString().padLeft(4, '0')}-'
+            '${purchaseDate.month.toString().padLeft(2, '0')}-'
+            '${purchaseDate.day.toString().padLeft(2, '0')}',
+        'image_base64': imageBytes == null ? null : base64Encode(imageBytes!),
+        'home_location': homeLocation,
+        'custodian': custodian,
+        if (isBulk) 'reorder_point': reorderPoint,
+      };
+
+  /// "Sep 10, 2025 · 2:45 PM" for [lastScannedAt], or null if never scanned.
+  String? get formattedLastScannedAt {
+    final at = lastScannedAt;
+    if (at == null) return null;
+    final h = at.hour % 12 == 0 ? 12 : at.hour % 12;
+    final m = at.minute.toString().padLeft(2, '0');
+    final ap = at.hour < 12 ? 'AM' : 'PM';
+    return '${formatDate(at)} · $h:$m $ap';
+  }
 
   static List<AssetItem> samples = [
     AssetItem(
@@ -343,6 +417,13 @@ class AssetItem {
     int? quantityDamaged,
     int? reorderPoint,
     int? lifespanYears,
+    String? homeLocation,
+    String? custodian,
+    String? lastLocation,
+    DateTime? lastScannedAt,
+    String? currentHolder,
+    String? currentHolderDepartment,
+    String? dueBack,
   }) =>
       AssetItem(
         name: name ?? this.name,
@@ -359,5 +440,13 @@ class AssetItem {
         quantityDamaged: quantityDamaged ?? this.quantityDamaged,
         reorderPoint: reorderPoint ?? this.reorderPoint,
         lifespanYears: lifespanYears ?? this.lifespanYears,
+        homeLocation: homeLocation ?? this.homeLocation,
+        custodian: custodian ?? this.custodian,
+        lastLocation: lastLocation ?? this.lastLocation,
+        lastScannedAt: lastScannedAt ?? this.lastScannedAt,
+        currentHolder: currentHolder ?? this.currentHolder,
+        currentHolderDepartment:
+            currentHolderDepartment ?? this.currentHolderDepartment,
+        dueBack: dueBack ?? this.dueBack,
       );
 }

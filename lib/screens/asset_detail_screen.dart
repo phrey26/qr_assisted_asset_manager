@@ -30,6 +30,7 @@ class AssetDetailScreen extends StatefulWidget {
   const AssetDetailScreen({
     super.key,
     required this.asset,
+    this.onEdit,
     this.onDelete,
     this.onActivate,
     this.onStockChanged,
@@ -37,6 +38,10 @@ class AssetDetailScreen extends StatefulWidget {
   });
 
   final AssetItem asset;
+
+  /// Invoked when the admin taps "Edit" — opens the prefilled Add Asset
+  /// form in edit mode. When null, no Edit action is shown.
+  final VoidCallback? onEdit;
 
   /// Bulk assets only: invoked after a stock action (Add stock / Dispose /
   /// Correct count) succeeds, with the authoritative new totals so the
@@ -339,6 +344,34 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         ),
         title: const Text('Asset details'),
         actions: [
+          if (widget.onEdit != null)
+            Padding(
+              padding: EdgeInsets.only(right: desktop ? 12 : 4),
+              child: desktop
+                  ? OutlinedButton.icon(
+                      onPressed: widget.onEdit,
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      label: const Text('Edit'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white70, width: 2),
+                        minimumSize: const Size(0, 44),
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        textStyle: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                        ),
+                      ),
+                    )
+                  : IconButton(
+                      onPressed: widget.onEdit,
+                      icon: const Icon(Icons.edit_outlined),
+                      tooltip: 'Edit asset',
+                    ),
+            ),
           // On desktop there's plenty of room in the app bar for proper,
           // legible buttons instead of bare icons that are easy to miss next
           // to the back arrow. Mobile drops these entirely in favour of
@@ -432,6 +465,8 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
             ],
             _infoCard(asset, categoryColor, categoryIcon),
             const SizedBox(height: 24),
+            _custodyCard(asset),
+            const SizedBox(height: 24),
             if (_isBulk) _stockCard() else _usageCard(),
             const SizedBox(height: 24),
             _qrCard(),
@@ -492,6 +527,8 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                             const SizedBox(height: 24),
                           ],
                           _infoCard(asset, categoryColor, categoryIcon, desktop: true),
+                          const SizedBox(height: 24),
+                          _custodyCard(asset, desktop: true),
                         ],
                       ),
                     ),
@@ -1046,6 +1083,86 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
               ],
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  /// Where the asset is: its home location, who's responsible for it, who
+  /// currently has it on loan, and where it was last physically seen (from
+  /// the scan "sighting" flow). This is the "help me find it" card.
+  Widget _custodyCard(AssetItem asset, {bool desktop = false}) {
+    String orDash(String? v) => (v == null || v.isEmpty) ? 'Not recorded' : v;
+
+    final holderParts = <String>[
+      if (asset.currentHolder != null) asset.currentHolder!,
+      if (asset.currentHolderDepartment != null) asset.currentHolderDepartment!,
+    ];
+    var holderText = holderParts.join(' · ');
+    if (asset.dueBack != null) holderText += '\nDue back ${asset.dueBack}';
+
+    final seenAt = asset.formattedLastScannedAt;
+    final String lastSeenText;
+    if (seenAt == null) {
+      lastSeenText = 'Never scanned';
+    } else {
+      final where = asset.lastLocation ?? 'Location not recorded';
+      lastSeenText = '$where\n$seenAt';
+    }
+
+    final rows = <Widget>[
+      _detailRow(
+        'Home location',
+        orDash(asset.homeLocation),
+        icon: Icons.place_outlined,
+        tint: AppTheme.mint,
+        iconColor: AppTheme.primary,
+      ),
+      _detailRow(
+        'Person responsible',
+        orDash(asset.custodian),
+        icon: Icons.person_outline,
+        tint: AppTheme.cream,
+        iconColor: const Color(0xFF9A6512),
+      ),
+      if (!asset.isBulk && asset.currentHolder != null)
+        _detailRow(
+          'Currently with',
+          holderText,
+          icon: Icons.assignment_ind_outlined,
+          tint: AppTheme.cream,
+          iconColor: const Color(0xFF9A6512),
+        ),
+      _detailRow(
+        'Last seen',
+        lastSeenText,
+        icon: Icons.qr_code_scanner,
+        tint: AppTheme.mint,
+        iconColor: AppTheme.primary,
+        isLast: true,
+      ),
+    ];
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.border, width: 2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionHeader(
+            'Location & custody',
+            icon: Icons.travel_explore,
+            tint: AppTheme.mint,
+            iconColor: AppTheme.primary,
+            desktop: desktop,
+          ),
+          SizedBox(height: desktop ? 22 : 16),
+          ...rows,
         ],
       ),
     );

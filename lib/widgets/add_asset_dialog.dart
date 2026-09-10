@@ -5,16 +5,19 @@ import '../models/category.dart';
 import 'add_asset_form.dart';
 
 /// Centered modal used on desktop/wide layouts, matching the "Add new
-/// asset" modal in the QREMS hi-fi desktop mockups.
+/// asset" modal in the QREMS hi-fi desktop mockups. Also serves the "Edit
+/// asset" flow when [initialAsset] is set.
 class AddAssetDialog extends StatelessWidget {
   const AddAssetDialog({
     super.key,
     required this.categories,
     this.existingBulk = const [],
+    this.initialAsset,
   });
 
   final List<AssetCategory> categories;
   final List<AssetItem> existingBulk;
+  final AssetItem? initialAsset;
 
   @override
   Widget build(BuildContext context) {
@@ -30,10 +33,13 @@ class AddAssetDialog extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      'Add new asset',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                      initialAsset == null ? 'Add new asset' : 'Edit asset',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
                   IconButton(
@@ -45,6 +51,7 @@ class AddAssetDialog extends StatelessWidget {
               AddAssetForm(
                 categories: categories,
                 existingBulk: existingBulk,
+                initial: initialAsset,
                 compact: true,
                 onCancel: () => Navigator.pop(context),
                 onSubmit: (result) =>

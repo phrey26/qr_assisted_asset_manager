@@ -45,16 +45,27 @@ function next_tag_id(mysqli $mysqli, string $prefix): string {
 }
 
 if ($method === 'GET') {
+    // The current-holder columns are derived, not stored. Each is a single
+    // correlated subquery over the approved request holding this asset (the
+    // borrow flow only ever assigns an 'available' asset, so there's at most
+    // one; ORDER BY r.id DESC LIMIT 1 keeps it safe regardless).
+    $holderCol = fn(string $col) =>
+        "(SELECT r.$col FROM request_assets ra2 JOIN requests r ON r.id = ra2.request_id " .
+        "  WHERE ra2.asset_id = a.id AND r.status = 'approved' ORDER BY r.id DESC LIMIT 1)";
     $result = $mysqli->query(
         'SELECT a.id, a.tag_id, a.name, a.category_id, c.value AS category_value, ' .
         'c.default_tracking AS category_default_tracking, ' .
         'c.lifespan_years AS category_lifespan_years, ' .
         'a.description, a.status, a.purchase_date, a.image_base64, ' .
         'a.tracking, a.quantity_total, a.quantity_out, a.quantity_damaged, ' .
-        'a.reorder_point, ' .
+        'a.reorder_point, a.home_location, a.custodian, ' .
+        'a.last_location, a.last_scanned_at, ' .
         '(SELECT r.asset_condition FROM asset_returns r ' .
         '   JOIN asset_return_assets ra ON ra.return_id = r.id ' .
-        '  WHERE ra.asset_id = a.id ORDER BY r.id DESC LIMIT 1) AS last_condition ' .
+        '  WHERE ra.asset_id = a.id ORDER BY r.id DESC LIMIT 1) AS last_condition, ' .
+        $holderCol('requester') . ' AS current_holder, ' .
+        $holderCol('department') . ' AS current_holder_department, ' .
+        $holderCol('return_date') . ' AS due_back ' .
         'FROM assets a JOIN categories c ON c.id = a.category_id ' .
         'ORDER BY a.id DESC'
     );
@@ -176,11 +187,137 @@ if ($method === 'POST') {
 if ($method === 'PUT') {
     $body = read_json_body();
     $tagId = trim($body['tag_id'] ?? '');
+    if ($tagId === '') fail(400, 'tag_id is required.');
+    // action decides what this PUT does:
+    //   'edit'     -> change the asset's details (name, category, ...)
+    //   'sighting' -> record that an admin just scanned it and where
+    //   '' (default, or 'status') -> the original flow-driven status move
+    $action = trim($body['action'] ?? '');
+
+    // ---- Edit the asset's details -----------------------------------------
+    if ($action === 'edit') {
+        $cur = $mysqli->prepare(
+            'SELECT id, name, category_id, description, purchase_date, tracking, ' .
+            'reorder_point, home_location, custodian FROM assets WHERE tag_id = ?'
+        );
+        $cur->bind_param('s', $tagId);
+        $cur->execute();
+        $assetRow = $cur->get_result()->fetch_assoc();
+        $cur->close();
+        if (!$assetRow) fail(404, 'No asset with that tag_id.');
+
+        $name = trim($body['name'] ?? '');
+        $categoryId = (int) ($body['category_id'] ?? 0);
+        $description = (string) ($body['description'] ?? '');
+        $purchaseDate = trim($body['purchase_date'] ?? '');
+        $homeLocation = trim((string) ($body['home_location'] ?? '')) ?: null;
+        $custodian = trim((string) ($body['custodian'] ?? '')) ?: null;
+        // image_base64: only touched when the key is present, so an edit that
+        // doesn't re-send the photo keeps the existing one.
+        $touchImage = array_key_exists('image_base64', $body);
+        $imageBase64 = $body['image_base64'] ?? null;
+        $isBulk = ($assetRow['tracking'] ?? 'individual') === 'bulk';
+        $reorderPoint = null;
+        $touchReorder = $isBulk && array_key_exists('reorder_point', $body);
+        if ($touchReorder) {
+            $reorderPoint = is_numeric($body['reorder_point'])
+                ? max(0, (int) $body['reorder_point']) : null;
+        }
+
+        if ($name === '' || $categoryId === 0 || $purchaseDate === '') {
+            fail(400, 'name, category_id and purchase_date are required.');
+        }
+        if (tag_prefix_for_category($mysqli, $categoryId) === null) {
+            fail(400, 'Unknown category_id.');
+        }
+
+        $sets = ['name = ?', 'category_id = ?', 'description = ?', 'purchase_date = ?',
+                 'home_location = ?', 'custodian = ?'];
+        $types = 'sisss' . 's';
+        $vals = [$name, $categoryId, $description, $purchaseDate, $homeLocation, $custodian];
+        if ($touchImage) { $sets[] = 'image_base64 = ?'; $types .= 's'; $vals[] = $imageBase64; }
+        if ($touchReorder) { $sets[] = 'reorder_point = ?'; $types .= 'i'; $vals[] = $reorderPoint; }
+        $types .= 's';
+        $vals[] = $tagId;
+
+        $stmt = $mysqli->prepare('UPDATE assets SET ' . implode(', ', $sets) . ' WHERE tag_id = ?');
+        $stmt->bind_param($types, ...$vals);
+        if (!$stmt->execute()) {
+            $stmt->close();
+            fail(500, 'Failed to update asset: ' . $mysqli->error);
+        }
+        $stmt->close();
+
+        // Timeline note listing what changed, so an edit is auditable.
+        $changed = [];
+        if ($name !== $assetRow['name']) $changed[] = 'name';
+        if ($categoryId !== (int) $assetRow['category_id']) $changed[] = 'category';
+        if ($description !== (string) $assetRow['description']) $changed[] = 'description';
+        if ($purchaseDate !== (string) $assetRow['purchase_date']) $changed[] = 'purchase date';
+        if ($homeLocation !== ($assetRow['home_location'] ?? null)) $changed[] = 'home location';
+        if ($custodian !== ($assetRow['custodian'] ?? null)) $changed[] = 'person responsible';
+        if ($touchImage) $changed[] = 'photo';
+        if ($touchReorder && $reorderPoint !== ($assetRow['reorder_point'] === null ? null : (int) $assetRow['reorder_point'])) {
+            $changed[] = 'reorder point';
+        }
+        $detail = $changed ? ('Changed ' . implode(', ', $changed)) : 'Edited (no changes)';
+        log_asset_event($mysqli, (int) $assetRow['id'], 'edited', $detail);
+
+        echo json_encode(['message' => 'Asset updated.']);
+        exit;
+    }
+
+    // ---- Record a sighting (an admin scanned it) -------------------------
+    if ($action === 'sighting') {
+        $cur = $mysqli->prepare('SELECT id FROM assets WHERE tag_id = ?');
+        $cur->bind_param('s', $tagId);
+        $cur->execute();
+        $assetRow = $cur->get_result()->fetch_assoc();
+        $cur->close();
+        if (!$assetRow) fail(404, 'No asset with that tag_id.');
+
+        $location = trim((string) ($body['location'] ?? ''));
+        $now = date('Y-m-d H:i:s');
+        // A blank location still records "seen just now" — keep whatever
+        // location was last known rather than wiping it.
+        if ($location !== '') {
+            $stmt = $mysqli->prepare(
+                'UPDATE assets SET last_location = ?, last_scanned_at = ? WHERE tag_id = ?'
+            );
+            $stmt->bind_param('sss', $location, $now, $tagId);
+        } else {
+            $stmt = $mysqli->prepare(
+                'UPDATE assets SET last_scanned_at = ? WHERE tag_id = ?'
+            );
+            $stmt->bind_param('ss', $now, $tagId);
+        }
+        if (!$stmt->execute()) {
+            $stmt->close();
+            fail(500, 'Failed to record the sighting: ' . $mysqli->error);
+        }
+        $stmt->close();
+
+        log_asset_event(
+            $mysqli,
+            (int) $assetRow['id'],
+            'scanned',
+            $location !== '' ? ('Seen at ' . $location) : 'Scanned — location not recorded'
+        );
+
+        echo json_encode([
+            'message' => 'Sighting recorded.',
+            'last_scanned_at' => $now,
+            'last_location' => $location !== '' ? $location : null,
+        ]);
+        exit;
+    }
+
+    // ---- Flow-driven status move (the original behaviour) ---------------
     $status = trim($body['status'] ?? '');
     // Optional context for the timeline — e.g. why an asset was moved to
     // stock ("Worn out", "Obsolete", ...).
     $reason = trim($body['reason'] ?? '');
-    if ($tagId === '' || $status === '') fail(400, 'tag_id and status are required.');
+    if ($status === '') fail(400, 'status is required.');
 
     // Read the current row first so a "change" to the status it already has
     // is a no-op — no needless write, and nothing added to the timeline.

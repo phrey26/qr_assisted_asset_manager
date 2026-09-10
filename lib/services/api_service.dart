@@ -308,6 +308,54 @@ class ApiService {
     return (id: body['id'] as int, tagId: body['tag_id'] as String);
   }
 
+  /// Edits an existing asset's details ([AssetItem.editJson], with
+  /// `category_id` filled in). The backend records what changed on the
+  /// asset's timeline. Never changes the tag ID, tracking mode or status.
+  static Future<void> updateAsset(Map<String, dynamic> body) async {
+    final response = await http
+        .put(
+          Uri.parse('$baseUrl/assets.php'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(body),
+        )
+        .timeout(_timeout, onTimeout: _timeoutError);
+
+    if (response.statusCode != 200) {
+      final err = jsonDecode(response.body);
+      throw Exception(err['error'] ?? 'Failed to save the asset');
+    }
+  }
+
+  /// Records that an admin just scanned an asset and, optionally, where they
+  /// found it. Stamps `last_scanned_at` / `last_location` and adds a
+  /// 'scanned' line to the timeline. Returns the server's `last_scanned_at`
+  /// and the location it stored (null when none was given).
+  static Future<({DateTime? at, String? location})> recordSighting({
+    required String tagId,
+    String? location,
+  }) async {
+    final response = await http
+        .put(
+          Uri.parse('$baseUrl/assets.php'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'action': 'sighting',
+            'tag_id': tagId,
+            if (location != null && location.isNotEmpty) 'location': location,
+          }),
+        )
+        .timeout(_timeout, onTimeout: _timeoutError);
+
+    final body = jsonDecode(response.body);
+    if (response.statusCode != 200) {
+      throw Exception(body['error'] ?? 'Failed to record the sighting');
+    }
+    return (
+      at: DateTime.tryParse((body['last_scanned_at'] as String?) ?? '')?.toLocal(),
+      location: (body['last_location'] as String?),
+    );
+  }
+
   /// Updates an existing asset's status (e.g. flagging it under
   /// maintenance, or moving it to stock). [reason], when given, is recorded
   /// on the asset's timeline as the change's detail.

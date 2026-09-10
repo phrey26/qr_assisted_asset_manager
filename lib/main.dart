@@ -435,6 +435,79 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
+  /// Opens the same form as [_openAddAsset] but prefilled from [asset] and
+  /// in "edit" mode (see [AddAssetForm.initial]). Triggered by the Edit
+  /// button on [AssetDetailScreen].
+  Future<void> _openEditAsset(AssetItem asset) async {
+    final AddAssetResult? result;
+    if (Responsive.isDesktop(context)) {
+      result = await showDialog<AddAssetResult>(
+        context: context,
+        builder: (_) => AddAssetDialog(
+          categories: _categories,
+          initialAsset: asset,
+        ),
+      );
+    } else {
+      result = await Navigator.push<AddAssetResult>(
+        context,
+        MaterialPageRoute(
+          builder: (_) => AddAssetScreen(
+            categories: _categories,
+            initialAsset: asset,
+          ),
+        ),
+      );
+    }
+    if (result is EditAssetResult) _editAsset(result.asset);
+  }
+
+  /// Persists an edit made through [_openEditAsset], then swaps the updated
+  /// asset into the local inventory. The backend records what changed on
+  /// the asset's timeline.
+  Future<void> _editAsset(AssetItem edited) async {
+    final categoryId = _categoryIds[edited.category];
+    if (categoryId == null) {
+      _showSyncError('Unknown category "${edited.category}" — could not save the asset.');
+      return;
+    }
+    try {
+      final body = edited.editJson()..['category_id'] = categoryId;
+      await ApiService.updateAsset(body);
+      if (!mounted) return;
+      setState(() {
+        final i = _assets.indexWhere((a) => a.tagId == edited.tagId);
+        if (i >= 0) _assets[i] = edited;
+      });
+    } catch (e) {
+      _showSyncError('Could not save the asset: $e');
+    }
+  }
+
+  /// Records that an admin scanned [asset] and, optionally, where they found
+  /// it. Updates the local "last seen" so it shows straight away.
+  Future<void> _recordSighting(AssetItem asset, String? location) async {
+    try {
+      final res = await ApiService.recordSighting(
+        tagId: asset.tagId,
+        location: location,
+      );
+      if (!mounted) return;
+      setState(() {
+        final i = _assets.indexWhere((a) => a.tagId == asset.tagId);
+        if (i < 0) return;
+        _assets[i] = _assets[i].copyWith(
+          lastScannedAt: res.at ?? DateTime.now(),
+          lastLocation: (location != null && location.isNotEmpty)
+              ? location
+              : _assets[i].lastLocation,
+        );
+      });
+    } catch (e) {
+      _showSyncError('Could not record the sighting: $e');
+    }
+  }
+
   /// "Bought more of an existing bulk item" — runs the same restock path as
   /// the "Add stock" action on the asset detail screen.
   Future<void> _restockBulk(BulkRestockResult r) async {
@@ -528,6 +601,7 @@ class _AppShellState extends State<AppShell> {
         assets: _assets,
         categories: _categories,
         onAddAsset: _openAddAsset,
+        onEditAsset: _openEditAsset,
         onRetireAsset: _retireAssetToStock,
         onDeleteAsset: _deleteAsset,
         onActivateAsset: _activateAsset,
@@ -539,7 +613,11 @@ class _AppShellState extends State<AppShell> {
       // camera-permission prompt with it — the moment the app opens, long
       // before the admin ever taps the Scanner tab. It now only asks when
       // this flips true, and releases the camera when it flips back.
-      QrScannerScreen(assets: _assets, isActive: _index == kTabScanner),
+      QrScannerScreen(
+        assets: _assets,
+        isActive: _index == kTabScanner,
+        onSighting: _recordSighting,
+      ),
       RequestsScreen(
         key: _requestsKey,
         currentUser: _user,
