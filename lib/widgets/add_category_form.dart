@@ -63,19 +63,24 @@ class _AddCategoryFormState extends State<AddCategoryForm> {
       setState(() => nameError = 'A category with this name already exists.');
       return;
     }
-    // Optional. Blank means "don't flag these assets by age".
+    // Optional, and only meaningful for individually-tracked assets: a bulk
+    // pool is one row with one purchase date (restocks don't move it), so
+    // it's never age-flagged. The field is hidden when the default is bulk;
+    // ignore anything left in it. Blank otherwise means "don't age-flag".
     int? lifespanYears;
-    final rawLifespan = lifespanController.text.trim();
-    if (rawLifespan.isNotEmpty) {
-      final parsed = int.tryParse(rawLifespan);
-      if (parsed == null || parsed <= 0) {
-        setState(
-          () => lifespanError =
-              'Enter a whole number of years, or leave it blank.',
-        );
-        return;
+    if (tracking != AssetTracking.bulk) {
+      final rawLifespan = lifespanController.text.trim();
+      if (rawLifespan.isNotEmpty) {
+        final parsed = int.tryParse(rawLifespan);
+        if (parsed == null || parsed <= 0) {
+          setState(
+            () => lifespanError =
+                'Enter a whole number of years, or leave it blank.',
+          );
+          return;
+        }
+        lifespanYears = parsed;
       }
-      lifespanYears = parsed;
     }
     widget.onSubmit(
       AssetCategory(
@@ -150,35 +155,47 @@ class _AddCategoryFormState extends State<AddCategoryForm> {
           _TrackingChoice(
             option: option,
             selected: option == tracking,
-            onTap: () => setState(() => tracking = option),
+            onTap: () => setState(() {
+              tracking = option;
+              // The lifespan field is hidden for bulk — drop any error it
+              // was showing so it doesn't flash back on a later switch.
+              if (option == AssetTracking.bulk) lifespanError = null;
+            }),
           ),
         const SizedBox(height: 4),
         const Text(
           'Just the default when adding an asset — you can switch it per asset.',
           style: TextStyle(color: AppTheme.muted, fontSize: 12, height: 1.35),
         ),
-        SizedBox(height: gap),
-        _label('Expected lifespan'),
-        const SizedBox(height: 10),
-        TextField(
-          controller: lifespanController,
-          keyboardType: TextInputType.number,
-          decoration: InputDecoration(
-            hintText: 'e.g. 5',
-            suffixText: 'years',
-            errorText: lifespanError,
+        // Only for individually-tracked assets. A bulk pool carries a count,
+        // not dated units, so it can't be age-flagged — hide the field when
+        // that's the default (a mostly-individual category still shows it,
+        // with the note below explaining bulk assets in it are exempt).
+        if (tracking != AssetTracking.bulk) ...[
+          SizedBox(height: gap),
+          _label('Expected lifespan'),
+          const SizedBox(height: 10),
+          TextField(
+            controller: lifespanController,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(
+              hintText: 'e.g. 5',
+              suffixText: 'years',
+              errorText: lifespanError,
+            ),
+            onChanged: (_) {
+              if (lifespanError != null) setState(() => lifespanError = null);
+            },
+            onSubmitted: (_) => _submit(),
           ),
-          onChanged: (_) {
-            if (lifespanError != null) setState(() => lifespanError = null);
-          },
-          onSubmitted: (_) => _submit(),
-        ),
-        const SizedBox(height: 4),
-        const Text(
-          'Assets in this category are flagged once they pass this age. '
-          'Leave blank for things that don\'t age out (e.g. furniture).',
-          style: TextStyle(color: AppTheme.muted, fontSize: 12, height: 1.35),
-        ),
+          const SizedBox(height: 4),
+          const Text(
+            'Applies to individually-tracked assets only — bulk pools aren\'t '
+            'flagged by age. Leave blank for things that don\'t age out '
+            '(e.g. furniture).',
+            style: TextStyle(color: AppTheme.muted, fontSize: 12, height: 1.35),
+          ),
+        ],
         SizedBox(height: widget.compact ? 22 : 34),
         _saveRow(),
       ],

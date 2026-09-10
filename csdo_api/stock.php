@@ -5,7 +5,7 @@ require __DIR__ . '/db.php';
 //
 //   GET  /stock.php?tag_id=CSDO-...   -> { summary, movements[], purchases[] }
 //   POST /stock.php   body { tag_id, action, ... }
-//     action = 'purchase' : { quantity, unit_cost?, total_cost?, supplier?, note?, purchased_at? }
+//     action = 'purchase' : { quantity, supplier?, note?, purchased_at? }
 //                           -> adds to quantity_total, records the purchase.
 //     action = 'dispose'  : { quantity, reason }
 //                           -> removes from quantity_total (available only),
@@ -84,7 +84,7 @@ if ($method === 'GET') {
 
     $purchases = [];
     $stmt = $mysqli->prepare(
-        'SELECT id, quantity, unit_cost, total_cost, supplier, note, purchased_at, created_at ' .
+        'SELECT id, quantity, supplier, note, purchased_at, created_at ' .
         'FROM stock_purchases WHERE asset_id = ? ORDER BY id DESC'
     );
     $stmt->bind_param('i', $asset['id']);
@@ -94,8 +94,6 @@ if ($method === 'GET') {
         $purchases[] = [
             'id' => (int) $r['id'],
             'quantity' => (int) $r['quantity'],
-            'unit_cost' => $r['unit_cost'] === null ? null : (float) $r['unit_cost'],
-            'total_cost' => $r['total_cost'] === null ? null : (float) $r['total_cost'],
             'supplier' => $r['supplier'],
             'note' => $r['note'],
             'purchased_at' => $r['purchased_at'],
@@ -128,9 +126,6 @@ if ($method === 'POST') {
         if ($action === 'purchase') {
             $quantity = (int) ($body['quantity'] ?? 0);
             if ($quantity <= 0) throw new Exception('Enter how many units were bought.');
-            $unitCost = is_numeric($body['unit_cost'] ?? null) ? (float) $body['unit_cost'] : null;
-            $totalCost = is_numeric($body['total_cost'] ?? null) ? (float) $body['total_cost'] : null;
-            if ($totalCost === null && $unitCost !== null) $totalCost = $unitCost * $quantity;
             $supplier = trim((string) ($body['supplier'] ?? '')) ?: null;
             $note = trim((string) ($body['note'] ?? '')) ?: null;
             $purchasedAt = trim((string) ($body['purchased_at'] ?? '')) ?: null;
@@ -142,10 +137,10 @@ if ($method === 'POST') {
             $upd->close();
 
             $ins = $mysqli->prepare(
-                'INSERT INTO stock_purchases (asset_id, quantity, unit_cost, total_cost, supplier, note, purchased_at) ' .
-                'VALUES (?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO stock_purchases (asset_id, quantity, supplier, note, purchased_at) ' .
+                'VALUES (?, ?, ?, ?, ?)'
             );
-            $ins->bind_param('iiddsss', $asset['id'], $quantity, $unitCost, $totalCost, $supplier, $note, $purchasedAt);
+            $ins->bind_param('iisss', $asset['id'], $quantity, $supplier, $note, $purchasedAt);
             $ins->execute();
             $ins->close();
 

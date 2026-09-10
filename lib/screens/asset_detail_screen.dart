@@ -147,7 +147,6 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
       final s = await ApiService.addStock(
         tagId: widget.asset.tagId,
         quantity: input.quantity,
-        unitCost: input.unitCost,
         supplier: input.supplier,
         note: input.note,
         purchasedAt: input.purchasedAt,

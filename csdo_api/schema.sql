@@ -236,19 +236,22 @@ CREATE TABLE IF NOT EXISTS stock_movements (
   INDEX idx_stock_movements_asset (asset_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Procurement detail (cost / supplier) for each "Add stock" on a bulk asset.
+-- Supplier / date detail for each "Add stock" on a bulk asset. This app
+-- tracks physical assets only, not money, so no cost is recorded here.
 CREATE TABLE IF NOT EXISTS stock_purchases (
   id INT AUTO_INCREMENT PRIMARY KEY,
   asset_id INT NOT NULL,
   quantity INT NOT NULL,
-  unit_cost DECIMAL(12,2) NULL,
-  total_cost DECIMAL(14,2) NULL,
   supplier VARCHAR(150) NULL,
   note VARCHAR(500) NULL,
   purchased_at DATE NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_stock_purchases_asset (asset_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- Upgrading a database created while "Add stock" still asked for a price:
+-- drop the now-unused cost columns. Safe to re-run.
+ALTER TABLE stock_purchases DROP COLUMN IF EXISTS unit_cost;
+ALTER TABLE stock_purchases DROP COLUMN IF EXISTS total_cost;
 
 -- Permanent audit log of bulk stock disposed of — the bulk counterpart to
 -- asset_removals. No FK to `assets` on purpose. Safe to re-run.

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
@@ -87,11 +88,11 @@ class ApiService {
   static const _timeout = Duration(seconds: 12);
 
   static Never _timeoutError() => throw Exception(
-        'Could not reach the server at $baseUrl (timed out after '
-        '${_timeout.inSeconds}s). Check that XAMPP\'s Apache/MySQL are '
-        'running and that csdo_api/ is in htdocs. On a physical phone, pass '
-        '--dart-define=API_HOST=<your PC\'s LAN IP>.',
-      );
+    'Could not reach the server at $baseUrl (timed out after '
+    '${_timeout.inSeconds}s). Check that XAMPP\'s Apache/MySQL are '
+    'running and that csdo_api/ is in htdocs. On a physical phone, pass '
+    '--dart-define=API_HOST=<your PC\'s LAN IP>.',
+  );
 
   /// Logs in with an email address *or* employee ID, plus password.
   /// Returns the user map on success.
@@ -106,10 +107,7 @@ class ApiService {
         .post(
           Uri.parse('$baseUrl/login.php'),
           headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'identifier': identifier,
-            'password': password,
-          }),
+          body: jsonEncode({'identifier': identifier, 'password': password}),
         )
         .timeout(_timeout, onTimeout: _timeoutError);
 
@@ -118,9 +116,7 @@ class ApiService {
       return body['user'] as Map<String, dynamic>;
     }
     if (response.statusCode == 403 && body['code'] == 'email_not_verified') {
-      throw EmailNotVerifiedException(
-        (body['email'] as String?) ?? identifier,
-      );
+      throw EmailNotVerifiedException((body['email'] as String?) ?? identifier);
     }
     throw Exception(body['error'] ?? 'Login failed');
   }
@@ -214,7 +210,10 @@ class ApiService {
     if (response.statusCode != 200) {
       throw Exception(body['error'] ?? 'Could not start the password reset');
     }
-    return AuthCodeResult.fromBody(body, 'If that email has an account, a code has been sent.');
+    return AuthCodeResult.fromBody(
+      body,
+      'If that email has an account, a code has been sent.',
+    );
   }
 
   /// Updates the signed-in admin's own profile (name, department, email).
@@ -291,7 +290,9 @@ class ApiService {
   /// Returns the new row's `id` and the `tag_id` the backend allocated for
   /// it — the tag is not chosen client-side, so the caller stamps the
   /// returned value onto its local [AssetItem].
-  static Future<({int id, String tagId})> addAsset(Map<String, dynamic> asset) async {
+  static Future<({int id, String tagId})> addAsset(
+    Map<String, dynamic> asset,
+  ) async {
     final response = await http
         .post(
           Uri.parse('$baseUrl/assets.php'),
@@ -336,12 +337,17 @@ class ApiService {
   /// Permanently deletes an asset. The backend only allows this once the
   /// asset is a stock item, and requires [reason] — it's written to the
   /// `asset_removals` audit log before the row is removed.
-  static Future<void> deleteAsset(String tagId, {required String reason}) async {
+  static Future<void> deleteAsset(
+    String tagId, {
+    required String reason,
+  }) async {
     final uri = Uri.parse(
       '$baseUrl/assets.php?tag_id=${Uri.encodeQueryComponent(tagId)}'
       '&reason=${Uri.encodeQueryComponent(reason)}',
     );
-    final response = await http.delete(uri).timeout(_timeout, onTimeout: _timeoutError);
+    final response = await http
+        .delete(uri)
+        .timeout(_timeout, onTimeout: _timeoutError);
 
     if (response.statusCode != 200) {
       final body = jsonDecode(response.body);
@@ -352,9 +358,15 @@ class ApiService {
   /// Fetches an asset's timeline (newest event first), as returned by
   /// `asset_events.php`. Each map is `{id, event_type, detail, request_id,
   /// created_at}` — see [AssetEvent.fromJson].
-  static Future<List<Map<String, dynamic>>> fetchAssetEvents(String tagId) async {
+  static Future<List<Map<String, dynamic>>> fetchAssetEvents(
+    String tagId,
+  ) async {
     final response = await http
-        .get(Uri.parse('$baseUrl/asset_events.php?tag_id=${Uri.encodeQueryComponent(tagId)}'))
+        .get(
+          Uri.parse(
+            '$baseUrl/asset_events.php?tag_id=${Uri.encodeQueryComponent(tagId)}',
+          ),
+        )
         .timeout(_timeout, onTimeout: _timeoutError);
 
     if (response.statusCode == 200) {
@@ -385,7 +397,11 @@ class ApiService {
   /// `{summary, movements, purchases}` map (see [StockHistory.fromJson]).
   static Future<Map<String, dynamic>> fetchStockHistory(String tagId) async {
     final response = await http
-        .get(Uri.parse('$baseUrl/stock.php?tag_id=${Uri.encodeQueryComponent(tagId)}'))
+        .get(
+          Uri.parse(
+            '$baseUrl/stock.php?tag_id=${Uri.encodeQueryComponent(tagId)}',
+          ),
+        )
         .timeout(_timeout, onTimeout: _timeoutError);
 
     if (response.statusCode == 200) {
@@ -396,13 +412,11 @@ class ApiService {
   }
 
   /// Records a purchase ("Add stock") on a bulk asset — bumps its on-hand
-  /// total and files the cost/supplier paperwork. Returns the refreshed
+  /// total and files the supplier/date paperwork. Returns the refreshed
   /// `summary` map.
   static Future<Map<String, dynamic>> addStock({
     required String tagId,
     required int quantity,
-    double? unitCost,
-    double? totalCost,
     String? supplier,
     String? note,
     String? purchasedAt,
@@ -411,11 +425,10 @@ class ApiService {
       'tag_id': tagId,
       'action': 'purchase',
       'quantity': quantity,
-      if (unitCost != null) 'unit_cost': unitCost,
-      if (totalCost != null) 'total_cost': totalCost,
       if (supplier != null && supplier.isNotEmpty) 'supplier': supplier,
       if (note != null && note.isNotEmpty) 'note': note,
-      if (purchasedAt != null && purchasedAt.isNotEmpty) 'purchased_at': purchasedAt,
+      if (purchasedAt != null && purchasedAt.isNotEmpty)
+        'purchased_at': purchasedAt,
     });
   }
 
@@ -464,7 +477,9 @@ class ApiService {
     });
   }
 
-  static Future<Map<String, dynamic>> _postStock(Map<String, dynamic> payload) async {
+  static Future<Map<String, dynamic>> _postStock(
+    Map<String, dynamic> payload,
+  ) async {
     final response = await http
         .post(
           Uri.parse('$baseUrl/stock.php'),
@@ -501,14 +516,20 @@ class ApiService {
   /// [AssetReturnHistory.fromJson]).
   static Future<Map<String, dynamic>> fetchAssetReturns(String tagId) async {
     final response = await http
-        .get(Uri.parse('$baseUrl/asset_returns.php?tag_id=${Uri.encodeQueryComponent(tagId)}'))
+        .get(
+          Uri.parse(
+            '$baseUrl/asset_returns.php?tag_id=${Uri.encodeQueryComponent(tagId)}',
+          ),
+        )
         .timeout(_timeout, onTimeout: _timeoutError);
 
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
     final body = jsonDecode(response.body);
-    throw Exception(body['error'] ?? 'Failed to load the asset\'s usage history');
+    throw Exception(
+      body['error'] ?? 'Failed to load the asset\'s usage history',
+    );
   }
 
   /// Fetches all asset categories.
@@ -545,7 +566,11 @@ class ApiService {
   /// Removes a category (only valid once no asset still references it).
   static Future<void> deleteCategory(String value) async {
     final response = await http
-        .delete(Uri.parse('$baseUrl/categories.php?value=${Uri.encodeQueryComponent(value)}'))
+        .delete(
+          Uri.parse(
+            '$baseUrl/categories.php?value=${Uri.encodeQueryComponent(value)}',
+          ),
+        )
         .timeout(_timeout, onTimeout: _timeoutError);
 
     if (response.statusCode != 200) {

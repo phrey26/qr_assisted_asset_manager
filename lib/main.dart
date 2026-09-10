@@ -442,7 +442,6 @@ class _AppShellState extends State<AppShell> {
       final summary = await ApiService.addStock(
         tagId: r.tagId,
         quantity: r.quantity,
-        unitCost: r.unitCost,
         supplier: r.supplier,
         note: r.note,
         purchasedAt: r.purchasedAt,

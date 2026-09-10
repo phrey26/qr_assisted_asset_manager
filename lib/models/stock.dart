@@ -124,17 +124,18 @@ class StockMovement {
       '${quantityDelta >= 0 ? '+' : '−'}${quantityDelta.abs()}';
 
   factory StockMovement.fromJson(Map<String, dynamic> json) => StockMovement(
-        id: (json['id'] as num?)?.toInt() ?? 0,
-        kind: StockMovementKindX.fromApi(json['kind'] as String?),
-        quantityDelta: (json['quantity_delta'] as num?)?.toInt() ?? 0,
-        balanceAfter: (json['balance_after'] as num?)?.toInt(),
-        note: (json['note'] as String?)?.trim().isEmpty ?? true
-            ? null
-            : (json['note'] as String).trim(),
-        requestId: (json['request_id'] as num?)?.toInt(),
-        timestamp: DateTime.tryParse(json['created_at'] as String? ?? '')?.toLocal() ??
-            DateTime.now(),
-      );
+    id: (json['id'] as num?)?.toInt() ?? 0,
+    kind: StockMovementKindX.fromApi(json['kind'] as String?),
+    quantityDelta: (json['quantity_delta'] as num?)?.toInt() ?? 0,
+    balanceAfter: (json['balance_after'] as num?)?.toInt(),
+    note: (json['note'] as String?)?.trim().isEmpty ?? true
+        ? null
+        : (json['note'] as String).trim(),
+    requestId: (json['request_id'] as num?)?.toInt(),
+    timestamp:
+        DateTime.tryParse(json['created_at'] as String? ?? '')?.toLocal() ??
+        DateTime.now(),
+  );
 }
 
 class StockPurchase {
@@ -142,8 +143,6 @@ class StockPurchase {
     required this.id,
     required this.quantity,
     required this.createdAt,
-    this.unitCost,
-    this.totalCost,
     this.supplier,
     this.note,
     this.purchasedAt,
@@ -151,8 +150,6 @@ class StockPurchase {
 
   final int id;
   final int quantity;
-  final double? unitCost;
-  final double? totalCost;
   final String? supplier;
   final String? note;
   final DateTime? purchasedAt;
@@ -162,20 +159,19 @@ class StockPurchase {
   String get formattedDate => AssetItem.formatDate(whenObtained);
 
   factory StockPurchase.fromJson(Map<String, dynamic> json) => StockPurchase(
-        id: (json['id'] as num?)?.toInt() ?? 0,
-        quantity: (json['quantity'] as num?)?.toInt() ?? 0,
-        unitCost: (json['unit_cost'] as num?)?.toDouble(),
-        totalCost: (json['total_cost'] as num?)?.toDouble(),
-        supplier: (json['supplier'] as String?)?.trim().isEmpty ?? true
-            ? null
-            : (json['supplier'] as String).trim(),
-        note: (json['note'] as String?)?.trim().isEmpty ?? true
-            ? null
-            : (json['note'] as String).trim(),
-        purchasedAt: DateTime.tryParse(json['purchased_at'] as String? ?? ''),
-        createdAt: DateTime.tryParse(json['created_at'] as String? ?? '')?.toLocal() ??
-            DateTime.now(),
-      );
+    id: (json['id'] as num?)?.toInt() ?? 0,
+    quantity: (json['quantity'] as num?)?.toInt() ?? 0,
+    supplier: (json['supplier'] as String?)?.trim().isEmpty ?? true
+        ? null
+        : (json['supplier'] as String).trim(),
+    note: (json['note'] as String?)?.trim().isEmpty ?? true
+        ? null
+        : (json['note'] as String).trim(),
+    purchasedAt: DateTime.tryParse(json['purchased_at'] as String? ?? ''),
+    createdAt:
+        DateTime.tryParse(json['created_at'] as String? ?? '')?.toLocal() ??
+        DateTime.now(),
+  );
 }
 
 class StockSummary {
@@ -196,13 +192,13 @@ class StockSummary {
   final int? reorderPoint;
 
   factory StockSummary.fromJson(Map<String, dynamic> json) => StockSummary(
-        total: (json['total'] as num?)?.toInt() ?? 0,
-        out: (json['out'] as num?)?.toInt() ?? 0,
-        damaged: (json['damaged'] as num?)?.toInt() ?? 0,
-        available: (json['available'] as num?)?.toInt() ?? 0,
-        lowStock: json['low_stock'] == true,
-        reorderPoint: (json['reorder_point'] as num?)?.toInt(),
-      );
+    total: (json['total'] as num?)?.toInt() ?? 0,
+    out: (json['out'] as num?)?.toInt() ?? 0,
+    damaged: (json['damaged'] as num?)?.toInt() ?? 0,
+    available: (json['available'] as num?)?.toInt() ?? 0,
+    lowStock: json['low_stock'] == true,
+    reorderPoint: (json['reorder_point'] as num?)?.toInt(),
+  );
 }
 
 class StockHistory {
@@ -217,14 +213,14 @@ class StockHistory {
   final List<StockPurchase> purchases;
 
   factory StockHistory.fromJson(Map<String, dynamic> json) => StockHistory(
-        summary: StockSummary.fromJson(
-          (json['summary'] as Map?)?.cast<String, dynamic>() ?? const {},
-        ),
-        movements: (json['movements'] as List<dynamic>? ?? [])
-            .map((e) => StockMovement.fromJson((e as Map).cast<String, dynamic>()))
-            .toList(),
-        purchases: (json['purchases'] as List<dynamic>? ?? [])
-            .map((e) => StockPurchase.fromJson((e as Map).cast<String, dynamic>()))
-            .toList(),
-      );
+    summary: StockSummary.fromJson(
+      (json['summary'] as Map?)?.cast<String, dynamic>() ?? const {},
+    ),
+    movements: (json['movements'] as List<dynamic>? ?? [])
+        .map((e) => StockMovement.fromJson((e as Map).cast<String, dynamic>()))
+        .toList(),
+    purchases: (json['purchases'] as List<dynamic>? ?? [])
+        .map((e) => StockPurchase.fromJson((e as Map).cast<String, dynamic>()))
+        .toList(),
+  );
 }

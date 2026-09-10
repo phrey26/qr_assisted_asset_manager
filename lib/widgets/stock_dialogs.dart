@@ -9,14 +9,12 @@ import '../utils/responsive.dart';
 class StockPurchaseInput {
   StockPurchaseInput({
     required this.quantity,
-    this.unitCost,
     this.supplier,
     this.note,
     this.purchasedAt,
   });
 
   final int quantity;
-  final double? unitCost;
   final String? supplier;
   final String? note;
 
@@ -24,7 +22,7 @@ class StockPurchaseInput {
   final String? purchasedAt;
 }
 
-/// "Add stock" — records units bought for a bulk asset, with cost/supplier.
+/// "Add stock" — records units bought for a bulk asset, with supplier/date.
 Future<StockPurchaseInput?> promptStockPurchase(
   BuildContext context,
   AssetItem asset,
@@ -189,7 +187,6 @@ class _StockPurchaseDialog extends StatefulWidget {
 
 class _StockPurchaseDialogState extends State<_StockPurchaseDialog> {
   final _qty = TextEditingController();
-  final _unitCost = TextEditingController();
   final _supplier = TextEditingController();
   final _note = TextEditingController();
   DateTime? _date;
@@ -197,7 +194,6 @@ class _StockPurchaseDialogState extends State<_StockPurchaseDialog> {
   @override
   void dispose() {
     _qty.dispose();
-    _unitCost.dispose();
     _supplier.dispose();
     _note.dispose();
     super.dispose();
@@ -215,7 +211,6 @@ class _StockPurchaseDialogState extends State<_StockPurchaseDialog> {
       context,
       StockPurchaseInput(
         quantity: q,
-        unitCost: double.tryParse(_unitCost.text.trim()),
         supplier: _supplier.text.trim().isEmpty ? null : _supplier.text.trim(),
         note: _note.text.trim().isEmpty ? null : _note.text.trim(),
         purchasedAt: _date == null
@@ -256,15 +251,6 @@ class _StockPurchaseDialogState extends State<_StockPurchaseDialog> {
             keyboardType: TextInputType.number,
             onChanged: (_) => setState(() {}),
             decoration: const InputDecoration(hintText: 'e.g. 25'),
-          ),
-          _fieldLabel('Unit cost (optional)'),
-          TextField(
-            controller: _unitCost,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
-              hintText: 'e.g. 120.00',
-              prefixText: '₱ ',
-            ),
           ),
           _fieldLabel('Supplier (optional)'),
           TextField(

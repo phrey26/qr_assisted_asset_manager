@@ -22,13 +22,11 @@ class NewAssetResult extends AddAssetResult {
 }
 
 /// "We bought more" — add units to an existing bulk item, with the same
-/// cost/supplier paperwork as the "Add stock" action on the asset detail
-/// screen.
+/// supplier paperwork as the "Add stock" action on the asset detail screen.
 class BulkRestockResult extends AddAssetResult {
   const BulkRestockResult({
     required this.tagId,
     required this.quantity,
-    this.unitCost,
     this.supplier,
     this.note,
     this.purchasedAt,
@@ -36,7 +34,6 @@ class BulkRestockResult extends AddAssetResult {
 
   final String tagId;
   final int quantity;
-  final double? unitCost;
   final String? supplier;
   final String? note;
 
@@ -88,7 +85,6 @@ class _AddAssetFormState extends State<AddAssetForm> {
   final descriptionController = TextEditingController();
   final quantityController = TextEditingController();
   final reorderController = TextEditingController();
-  final unitCostController = TextEditingController();
   final supplierController = TextEditingController();
   late String category;
   DateTime? purchaseDate;
@@ -98,8 +94,9 @@ class _AddAssetFormState extends State<AddAssetForm> {
   /// instead of creating a new asset. Only reachable when
   /// [AddAssetForm.existingBulk] is non-empty.
   bool _restock = false;
-  late String? _restockTag =
-      widget.existingBulk.isEmpty ? null : widget.existingBulk.first.tagId;
+  late String? _restockTag = widget.existingBulk.isEmpty
+      ? null
+      : widget.existingBulk.first.tagId;
 
   /// Where this asset goes once saved. `false` -> an active asset that can
   /// be borrowed (status `available`); `true` -> a backup "stock item"
@@ -152,13 +149,13 @@ class _AddAssetFormState extends State<AddAssetForm> {
     descriptionController.dispose();
     quantityController.dispose();
     reorderController.dispose();
-    unitCostController.dispose();
     supplierController.dispose();
     super.dispose();
   }
 
   void _toast(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   static String _ymd(DateTime d) =>
@@ -253,7 +250,9 @@ class _AddAssetFormState extends State<AddAssetForm> {
           tagId: '',
           category: category,
           description: descriptionController.text.trim(),
-          status: (!_isBulk && toStock) ? AssetStatus.inStock : AssetStatus.available,
+          status: (!_isBulk && toStock)
+              ? AssetStatus.inStock
+              : AssetStatus.available,
           purchaseDate: purchaseDate!,
           imageBytes: imageBytes,
           tracking: tracking,
@@ -274,17 +273,10 @@ class _AddAssetFormState extends State<AddAssetForm> {
       _toast('Enter how many units were added.');
       return;
     }
-    final rawCost = unitCostController.text.trim();
-    final cost = rawCost.isEmpty ? null : double.tryParse(rawCost);
-    if (rawCost.isNotEmpty && (cost == null || cost < 0)) {
-      _toast('Enter a valid unit cost, or leave it blank.');
-      return;
-    }
     widget.onSubmit(
       BulkRestockResult(
         tagId: _restockTag!,
         quantity: qty,
-        unitCost: cost,
         supplier: supplierController.text.trim().isEmpty
             ? null
             : supplierController.text.trim(),
@@ -311,10 +303,7 @@ class _AddAssetFormState extends State<AddAssetForm> {
           _bulkModeSelector(),
           SizedBox(height: gap),
         ],
-        if (_restock)
-          ..._restockFields(gap)
-        else
-          ..._newAssetFields(gap),
+        if (_restock) ..._restockFields(gap) else ..._newAssetFields(gap),
         SizedBox(height: widget.compact ? 22 : 40),
         _saveRow(),
       ],
@@ -369,13 +358,6 @@ class _AddAssetFormState extends State<AddAssetForm> {
         controller: quantityController,
         keyboardType: TextInputType.number,
         decoration: const InputDecoration(hintText: 'e.g. 25'),
-      ),
-      SizedBox(height: gap),
-      _label('Unit cost (optional)'),
-      TextField(
-        controller: unitCostController,
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        decoration: const InputDecoration(hintText: 'e.g. 120.00', prefixText: '₱ '),
       ),
       SizedBox(height: gap),
       _label('Supplier (optional)'),
@@ -537,16 +519,16 @@ class _AddAssetFormState extends State<AddAssetForm> {
   }
 
   Widget _label(String value) => Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: Text(
-          value,
-          style: TextStyle(
-            color: AppTheme.darkGreen,
-            fontSize: widget.compact ? 15 : 20,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-      );
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Text(
+      value,
+      style: TextStyle(
+        color: AppTheme.darkGreen,
+        fontSize: widget.compact ? 15 : 20,
+        fontWeight: FontWeight.w800,
+      ),
+    ),
+  );
 
   /// Two-way selector letting the admin file a new asset either as an
   /// active, borrowable asset or as a backup "stock item" that stays off
@@ -650,7 +632,11 @@ class _AddAssetFormState extends State<AddAssetForm> {
                     ),
                   ),
                   if (selected)
-                    const Icon(Icons.check_circle, size: 18, color: AppTheme.primary),
+                    const Icon(
+                      Icons.check_circle,
+                      size: 18,
+                      color: AppTheme.primary,
+                    ),
                 ],
               ),
               const SizedBox(height: 4),
@@ -670,7 +656,11 @@ class _AddAssetFormState extends State<AddAssetForm> {
         ? Container(
             color: AppTheme.mint,
             child: const Center(
-              child: Icon(Icons.image_outlined, color: AppTheme.primary, size: 38),
+              child: Icon(
+                Icons.image_outlined,
+                color: AppTheme.primary,
+                size: 38,
+              ),
             ),
           )
         : Image.memory(imageBytes!, fit: BoxFit.cover);
