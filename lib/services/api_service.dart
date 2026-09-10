@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../models/asset_request.dart';
 import '../models/availability.dart';
 
 /// Thrown by [ApiService.login] when the account exists and the password is
@@ -725,11 +726,15 @@ class ApiService {
   /// each bulk pool's available stock, all in one transaction. For any
   /// other status the backend releases whatever the request was holding, so
   /// [assignments] can be omitted.
+  /// [reason] is required by the backend when [status] is `rejected`;
+  /// [decidedBy] is the acting admin's name, recorded on the CSDO decision.
   static Future<void> updateRequestStatus({
     required int id,
     required String status,
     List<Map<String, dynamic>>? assignments,
     Map<String, dynamic>? returnInspection,
+    String? reason,
+    String? decidedBy,
   }) async {
     final response = await http
         .put(
@@ -740,6 +745,8 @@ class ApiService {
             'status': status,
             if (assignments != null) 'assignments': assignments,
             if (returnInspection != null) 'return_inspection': returnInspection,
+            if (reason != null && reason.isNotEmpty) 'reason': reason,
+            if (decidedBy != null && decidedBy.isNotEmpty) 'decided_by': decidedBy,
           }),
         )
         .timeout(_timeout, onTimeout: _timeoutError);
@@ -748,5 +755,84 @@ class ApiService {
       final body = jsonDecode(response.body);
       throw Exception(body['error'] ?? 'Failed to update request');
     }
+  }
+
+  /// Records one adviser/principal/dean routing decision on a request
+  /// (`request_approvals.php`). [decision] is `'approved'`, `'rejected'` or
+  /// `'pending'` (an undo); [note] is required by the backend for a
+  /// rejection. Returns the request's refreshed routing rows plus its
+  /// overall status / rejection reason.
+  static Future<
+      ({
+        List<RequestApproval> approvals,
+        RequestStatus status,
+        String? rejectionReason,
+      })> recordApprovalStep({
+    required int requestId,
+    required ApprovalRole role,
+    required String decision,
+    String? note,
+    String? decidedBy,
+  }) async {
+    final response = await http
+        .put(
+          Uri.parse('$baseUrl/request_approvals.php'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'request_id': requestId,
+            'role': role.apiValue,
+            'decision': decision,
+            if (note != null && note.isNotEmpty) 'note': note,
+            if (decidedBy != null && decidedBy.isNotEmpty) 'decided_by': decidedBy,
+          }),
+        )
+        .timeout(_timeout, onTimeout: _timeoutError);
+
+    final body = jsonDecode(response.body);
+    if (response.statusCode != 200) {
+      throw Exception(
+        (body is Map ? body['error'] : null) ?? 'Failed to record the decision',
+      );
+    }
+    final map = (body as Map).cast<String, dynamic>();
+    return (
+      approvals: (map['approvals'] as List<dynamic>? ?? [])
+          .map((a) => RequestApproval.fromJson((a as Map).cast<String, dynamic>()))
+          .toList()
+        ..sort((a, b) => a.seq.compareTo(b.seq)),
+      status: RequestStatusApiX.fromApiValue(map['status'] as String? ?? 'pending'),
+      rejectionReason: (map['rejection_reason'] as String?)?.trim().isEmpty ?? true
+          ? null
+          : map['rejection_reason'] as String,
+    );
+  }
+
+  /// Posts a note on a request's comment thread (`request_comments.php`).
+  static Future<RequestComment> postComment({
+    required int requestId,
+    required String body,
+    required String authorName,
+  }) async {
+    final response = await http
+        .post(
+          Uri.parse('$baseUrl/request_comments.php'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'request_id': requestId,
+            'author_name': authorName,
+            'body': body,
+          }),
+        )
+        .timeout(_timeout, onTimeout: _timeoutError);
+
+    final decoded = jsonDecode(response.body);
+    if (response.statusCode != 201) {
+      throw Exception(
+        (decoded is Map ? decoded['error'] : null) ?? 'Failed to post the comment',
+      );
+    }
+    return RequestComment.fromJson(
+      ((decoded as Map)['comment'] as Map).cast<String, dynamic>(),
+    );
   }
 }

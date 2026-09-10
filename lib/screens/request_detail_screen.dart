@@ -4,25 +4,31 @@ import '../models/asset_request.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/image_viewer_screen.dart';
-import '../widgets/signature_line.dart';
+import '../widgets/reason_dialog.dart';
 import '../widgets/status_chip.dart';
 
 /// Full detail view for a single asset request. Shows every field the
-/// requester entered, plus the approve/reject/cancel actions that used to
-/// live only on the request card, so admins can act after reviewing the
-/// full request instead of only from the list.
+/// requester entered, the adviser → principal → dean routing (transcribed
+/// from the photo of the signed form), the comment thread, and the
+/// approve/hand-out/return/reject/cancel actions.
 class RequestDetailScreen extends StatefulWidget {
   const RequestDetailScreen({
     super.key,
     required this.request,
+    this.adminName,
     this.onApprove,
     this.onHandOut,
     this.onMarkReturned,
     this.onReject,
     this.onCancel,
+    this.onRecordStep,
+    this.onPostComment,
   });
 
   final AssetRequest request;
+
+  /// The signed-in admin's name, stamped on decisions and comments.
+  final String? adminName;
 
   /// Invoked when the admin approves a pending request. Opens the asset
   /// picker and completes once the request has been approved (its assets
@@ -40,18 +46,37 @@ class RequestDetailScreen extends StatefulWidget {
   /// backend has been updated.
   final Future<void> Function()? onMarkReturned;
 
-  /// Invoked when the admin rejects a pending request.
-  final VoidCallback? onReject;
+  /// Invoked when the admin rejects the request — carries the required
+  /// reason.
+  final Future<void> Function(String reason)? onReject;
 
   /// Invoked when the admin cancels a previously-approved request, moving
   /// it back to pending.
   final VoidCallback? onCancel;
+
+  /// Invoked when the admin records one routing decision — `decision` is
+  /// `'approved'`, `'rejected'` or `'pending'` (undo); `note` carries the
+  /// remark / rejection reason.
+  final Future<void> Function(ApprovalRole role, String decision, String? note)?
+      onRecordStep;
+
+  /// Invoked when the admin posts a comment on the request.
+  final Future<void> Function(String body)? onPostComment;
 
   @override
   State<RequestDetailScreen> createState() => _RequestDetailScreenState();
 }
 
 class _RequestDetailScreenState extends State<RequestDetailScreen> {
+  final _commentController = TextEditingController();
+  bool _postingComment = false;
+
+  @override
+  void dispose() {
+    _commentController.dispose();
+    super.dispose();
+  }
+
   Future<void> _approve() async {
     await widget.onApprove?.call();
     if (mounted) setState(() {});
@@ -67,14 +92,51 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
     if (mounted) setState(() {});
   }
 
-  void _reject() {
-    widget.onReject?.call();
-    setState(() {});
+  Future<void> _reject() async {
+    final reason = await showReasonDialog(
+      context,
+      title: 'Reject this request',
+      hint: 'Why is it being declined? The requester will see this.',
+      confirmLabel: 'Reject',
+      destructive: true,
+    );
+    if (reason == null || !mounted) return;
+    await widget.onReject?.call(reason);
+    if (mounted) setState(() {});
   }
 
   void _cancel() {
     widget.onCancel?.call();
     setState(() {});
+  }
+
+  Future<void> _recordStep(ApprovalRole role, String decision) async {
+    String? note;
+    if (decision == 'rejected') {
+      note = await showReasonDialog(
+        context,
+        title: 'Reject at ${role.label}',
+        hint: 'Why did this step not endorse the request? '
+            'The requester will see this.',
+        confirmLabel: 'Reject',
+        destructive: true,
+      );
+      if (note == null) return;
+    }
+    await widget.onRecordStep?.call(role, decision, note);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _postComment() async {
+    final text = _commentController.text.trim();
+    if (text.isEmpty || _postingComment) return;
+    setState(() => _postingComment = true);
+    await widget.onPostComment?.call(text);
+    if (!mounted) return;
+    setState(() {
+      _postingComment = false;
+      _commentController.clear();
+    });
   }
 
   @override
@@ -111,7 +173,11 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
             const SizedBox(height: 24),
             _infoCard(request),
             const SizedBox(height: 24),
+            _routingCard(request),
+            const SizedBox(height: 24),
             _signaturesCard(request),
+            const SizedBox(height: 24),
+            _commentsCard(request),
             const SizedBox(height: 24),
             _actions(request),
           ],
@@ -136,7 +202,11 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                 const SizedBox(height: 30),
                 _infoCard(request, desktop: true),
                 const SizedBox(height: 24),
+                _routingCard(request),
+                const SizedBox(height: 24),
                 _signaturesCard(request, desktop: true),
+                const SizedBox(height: 24),
+                _commentsCard(request),
                 const SizedBox(height: 24),
                 _actions(request, desktop: true),
               ],
@@ -484,100 +554,381 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
         ),
       );
 
-  /// The four printed names from the paper slip — requester, adviser,
-  /// principal/office head, and dean — laid out side by side on desktop
-  /// and two-per-row on mobile, followed by the single attached photo/
-  /// scan of the signed CSDO Request Form itself (all four signatures
-  /// are visible on that one photo, so it's shown once here rather than
-  /// per person).
+  Widget _card({required Widget child}) => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppTheme.border, width: 2),
+        ),
+        child: child,
+      );
+
+  Widget _cardTitle(String text, {Widget? trailing}) => Row(
+        children: [
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                color: AppTheme.darkGreen,
+                fontWeight: FontWeight.w800,
+                fontSize: 18,
+              ),
+            ),
+          ),
+          if (trailing != null) trailing,
+        ],
+      );
+
+  /// The signed CSDO form: the requester's printed name, plus the single
+  /// photo/scan of the physically signed slip. Every routing decision on
+  /// this page is transcribed from that photo, so it stays front and centre.
   Widget _signaturesCard(AssetRequest request, {bool desktop = false}) {
-    final signatories = request.signatories;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppTheme.border, width: 2),
-      ),
+    return _card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Signatures',
-                  style: TextStyle(
-                    color: AppTheme.darkGreen,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 18,
+          _cardTitle(
+            'Signed CSDO form',
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  request.hasRequestForm ? Icons.check_circle : Icons.radio_button_unchecked,
+                  color: request.hasRequestForm ? AppTheme.primary : AppTheme.muted,
+                  size: 16,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  request.hasRequestForm ? 'Photo attached' : 'No photo yet',
+                  style: const TextStyle(
+                    color: AppTheme.muted,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
                   ),
                 ),
-              ),
-              Row(
-                children: [
-                  Icon(
-                    request.hasRequestForm ? Icons.check_circle : Icons.radio_button_unchecked,
-                    color: request.hasRequestForm ? AppTheme.primary : AppTheme.muted,
-                    size: 16,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    request.hasRequestForm ? 'Form attached' : 'Form not yet attached',
-                    style: const TextStyle(
-                      color: AppTheme.muted,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-              ),
-            ],
+              ],
+            ),
           ),
-          const SizedBox(height: 18),
-          desktop
-              ? Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    for (final entry in signatories)
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
-                          child: SignatureLine(role: entry.key, signatory: entry.value),
-                        ),
-                      ),
-                  ],
-                )
-              // A GridView.count with a fixed childAspectRatio forces every
-              // cell to a rigid height derived from its width. That works
-              // on a "typical" phone width, but on a narrower device the
-              // cell shrinks below what the name + role text inside
-              // SignatureLine actually needs, which is what was causing
-              // the "BOTTOM OVERFLOWED" errors. A Wrap has no such
-              // constraint — each item is only as tall as its own content,
-              // so it can never overflow, on any screen width.
-              : LayoutBuilder(
-                  builder: (context, constraints) {
-                    const spacing = 12.0;
-                    final itemWidth = (constraints.maxWidth - spacing) / 2;
-                    return Wrap(
-                      spacing: spacing,
-                      runSpacing: 22,
-                      children: [
-                        for (final entry in signatories)
-                          SizedBox(
-                            width: itemWidth,
-                            child: SignatureLine(role: entry.key, signatory: entry.value),
-                          ),
-                      ],
-                    );
-                  },
-                ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 16),
+          _detailRow('Requester (printed name)',
+              request.requesterSignature.name.isEmpty ? '—' : request.requesterSignature.name),
+          const SizedBox(height: 4),
+          const Text(
+            'Check the photo below against each routing step.',
+            style: TextStyle(color: AppTheme.muted, fontSize: 12.5),
+          ),
+          const SizedBox(height: 14),
           _requestFormAttachment(request),
         ],
       ),
+    );
+  }
+
+  /// The adviser → principal → dean routing, transcribed by the admin from
+  /// the signed form. Each step shows its state, who recorded it and when,
+  /// and any note; a still-pending request gets Approve / Reject / Undo
+  /// actions in order. CSDO can only approve the whole request once all
+  /// three are green (the last row here reflects that CSDO step).
+  Widget _routingCard(AssetRequest request) {
+    final steps = [...request.approvals]..sort((a, b) => a.seq.compareTo(b.seq));
+    final locked = request.status != RequestStatus.pending &&
+        request.status != RequestStatus.rejected;
+    final actionable = widget.onRecordStep != null && !locked;
+
+    // A step can be approved only once every earlier step is approved.
+    bool priorAllApproved(int seq) =>
+        steps.where((s) => s.seq < seq).every((s) => s.isApproved);
+    // A step can be undone only if no later step is approved.
+    bool noLaterApproved(int seq) =>
+        steps.where((s) => s.seq > seq).every((s) => !s.isApproved);
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _cardTitle('Approval routing',
+              trailing: _routingSummaryChip(request)),
+          const SizedBox(height: 6),
+          const Text(
+            'Recorded from the signed form as it moves adviser → principal / office '
+            'head → dean. CSDO can approve once all three have signed.',
+            style: TextStyle(color: AppTheme.muted, fontSize: 12.5, height: 1.35),
+          ),
+          const SizedBox(height: 8),
+          for (final step in steps) ...[
+            const Divider(height: 22, color: AppTheme.border),
+            _stepRow(
+              step,
+              actionable: actionable,
+              canApprove: priorAllApproved(step.seq),
+              canUndo: noLaterApproved(step.seq),
+            ),
+          ],
+          const Divider(height: 22, color: AppTheme.border),
+          _csdoStepRow(request),
+        ],
+      ),
+    );
+  }
+
+  Widget _routingSummaryChip(AssetRequest request) {
+    final (bg, fg) = request.chainRejected
+        ? (AppTheme.redTint, const Color(0xFFC84040))
+        : request.chainComplete
+            ? (AppTheme.mint, AppTheme.primary)
+            : (AppTheme.cream, const Color(0xFF9A6512));
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(30)),
+      child: Text(
+        request.routingSummary,
+        style: TextStyle(color: fg, fontWeight: FontWeight.w800, fontSize: 12),
+      ),
+    );
+  }
+
+  Widget _stepRow(
+    RequestApproval step, {
+    required bool actionable,
+    required bool canApprove,
+    required bool canUndo,
+  }) {
+    final (icon, tint) = switch (step.status) {
+      ApprovalStepStatus.approved => (Icons.check_circle, AppTheme.primary),
+      ApprovalStepStatus.rejected => (Icons.cancel, const Color(0xFFC84040)),
+      ApprovalStepStatus.pending => (Icons.radio_button_unchecked, AppTheme.muted),
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: tint, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    step.role.label,
+                    style: const TextStyle(
+                      color: AppTheme.darkGreen,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                    ),
+                  ),
+                  Text(
+                    step.printedName == null || step.printedName!.isEmpty
+                        ? 'No printed name on the form'
+                        : 'Signed over: ${step.printedName}',
+                    style: const TextStyle(color: AppTheme.muted, fontSize: 12.5),
+                  ),
+                  if (step.decidedAt != null)
+                    Text(
+                      '${step.status.label} · ${_stamp(step.decidedAt!)}'
+                      '${step.decidedByName == null ? '' : ' · by ${step.decidedByName}'}',
+                      style: const TextStyle(color: AppTheme.muted, fontSize: 11.5),
+                    ),
+                  if (step.note != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      step.note!,
+                      style: TextStyle(
+                        color: step.isRejected ? const Color(0xFFC84040) : AppTheme.muted,
+                        fontSize: 12.5,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+        if (actionable) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              if (step.status != ApprovalStepStatus.approved)
+                _stepBtn('Approve', Icons.check, AppTheme.primary,
+                    canApprove ? () => _recordStep(step.role, 'approved') : null),
+              if (step.status != ApprovalStepStatus.rejected)
+                _stepBtn('Reject', Icons.close, const Color(0xFFC84040),
+                    () => _recordStep(step.role, 'rejected')),
+              if (step.status != ApprovalStepStatus.pending)
+                _stepBtn('Undo', Icons.undo, AppTheme.muted,
+                    canUndo ? () => _recordStep(step.role, 'pending') : null),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _stepBtn(String label, IconData icon, Color color, VoidCallback? onTap) {
+    return OutlinedButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, size: 16),
+      label: Text(label),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: color,
+        side: BorderSide(color: onTap == null ? AppTheme.border : color, width: 1.5),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        minimumSize: const Size(0, 36),
+        visualDensity: VisualDensity.compact,
+      ),
+    );
+  }
+
+  /// The 4th "step" — CSDO's own decision — reflected read-only from the
+  /// request's status. It's acted on with the Approve / Reject buttons in
+  /// [_actions] below, and only unlocks once the three above are green.
+  Widget _csdoStepRow(AssetRequest request) {
+    final (icon, tint, label) = switch (request.status) {
+      RequestStatus.rejected => (Icons.cancel, const Color(0xFFC84040), 'Rejected'),
+      RequestStatus.pending => request.chainComplete
+          ? (Icons.pending_outlined, const Color(0xFF9A6512), 'Ready for CSDO')
+          : (Icons.lock_outline, AppTheme.muted, 'Waiting on signatories'),
+      _ => (Icons.check_circle, AppTheme.primary, 'Approved by CSDO'),
+    };
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: tint, size: 20),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'CSDO',
+                style: TextStyle(
+                  color: AppTheme.darkGreen,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                ),
+              ),
+              Text(
+                label,
+                style: TextStyle(color: tint, fontSize: 12.5, fontWeight: FontWeight.w700),
+              ),
+              if (request.decidedAt != null)
+                Text(
+                  '${_stamp(request.decidedAt!)}'
+                  '${request.decidedByName == null ? '' : ' · by ${request.decidedByName}'}',
+                  style: const TextStyle(color: AppTheme.muted, fontSize: 11.5),
+                ),
+              if (request.rejectionReason != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  request.rejectionReason!,
+                  style: const TextStyle(
+                    color: Color(0xFFC84040),
+                    fontSize: 12.5,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// "Sep 16, 2:45 PM" for an activity stamp.
+  static String _stamp(DateTime at) {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final h = at.hour % 12 == 0 ? 12 : at.hour % 12;
+    final m = at.minute.toString().padLeft(2, '0');
+    final ap = at.hour < 12 ? 'AM' : 'PM';
+    return '${months[at.month - 1]} ${at.day}, $h:$m $ap';
+  }
+
+  /// The comment thread: existing notes newest-first, then a compose box.
+  Widget _commentsCard(AssetRequest request) {
+    final comments = request.comments;
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _cardTitle('Comments & activity'),
+          const SizedBox(height: 12),
+          if (comments.isEmpty)
+            const Text(
+              'No comments yet. Use this to note what a request is waiting on, '
+              'or why it needs to be resubmitted.',
+              style: TextStyle(color: AppTheme.muted, fontSize: 13, height: 1.4),
+            )
+          else
+            for (var i = 0; i < comments.length; i++) ...[
+              if (i > 0) const Divider(height: 22, color: AppTheme.border),
+              _commentTile(comments[i]),
+            ],
+          if (widget.onPostComment != null) ...[
+            const SizedBox(height: 16),
+            TextField(
+              controller: _commentController,
+              minLines: 1,
+              maxLines: 4,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(hintText: 'Add a comment…'),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton.icon(
+                onPressed: _commentController.text.trim().isEmpty || _postingComment
+                    ? null
+                    : _postComment,
+                icon: const Icon(Icons.send, size: 16),
+                label: const Text('Post'),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(0, 40),
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _commentTile(RequestComment c) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                c.authorName,
+                style: const TextStyle(
+                  color: AppTheme.darkGreen,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+            Text(
+              _stamp(c.createdAt),
+              style: const TextStyle(color: AppTheme.muted, fontSize: 11.5),
+            ),
+          ],
+        ),
+        const SizedBox(height: 3),
+        Text(c.body, style: const TextStyle(color: AppTheme.muted, fontSize: 13, height: 1.4)),
+      ],
     );
   }
 
@@ -697,31 +1048,55 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
   /// stretched mobile-sized buttons.
   Widget _actions(AssetRequest request, {bool desktop = false}) {
     if (request.status == RequestStatus.pending) {
-      final approve = ElevatedButton(
-        onPressed: widget.onApprove == null ? null : _approve,
+      final chainReady = request.chainComplete;
+      final approve = ElevatedButton.icon(
+        onPressed: widget.onApprove == null || !chainReady ? null : _approve,
         style: desktop
             ? ElevatedButton.styleFrom(
                 minimumSize: _desktopMinSize,
                 padding: _desktopButtonPadding,
               )
             : null,
-        child: const Text('Approve'),
+        icon: Icon(chainReady ? Icons.check : Icons.lock_outline, size: 18),
+        label: const Text('Approve (CSDO)'),
       );
       final reject = OutlinedButton(
         onPressed: widget.onReject == null ? null : _reject,
         style: _rejectStyle(desktop: desktop),
         child: const Text('Reject'),
       );
+      final hint = Text(
+        chainReady
+            ? 'Adviser, principal and dean have all signed — CSDO can now approve '
+                'and assign assets.'
+            : 'Record the adviser, principal and dean approvals above before CSDO '
+                'can approve this request.',
+        textAlign: desktop ? TextAlign.right : TextAlign.center,
+        style: const TextStyle(color: AppTheme.muted, fontSize: 13, height: 1.4),
+      );
       if (!desktop) {
-        return Row(
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Expanded(child: approve),
-            const SizedBox(width: 12),
-            Expanded(child: reject),
+            Row(
+              children: [
+                Expanded(child: approve),
+                const SizedBox(width: 12),
+                Expanded(child: reject),
+              ],
+            ),
+            const SizedBox(height: 10),
+            hint,
           ],
         );
       }
-      return _desktopActionsBar([reject, const SizedBox(width: 12), approve]);
+      return _desktopActionsBar([
+        Expanded(child: hint),
+        const SizedBox(width: 16),
+        reject,
+        const SizedBox(width: 12),
+        approve,
+      ]);
     }
     if (request.status == RequestStatus.approved) {
       final handOut = ElevatedButton.icon(
@@ -807,6 +1182,51 @@ class _RequestDetailScreenState extends State<RequestDetailScreen> {
                 'The borrowed assets have been returned and are available again. '
                 'This loan is closed.',
                 style: TextStyle(color: AppTheme.darkGreen, fontSize: 13, height: 1.4),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    if (request.status == RequestStatus.rejected) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppTheme.redTint,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFF3C6C4), width: 2),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.highlight_off, color: Color(0xFFC84040), size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'This request was rejected.',
+                    style: TextStyle(
+                      color: Color(0xFFC84040),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                    ),
+                  ),
+                  if (request.rejectionReason != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      request.rejectionReason!,
+                      style: const TextStyle(color: Color(0xFFC84040), fontSize: 13, height: 1.4),
+                    ),
+                  ],
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Undo the rejected routing step above to reopen it.',
+                    style: TextStyle(color: Color(0xFFC84040), fontSize: 12.5),
+                  ),
+                ],
               ),
             ),
           ],

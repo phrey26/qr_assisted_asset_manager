@@ -176,6 +176,91 @@ function conflict_summary(array $conflicts): string {
     return $text;
 }
 
+/**
+ * Loads the adviser -> principal -> dean routing rows for each request in
+ * $requestIds, keyed by request_id, ordered by seq. Each entry is
+ * {role, seq, status, printed_name, note, decided_by_name, decided_at}.
+ */
+function load_request_approvals(mysqli $mysqli, array $requestIds): array {
+    $byRequest = [];
+    foreach ($requestIds as $id) $byRequest[$id] = [];
+    if (empty($requestIds)) return $byRequest;
+
+    $placeholders = implode(',', array_fill(0, count($requestIds), '?'));
+    $types = str_repeat('i', count($requestIds));
+    $stmt = $mysqli->prepare(
+        'SELECT request_id, role, seq, status, printed_name, note, decided_by_name, decided_at ' .
+        "FROM request_approvals WHERE request_id IN ($placeholders) ORDER BY seq ASC"
+    );
+    if ($stmt === false) return $byRequest;
+    $stmt->bind_param($types, ...$requestIds);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    while ($row = $result->fetch_assoc()) {
+        $byRequest[(int) $row['request_id']][] = [
+            'role' => $row['role'],
+            'seq' => (int) $row['seq'],
+            'status' => $row['status'],
+            'printed_name' => $row['printed_name'],
+            'note' => $row['note'],
+            'decided_by_name' => $row['decided_by_name'],
+            'decided_at' => $row['decided_at'],
+        ];
+    }
+    $stmt->close();
+    return $byRequest;
+}
+
+/**
+ * Loads the comment thread for each request in $requestIds, keyed by
+ * request_id, newest first. Each entry is {id, author_name, body, created_at}.
+ */
+function load_request_comments(mysqli $mysqli, array $requestIds): array {
+    $byRequest = [];
+    foreach ($requestIds as $id) $byRequest[$id] = [];
+    if (empty($requestIds)) return $byRequest;
+
+    $placeholders = implode(',', array_fill(0, count($requestIds), '?'));
+    $types = str_repeat('i', count($requestIds));
+    $stmt = $mysqli->prepare(
+        'SELECT id, request_id, author_name, body, created_at ' .
+        "FROM request_comments WHERE request_id IN ($placeholders) ORDER BY id DESC"
+    );
+    if ($stmt === false) return $byRequest;
+    $stmt->bind_param($types, ...$requestIds);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    while ($row = $result->fetch_assoc()) {
+        $byRequest[(int) $row['request_id']][] = [
+            'id' => (int) $row['id'],
+            'author_name' => $row['author_name'],
+            'body' => $row['body'],
+            'created_at' => $row['created_at'],
+        ];
+    }
+    $stmt->close();
+    return $byRequest;
+}
+
+/**
+ * True when every routing row for $requestId is 'approved' — i.e. adviser,
+ * principal and dean have all signed off and CSDO may now approve.
+ */
+function approval_chain_complete(mysqli $mysqli, int $requestId): bool {
+    $stmt = $mysqli->prepare(
+        "SELECT COUNT(*) AS total, SUM(status = 'approved') AS approved " .
+        'FROM request_approvals WHERE request_id = ?'
+    );
+    if ($stmt === false) return false;
+    $stmt->bind_param('i', $requestId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    $total = (int) ($row['total'] ?? 0);
+    $approved = (int) ($row['approved'] ?? 0);
+    return $total > 0 && $total === $approved;
+}
+
 /** Reads and JSON-decodes the request body as an assoc array (empty array if none/invalid). */
 function read_json_body(): array {
     $raw = file_get_contents('php://input');

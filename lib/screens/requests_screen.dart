@@ -33,17 +33,27 @@ void _openRequestDetail(
   required Future<void> Function(AssetRequest request) onHandOut,
   required Future<void> Function(AssetRequest request) onMarkReturned,
   required void Function(AssetRequest request, RequestStatus status) onSetStatus,
+  required Future<void> Function(AssetRequest request, String reason) onReject,
+  required Future<void> Function(
+          AssetRequest request, ApprovalRole role, String decision, String? note)
+      onRecordStep,
+  required Future<void> Function(AssetRequest request, String body) onPostComment,
+  String? adminName,
 }) {
   Navigator.push(
     context,
     MaterialPageRoute(
       builder: (_) => RequestDetailScreen(
         request: request,
+        adminName: adminName,
         onApprove: () => onApprove(request),
         onHandOut: () => onHandOut(request),
         onMarkReturned: () => onMarkReturned(request),
-        onReject: () => onSetStatus(request, RequestStatus.rejected),
+        onReject: (reason) => onReject(request, reason),
         onCancel: () => onSetStatus(request, RequestStatus.pending),
+        onRecordStep: (role, decision, note) =>
+            onRecordStep(request, role, decision, note),
+        onPostComment: (body) => onPostComment(request, body),
       ),
     ),
   );
@@ -191,12 +201,126 @@ class RequestsScreenState extends State<RequestsScreen> {
     }
   }
 
+  String? get _adminName => widget.currentUser?['full_name'] as String?;
+
+  /// Opens [RequestDetailScreen] with every action wired to this state.
+  void _openDetail(AssetRequest request) => _openRequestDetail(
+        context,
+        request,
+        onApprove: _approveRequest,
+        onHandOut: _handOut,
+        onMarkReturned: _markReturned,
+        onSetStatus: _setStatus,
+        onReject: _rejectRequest,
+        onRecordStep: _recordApprovalStep,
+        onPostComment: _postCommentOn,
+        adminName: _adminName,
+      );
+
+  /// CSDO rejection — carries the required reason, stored on the request and
+  /// shown to the requester.
+  Future<void> _rejectRequest(AssetRequest request, String reason) async {
+    final previousStatus = request.status;
+    final previousReason = request.rejectionReason;
+    final previousAssigned = List<AssignedAsset>.from(request.assignedAssets);
+    setState(() {
+      request.status = RequestStatus.rejected;
+      request.rejectionReason = reason;
+      request.assignedAssets = const [];
+    });
+    if (request.id == null) return;
+    try {
+      await ApiService.updateRequestStatus(
+        id: request.id!,
+        status: RequestStatus.rejected.apiValue,
+        reason: reason,
+        decidedBy: _adminName,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        request.status = previousStatus;
+        request.rejectionReason = previousReason;
+        request.assignedAssets = previousAssigned;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not reject the request: $e')),
+      );
+    }
+  }
+
+  /// Records one adviser/principal/dean routing decision and applies the
+  /// backend's refreshed routing + status back onto [request] in place.
+  Future<void> _recordApprovalStep(
+    AssetRequest request,
+    ApprovalRole role,
+    String decision,
+    String? note,
+  ) async {
+    if (request.id == null) return;
+    try {
+      final result = await ApiService.recordApprovalStep(
+        requestId: request.id!,
+        role: role,
+        decision: decision,
+        note: note,
+        decidedBy: _adminName,
+      );
+      if (!mounted) return;
+      setState(() {
+        request.approvals = result.approvals;
+        request.status = result.status;
+        request.rejectionReason = result.rejectionReason;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not record the decision: $e')),
+      );
+    }
+  }
+
+  /// Posts a comment and prepends it to [request]'s thread on success.
+  Future<void> _postCommentOn(AssetRequest request, String body) async {
+    if (request.id == null) return;
+    try {
+      final comment = await ApiService.postComment(
+        requestId: request.id!,
+        body: body,
+        authorName: _adminName ?? 'CSDO',
+      );
+      if (!mounted) return;
+      setState(() => request.comments = [comment, ...request.comments]);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not post the comment: $e')),
+      );
+    }
+  }
+
   /// Approve flow: the admin picks the assets before the request can be
   /// approved. On confirm those assets are *reserved* for the loan window
   /// (a `request_assets` row each) — nothing is marked In use and no stock
   /// moves until the assets are handed out ([_handOut]). Re-approving
   /// replaces the previous reservation.
   Future<void> _approveRequest(AssetRequest request) async {
+    // CSDO can only approve once adviser -> principal -> dean have all signed
+    // (the backend enforces this too). Re-approving an already-approved
+    // request to re-pick assets is still allowed.
+    if (request.status == RequestStatus.pending && !request.chainComplete) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            request.chainRejected
+                ? 'A routing step rejected this request — undo it before approving.'
+                : 'Record the adviser, principal and dean approvals before CSDO approves.',
+          ),
+        ),
+      );
+      return;
+    }
+
     final previousAssigned = List<AssignedAsset>.from(request.assignedAssets);
     final previousIndividualTags = previousAssigned
         .where((a) => !a.isBulk)
@@ -558,47 +682,12 @@ class RequestsScreenState extends State<RequestsScreen> {
                   constraints: BoxConstraints(maxWidth: maxWidth),
                   child: _RequestsTable(
                     requests: filtered,
-                    onOpen: (request) => _openRequestDetail(
-                      context,
-                      request,
-                      onApprove: _approveRequest,
-                      onHandOut: _handOut,
-                      onMarkReturned: _markReturned,
-                      onSetStatus: _setStatus,
-                    ),
-                    onApprove: (request) => _openRequestDetail(
-                      context,
-                      request,
-                      onApprove: _approveRequest,
-                      onHandOut: _handOut,
-                      onMarkReturned: _markReturned,
-                      onSetStatus: _setStatus,
-                    ),
-                    onHandOut: (request) => _openRequestDetail(
-                      context,
-                      request,
-                      onApprove: _approveRequest,
-                      onHandOut: _handOut,
-                      onMarkReturned: _markReturned,
-                      onSetStatus: _setStatus,
-                    ),
-                    onReject: (request) => _openRequestDetail(
-                      context,
-                      request,
-                      onApprove: _approveRequest,
-                      onHandOut: _handOut,
-                      onMarkReturned: _markReturned,
-                      onSetStatus: _setStatus,
-                    ),
+                    onOpen: _openDetail,
+                    onApprove: _openDetail,
+                    onHandOut: _openDetail,
+                    onReject: _openDetail,
                     onCancel: (request) => _setStatus(request, RequestStatus.pending),
-                    onReturn: (request) => _openRequestDetail(
-                      context,
-                      request,
-                      onApprove: _approveRequest,
-                      onHandOut: _handOut,
-                      onMarkReturned: _markReturned,
-                      onSetStatus: _setStatus,
-                    ),
+                    onReturn: _openDetail,
                   ),
                 ),
               ),
@@ -619,14 +708,7 @@ class RequestsScreenState extends State<RequestsScreen> {
                   constraints: BoxConstraints(maxWidth: maxWidth),
                   child: _RequestCard(
                     request: filtered[index],
-                    onTap: () => _openRequestDetail(
-                      context,
-                      filtered[index],
-                      onApprove: _approveRequest,
-                      onHandOut: _handOut,
-                      onMarkReturned: _markReturned,
-                      onSetStatus: _setStatus,
-                    ),
+                    onTap: () => _openDetail(filtered[index]),
                   ),
                 ),
               ),
@@ -871,6 +953,20 @@ class _RequestsTable extends StatelessWidget {
                       const SizedBox(height: 4),
                       _OverduePill(days: request.daysOverdue),
                     ],
+                    if (request.status == RequestStatus.pending &&
+                        request.approvals.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        request.routingSummary,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: request.chainComplete ? AppTheme.primary : AppTheme.muted,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -1065,6 +1161,44 @@ class _RequestCard extends StatelessWidget {
                           if (request.isOverdue) _OverduePill(days: request.daysOverdue),
                         ],
                       ),
+                      if (request.status == RequestStatus.pending &&
+                          request.approvals.isNotEmpty) ...[
+                        SizedBox(height: 6 * scale),
+                        Row(
+                          children: [
+                            Icon(Icons.how_to_reg_outlined,
+                                size: 13 * scale, color: AppTheme.muted),
+                            SizedBox(width: 4 * scale),
+                            Expanded(
+                              child: Text(
+                                request.routingSummary,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: request.chainComplete
+                                      ? AppTheme.primary
+                                      : AppTheme.muted,
+                                  fontSize: 12 * scale,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                      if (request.status == RequestStatus.rejected &&
+                          request.rejectionReason != null) ...[
+                        SizedBox(height: 6 * scale),
+                        Text(
+                          'Rejected: ${request.rejectionReason}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: const Color(0xFFC84040),
+                            fontSize: 12 * scale,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -1318,9 +1452,33 @@ class _NewRequestFormState extends State<NewRequestForm> {
         principalSignature: Signatory(name: principalNameController.text.trim()),
         deanSignature: Signatory(name: deanNameController.text.trim()),
         requestFormImageBytes: requestFormImageBytes,
+        // The backend seeds its own routing rows; these mirror them so the
+        // request shows its pending steps before the first reload.
+        approvals: [
+          RequestApproval(
+            role: ApprovalRole.adviser,
+            seq: 1,
+            status: ApprovalStepStatus.pending,
+            printedName: _blankToNull(adviserNameController.text),
+          ),
+          RequestApproval(
+            role: ApprovalRole.principal,
+            seq: 2,
+            status: ApprovalStepStatus.pending,
+            printedName: _blankToNull(principalNameController.text),
+          ),
+          RequestApproval(
+            role: ApprovalRole.dean,
+            seq: 3,
+            status: ApprovalStepStatus.pending,
+            printedName: _blankToNull(deanNameController.text),
+          ),
+        ],
       ),
     );
   }
+
+  static String? _blankToNull(String s) => s.trim().isEmpty ? null : s.trim();
 
   @override
   Widget build(BuildContext context) {

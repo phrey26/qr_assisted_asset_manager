@@ -260,7 +260,7 @@ function condition_label(string $slug): string {
 if ($method === 'GET') {
     $result = $mysqli->query(
         'SELECT id, title, requester, department, venue, borrow_date, return_date, ' .
-        'borrow_on, return_on, status, ' .
+        'borrow_on, return_on, status, rejection_reason, decided_by_name, decided_at, ' .
         'requester_signature, adviser_signature, principal_signature, dean_signature, ' .
         'request_form_image, created_at FROM requests ORDER BY id DESC'
     );
@@ -274,10 +274,14 @@ if ($method === 'GET') {
 
     $itemsByRequest = load_items($mysqli, $ids);
     $assetsByRequest = load_request_assets($mysqli, $ids);
+    $approvalsByRequest = load_request_approvals($mysqli, $ids);
+    $commentsByRequest = load_request_comments($mysqli, $ids);
     foreach ($rows as &$row) {
         $row['logistics'] = $itemsByRequest[$row['id']]['logistics'];
         $row['equipment'] = $itemsByRequest[$row['id']]['equipment'];
         $row['assets'] = $assetsByRequest[$row['id']];
+        $row['approvals'] = $approvalsByRequest[$row['id']];
+        $row['comments'] = $commentsByRequest[$row['id']];
     }
     unset($row);
 
@@ -380,6 +384,25 @@ if ($method === 'POST') {
         }
         $itemStmt->close();
 
+        // Seed the adviser -> principal -> dean routing rows (all pending),
+        // carrying the printed names the form collected.
+        $apStmt = $mysqli->prepare(
+            'INSERT INTO request_approvals (request_id, role, seq, status, printed_name) ' .
+            "VALUES (?, ?, ?, 'pending', ?)"
+        );
+        foreach ([
+            ['adviser', 1, $adviserSignature],
+            ['principal', 2, $principalSignature],
+            ['dean', 3, $deanSignature],
+        ] as [$role, $seq, $printedName]) {
+            $printedName = ($printedName === '') ? null : $printedName;
+            $apStmt->bind_param('isis', $requestId, $role, $seq, $printedName);
+            if (!$apStmt->execute()) {
+                throw new Exception($mysqli->error);
+            }
+        }
+        $apStmt->close();
+
         $mysqli->commit();
     } catch (Exception $e) {
         $mysqli->rollback();
@@ -417,6 +440,13 @@ if ($method === 'PUT') {
             if ($tag !== '') $assignments[$tag] = 1;
         }
     }
+
+    // The CSDO's own decision context. `reason` is required when rejecting
+    // (shown to the requester); `decided_by` is the admin's name for the
+    // audit trail. Both ignored for the other transitions.
+    $reason = trim((string) ($body['reason'] ?? ''));
+    $decidedByName = trim((string) ($body['decided_by'] ?? ''));
+    if ($decidedByName === '') $decidedByName = null;
 
     // Optional return inspection (condition + notes + photos), sent with a
     // 'returned' status. Ignored for any other status. May also carry
@@ -461,6 +491,14 @@ if ($method === 'PUT') {
             }
             if (empty($assignments)) {
                 throw new Exception('Pick at least one asset to reserve before approving this request.');
+            }
+            // CSDO can only approve once the adviser -> principal -> dean
+            // routing is fully signed off.
+            if ($cur !== 'approved' && !approval_chain_complete($mysqli, $id)) {
+                throw new Exception(
+                    'The adviser, principal / office head and dean must all approve this '
+                    . 'request before CSDO can process it.'
+                );
             }
 
             // Re-approve from a clean slate: drop any prior reservation rows
@@ -686,14 +724,41 @@ if ($method === 'PUT') {
                     ($status === 'pending' ? 'cancelling its approval.' : 'rejecting it.')
                 );
             }
+            if ($status === 'rejected' && $reason === '') {
+                throw new Exception('A reason is required when rejecting a request.');
+            }
             $d = $mysqli->prepare('DELETE FROM request_assets WHERE request_id = ?');
             $d->bind_param('i', $id);
             $d->execute();
             $d->close();
         }
 
-        $stmt = $mysqli->prepare('UPDATE requests SET status = ? WHERE id = ?');
-        $stmt->bind_param('si', $status, $id);
+        // Stamp the CSDO decision: set the rejection reason + who/when on a
+        // reject, who/when on an approve, and clear all three when a request
+        // goes back to pending (cancelled). checked_out / returned leave the
+        // approve-time stamp in place.
+        if ($status === 'rejected') {
+            $stmt = $mysqli->prepare(
+                'UPDATE requests SET status = ?, rejection_reason = ?, ' .
+                'decided_by_name = ?, decided_at = NOW() WHERE id = ?'
+            );
+            $stmt->bind_param('sssi', $status, $reason, $decidedByName, $id);
+        } elseif ($status === 'approved') {
+            $stmt = $mysqli->prepare(
+                'UPDATE requests SET status = ?, rejection_reason = NULL, ' .
+                'decided_by_name = ?, decided_at = NOW() WHERE id = ?'
+            );
+            $stmt->bind_param('ssi', $status, $decidedByName, $id);
+        } elseif ($status === 'pending') {
+            $stmt = $mysqli->prepare(
+                'UPDATE requests SET status = ?, rejection_reason = NULL, ' .
+                'decided_by_name = NULL, decided_at = NULL WHERE id = ?'
+            );
+            $stmt->bind_param('si', $status, $id);
+        } else {
+            $stmt = $mysqli->prepare('UPDATE requests SET status = ? WHERE id = ?');
+            $stmt->bind_param('si', $status, $id);
+        }
         $stmt->execute();
         $stmt->close();
 

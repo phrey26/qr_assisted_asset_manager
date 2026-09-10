@@ -353,6 +353,74 @@ void main() {
     expect(onTimeReturn.wasLate, isFalse);
   });
 
+  test('AssetRequest routing: chain gating, summary and comments from JSON', () {
+    Map<String, dynamic> step(String role, int seq, String status) => {
+          'role': role,
+          'seq': seq,
+          'status': status,
+          'printed_name': 'Name $role',
+        };
+
+    AssetRequest withSteps(List<Map<String, dynamic>> steps) =>
+        AssetRequest.fromJson({
+          'id': 1,
+          'title': 'T',
+          'requester': 'R',
+          'department': 'D',
+          'borrow_date': 'x',
+          'return_date': 'x',
+          'status': 'pending',
+          'approvals': steps,
+          'comments': [
+            {
+              'id': 5,
+              'author_name': 'CSDO',
+              'body': 'Waiting on the dean',
+              'created_at': '2026-09-15 09:00:00',
+            },
+          ],
+        });
+
+    // Adviser signed, principal + dean still pending → not complete.
+    final partway = withSteps([
+      step('adviser', 1, 'approved'),
+      step('principal', 2, 'pending'),
+      step('dean', 3, 'pending'),
+    ]);
+    expect(partway.chainComplete, isFalse);
+    expect(partway.chainRejected, isFalse);
+    expect(partway.nextPendingApproval?.role, ApprovalRole.principal);
+    expect(partway.routingSummary, 'Awaiting Principal / Office Head');
+    expect(partway.comments.single.body, 'Waiting on the dean');
+
+    // All three approved → CSDO may approve.
+    final done = withSteps([
+      step('adviser', 1, 'approved'),
+      step('principal', 2, 'approved'),
+      step('dean', 3, 'approved'),
+    ]);
+    expect(done.chainComplete, isTrue);
+    expect(done.routingSummary, 'Fully signed');
+
+    // A rejected step blocks the chain and names the role.
+    final rejected = withSteps([
+      step('adviser', 1, 'approved'),
+      step('principal', 2, 'rejected'),
+      step('dean', 3, 'pending'),
+    ]);
+    expect(rejected.chainRejected, isTrue);
+    expect(rejected.chainComplete, isFalse);
+    expect(rejected.routingSummary, 'Rejected by Principal / Office Head');
+
+    // Missing routing rows (e.g. a freshly built local request) → not complete.
+    expect(withSteps(const []).chainComplete, isFalse);
+
+    // Round-trips through toJson for the optimistic local insert.
+    final body = done.toJson();
+    expect((body['approvals'] as List).length, 3);
+    expect((body['approvals'] as List).first['role'], 'adviser');
+  });
+
   test('WindowAvailabilityReport parses per-asset free counts and conflicts', () {
     final report = WindowAvailabilityReport.fromJson({
       'from': '2026-09-15',

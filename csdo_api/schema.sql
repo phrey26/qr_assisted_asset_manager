@@ -180,6 +180,73 @@ UPDATE requests r
   JOIN assets a ON a.id = ra.asset_id
   SET r.status = 'checked_out'
   WHERE r.status = 'approved' AND a.status = 'in_use';
+-- The CSDO's own decision on the request: why it was declined (shown to the
+-- requester and on the detail screen), and who recorded it / when. The
+-- adviser → principal → dean routing that precedes it lives in
+-- request_approvals. Safe to re-run.
+ALTER TABLE requests
+  ADD COLUMN IF NOT EXISTS rejection_reason VARCHAR(500) NULL,
+  ADD COLUMN IF NOT EXISTS decided_by_name  VARCHAR(150) NULL,
+  ADD COLUMN IF NOT EXISTS decided_at       DATETIME NULL;
+
+-- The 4-step borrow-slip routing, recorded by the CSDO admin as the signed
+-- paper form moves through adviser → principal/office head → dean. One row
+-- per role per request (seq 1..3); the 4th step, the CSDO's own decision,
+-- is the request's own status + rejection_reason above. The photo of the
+-- signed form (requests.request_form_image) is the evidence each of these
+-- rows is transcribed from. Safe to re-run.
+CREATE TABLE IF NOT EXISTS request_approvals (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  request_id INT NOT NULL,
+  role VARCHAR(16) NOT NULL,            -- 'adviser' | 'principal' | 'dean'
+  seq TINYINT NOT NULL,                 -- routing order: 1, 2, 3
+  status VARCHAR(12) NOT NULL DEFAULT 'pending',  -- pending | approved | rejected
+  printed_name VARCHAR(150) NULL,       -- the name the signature is over (from the form)
+  note VARCHAR(500) NULL,               -- a remark, or the reason when rejected
+  decided_by_name VARCHAR(150) NULL,    -- the admin who recorded this step
+  decided_at DATETIME NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_request_role (request_id, role),
+  CONSTRAINT fk_request_approvals_request FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Free-text notes / discussion on a request (clarifications, "waiting on
+-- the dean's signature", "resubmit with the correct dates"). Newest first.
+CREATE TABLE IF NOT EXISTS request_comments (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  request_id INT NOT NULL,
+  author_name VARCHAR(150) NOT NULL,
+  body VARCHAR(1000) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_request_comments_request FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE CASCADE,
+  INDEX idx_request_comments_request (request_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Seed the routing rows for every request that doesn't have them yet. New
+-- requests get theirs from requests.php (POST). For requests that predate
+-- step tracking: one already past CSDO approval (approved / checked_out /
+-- returned) has all three marked approved, transcribed from the signed
+-- form on file; a pending one starts all pending; a rejected one leaves
+-- the three pending (the rejection lives on the request itself). Idempotent
+-- via NOT EXISTS. Safe to re-run.
+INSERT INTO request_approvals (request_id, role, seq, status, printed_name, note, decided_at)
+SELECT r.id, x.role, x.seq,
+       CASE WHEN r.status IN ('approved', 'checked_out', 'returned') THEN 'approved' ELSE 'pending' END,
+       CASE x.role
+         WHEN 'adviser'   THEN r.adviser_signature
+         WHEN 'principal' THEN r.principal_signature
+         WHEN 'dean'      THEN r.dean_signature
+       END,
+       CASE WHEN r.status IN ('approved', 'checked_out', 'returned')
+            THEN 'Recorded from the signed form on file' END,
+       CASE WHEN r.status IN ('approved', 'checked_out', 'returned') THEN r.created_at END
+FROM requests r
+JOIN (
+  SELECT 'adviser' AS role, 1 AS seq
+  UNION ALL SELECT 'principal', 2
+  UNION ALL SELECT 'dean', 3
+) x
+WHERE NOT EXISTS (SELECT 1 FROM request_approvals ra WHERE ra.request_id = r.id);
 
 CREATE TABLE IF NOT EXISTS request_items (
   id INT AUTO_INCREMENT PRIMARY KEY,
