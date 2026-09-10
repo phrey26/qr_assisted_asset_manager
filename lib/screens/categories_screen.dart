@@ -7,6 +7,7 @@ import '../utils/responsive.dart';
 import '../widgets/add_category_dialog.dart';
 import '../widgets/page_header.dart';
 import '../widgets/select_category_to_delete_dialog.dart';
+import 'add_category_screen.dart';
 import 'select_category_to_delete_screen.dart';
 
 class CategoriesScreen extends StatefulWidget {
@@ -67,14 +68,16 @@ class CategoriesScreenState extends State<CategoriesScreen> {
     super.dispose();
   }
 
-  /// Opens the "add new category" dialog and, if the admin confirms,
-  /// forwards the result to [CategoriesScreen.onAddCategory].
+  /// Opens the "add new category" flow and, if the admin confirms, forwards
+  /// the result to [CategoriesScreen.onAddCategory]. Desktop gets the
+  /// centered modal; mobile pushes a full page instead — same platform
+  /// split (and reasoning) as [openDeleteCategoryDialog].
   Future<void> openAddCategoryDialog() async {
     if (widget.onAddCategory == null) return;
-    final category = await showAddCategoryDialog(
-      context,
-      existingNames: widget.categories.map((c) => c.displayName).toList(),
-    );
+    final names = widget.categories.map((c) => c.displayName).toList();
+    final category = Responsive.isDesktop(context)
+        ? await showAddCategoryDialog(context, existingNames: names)
+        : await showAddCategoryScreen(context, existingNames: names);
     if (category != null) widget.onAddCategory!(category);
   }
 

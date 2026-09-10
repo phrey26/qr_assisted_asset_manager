@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/category.dart';
 import '../theme/app_theme.dart';
+import '../utils/responsive.dart';
 
 /// Shows the "are you sure" confirmation dialog used whenever an admin
 /// deletes a category. Only ever shown for a category with no assets in
@@ -9,7 +10,10 @@ import '../theme/app_theme.dart';
 /// no dialog) before this is reached if any assets are still filed under
 /// it. Returns `true` only if the admin explicitly confirms the removal;
 /// `false`/`null` otherwise.
-Future<bool> confirmCategoryDeletion(BuildContext context, AssetCategory category) async {
+Future<bool> confirmCategoryDeletion(
+  BuildContext context,
+  AssetCategory category,
+) async {
   final result = await showDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
@@ -21,7 +25,11 @@ Future<bool> confirmCategoryDeletion(BuildContext context, AssetCategory categor
           color: AppTheme.redTint,
           shape: BoxShape.circle,
         ),
-        child: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 28),
+        child: const Icon(
+          Icons.delete_outline,
+          color: Colors.redAccent,
+          size: 28,
+        ),
       ),
       title: Text(
         'Delete "${category.displayName}"?',
@@ -32,10 +40,15 @@ Future<bool> confirmCategoryDeletion(BuildContext context, AssetCategory categor
           fontSize: 20,
         ),
       ),
-      content: const Text(
-        'This category has no assets in it. This action cannot be undone.',
-        textAlign: TextAlign.center,
-        style: TextStyle(color: AppTheme.muted, fontSize: 15, height: 1.4),
+      content: SizedBox(
+        // Roomier on desktop so the copy isn't squeezed into a narrow
+        // column; full available width on mobile (unchanged there).
+        width: Responsive.isDesktop(context) ? 460 : double.maxFinite,
+        child: const Text(
+          'This category has no assets in it. This action cannot be undone.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: AppTheme.muted, fontSize: 15, height: 1.4),
+        ),
       ),
       actionsAlignment: MainAxisAlignment.center,
       actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
@@ -54,9 +67,14 @@ Future<bool> confirmCategoryDeletion(BuildContext context, AssetCategory categor
                   foregroundColor: AppTheme.darkGreen,
                   side: const BorderSide(color: AppTheme.border, width: 2),
                   minimumSize: const Size(0, 48),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
-                child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.w700)),
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -67,8 +85,13 @@ Future<bool> confirmCategoryDeletion(BuildContext context, AssetCategory categor
                   backgroundColor: Colors.redAccent,
                   foregroundColor: Colors.white,
                   minimumSize: const Size(0, 48),
-                  textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  textStyle: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
                 child: const Text('Delete'),
               ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/asset.dart';
 import '../theme/app_theme.dart';
+import '../utils/responsive.dart';
 
 /// The two ways an asset leaves the active inventory, both of which ask the
 /// admin for a reason that gets recorded.
@@ -20,7 +21,10 @@ enum AssetRemovalMode {
 
 /// The admin's answer from [promptAssetRemoval].
 class AssetRemovalChoice {
-  const AssetRemovalChoice({required this.reason, this.needsMaintenance = false});
+  const AssetRemovalChoice({
+    required this.reason,
+    this.needsMaintenance = false,
+  });
 
   /// The trimmed reason text (always non-empty).
   final String reason;
@@ -84,8 +88,20 @@ class _AssetRemovalDialogState extends State<_AssetRemovalDialog> {
   static const _repairPreset = 'Needs repair';
 
   List<String> get _presetReasons => _isDelete
-      ? const ['Beyond repair', 'Lost', 'Stolen', 'Disposed / scrapped', 'Donated / transferred']
-      : const ['Worn out', 'Damaged', 'Obsolete / outdated', 'Rarely used', _repairPreset];
+      ? const [
+          'Beyond repair',
+          'Lost',
+          'Stolen',
+          'Disposed / scrapped',
+          'Donated / transferred',
+        ]
+      : const [
+          'Worn out',
+          'Damaged',
+          'Obsolete / outdated',
+          'Rarely used',
+          _repairPreset,
+        ];
 
   Color get _accent => _isDelete ? Colors.redAccent : AppTheme.primary;
 
@@ -126,7 +142,9 @@ class _AssetRemovalDialogState extends State<_AssetRemovalDialog> {
         ),
       ),
       title: Text(
-        _isDelete ? 'Delete this asset permanently?' : 'Move this asset to stock?',
+        _isDelete
+            ? 'Delete this asset permanently?'
+            : 'Move this asset to stock?',
         textAlign: TextAlign.center,
         style: const TextStyle(
           color: AppTheme.darkGreen,
@@ -134,86 +152,99 @@ class _AssetRemovalDialogState extends State<_AssetRemovalDialog> {
           fontSize: 20,
         ),
       ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            _isDelete
-                ? '"${asset.name}" (${asset.tagId}) will be permanently removed. '
-                    'This can\'t be undone — the reason below is kept in the removal log.'
-                : '"${asset.name}" (${asset.tagId}) will be taken out of the active '
-                    'inventory and kept in "Stock items". To delete it for good, remove '
-                    'it from there afterwards.',
-            style: const TextStyle(color: AppTheme.muted, fontSize: 14, height: 1.4),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            _isDelete ? 'Reason for removal' : 'Why is it being moved?',
-            style: const TextStyle(
-              color: AppTheme.darkGreen,
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
+      content: SizedBox(
+        // Wider on desktop for comfortable reading; full available width on
+        // mobile (unchanged there).
+        width: Responsive.isDesktop(context) ? 480 : double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _isDelete
+                  ? '"${asset.name}" (${asset.tagId}) will be permanently removed. '
+                        'This can\'t be undone — the reason below is kept in the removal log.'
+                  : '"${asset.name}" (${asset.tagId}) will be taken out of the active '
+                        'inventory and kept in "Stock items". To delete it for good, remove '
+                        'it from there afterwards.',
+              style: const TextStyle(
+                color: AppTheme.muted,
+                fontSize: 14,
+                height: 1.4,
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final preset in _presetReasons)
-                _ReasonChip(
-                  label: preset,
-                  selected: _controller.text.trim() == preset,
-                  accent: _accent,
-                  onTap: () => _selectPreset(preset),
-                ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: _controller,
-            onChanged: (_) => setState(() {}),
-            minLines: 2,
-            maxLines: 3,
-            decoration: const InputDecoration(hintText: 'Add or edit the reason...'),
-          ),
-          if (!_isDelete) ...[
-            const SizedBox(height: 4),
-            InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: () => setState(() => _needsMaintenance = !_needsMaintenance),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Checkbox(
-                      value: _needsMaintenance,
-                      onChanged: (v) => setState(() => _needsMaintenance = v ?? false),
-                      visualDensity: VisualDensity.compact,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    const SizedBox(width: 6),
-                    const Expanded(
-                      child: Padding(
-                        padding: EdgeInsets.only(top: 10),
-                        child: Text(
-                          'This asset needs repair — file it under "Maintenance"',
-                          style: TextStyle(
-                            color: AppTheme.darkGreen,
-                            fontSize: 13,
-                            height: 1.35,
+            const SizedBox(height: 16),
+            Text(
+              _isDelete ? 'Reason for removal' : 'Why is it being moved?',
+              style: const TextStyle(
+                color: AppTheme.darkGreen,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final preset in _presetReasons)
+                  _ReasonChip(
+                    label: preset,
+                    selected: _controller.text.trim() == preset,
+                    accent: _accent,
+                    onTap: () => _selectPreset(preset),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _controller,
+              onChanged: (_) => setState(() {}),
+              minLines: 2,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                hintText: 'Add or edit the reason...',
+              ),
+            ),
+            if (!_isDelete) ...[
+              const SizedBox(height: 4),
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () =>
+                    setState(() => _needsMaintenance = !_needsMaintenance),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Checkbox(
+                        value: _needsMaintenance,
+                        onChanged: (v) =>
+                            setState(() => _needsMaintenance = v ?? false),
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      const SizedBox(width: 6),
+                      const Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.only(top: 10),
+                          child: Text(
+                            'This asset needs repair — file it under "Maintenance"',
+                            style: TextStyle(
+                              color: AppTheme.darkGreen,
+                              fontSize: 13,
+                              height: 1.35,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
+            ],
           ],
-        ],
+        ),
       ),
       actionsAlignment: MainAxisAlignment.center,
       actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
@@ -227,9 +258,14 @@ class _AssetRemovalDialogState extends State<_AssetRemovalDialog> {
                   foregroundColor: AppTheme.darkGreen,
                   side: const BorderSide(color: AppTheme.border, width: 2),
                   minimumSize: const Size(0, 48),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
-                child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.w700)),
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -237,26 +273,31 @@ class _AssetRemovalDialogState extends State<_AssetRemovalDialog> {
               child: ElevatedButton(
                 onPressed: hasReason
                     ? () => Navigator.pop(
-                          context,
-                          AssetRemovalChoice(
-                            reason: _controller.text.trim(),
-                            needsMaintenance: !_isDelete && _needsMaintenance,
-                          ),
-                        )
+                        context,
+                        AssetRemovalChoice(
+                          reason: _controller.text.trim(),
+                          needsMaintenance: !_isDelete && _needsMaintenance,
+                        ),
+                      )
                     : null,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: _accent,
                   foregroundColor: Colors.white,
                   minimumSize: const Size(0, 48),
-                  textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  textStyle: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
                 child: Text(
                   _isDelete
                       ? 'Delete'
                       : (!_isDelete && _needsMaintenance)
-                          ? 'Move to maintenance'
-                          : 'Move to stock',
+                      ? 'Move to maintenance'
+                      : 'Move to stock',
                 ),
               ),
             ),
@@ -304,8 +345,15 @@ class _AssetActivationDialogState extends State<_AssetActivationDialog> {
       icon: Container(
         width: 56,
         height: 56,
-        decoration: const BoxDecoration(color: AppTheme.mint, shape: BoxShape.circle),
-        child: const Icon(Icons.unarchive_outlined, color: AppTheme.primary, size: 28),
+        decoration: const BoxDecoration(
+          color: AppTheme.mint,
+          shape: BoxShape.circle,
+        ),
+        child: const Icon(
+          Icons.unarchive_outlined,
+          color: AppTheme.primary,
+          size: 28,
+        ),
       ),
       title: const Text(
         'Move this asset to active inventory?',
@@ -316,52 +364,61 @@ class _AssetActivationDialogState extends State<_AssetActivationDialog> {
           fontSize: 20,
         ),
       ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '"${asset.name}" (${asset.tagId}) will be marked Available and can be '
-            'borrowed again. The reason below is recorded on its timeline.',
-            style: const TextStyle(color: AppTheme.muted, fontSize: 14, height: 1.4),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Why is it going back into service?',
-            style: TextStyle(
-              color: AppTheme.darkGreen,
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
+      content: SizedBox(
+        width: Responsive.isDesktop(context) ? 480 : double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '"${asset.name}" (${asset.tagId}) will be marked Available and can be '
+              'borrowed again. The reason below is recorded on its timeline.',
+              style: const TextStyle(
+                color: AppTheme.muted,
+                fontSize: 14,
+                height: 1.4,
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final preset in _presetReasons)
-                _ReasonChip(
-                  label: preset,
-                  selected: _controller.text.trim() == preset,
-                  accent: AppTheme.primary,
-                  onTap: () => setState(() {
-                    _controller.text = preset;
-                    _controller.selection = TextSelection.fromPosition(
-                      TextPosition(offset: _controller.text.length),
-                    );
-                  }),
-                ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: _controller,
-            onChanged: (_) => setState(() {}),
-            minLines: 2,
-            maxLines: 3,
-            decoration: const InputDecoration(hintText: 'Add or edit the reason...'),
-          ),
-        ],
+            const SizedBox(height: 16),
+            const Text(
+              'Why is it going back into service?',
+              style: TextStyle(
+                color: AppTheme.darkGreen,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final preset in _presetReasons)
+                  _ReasonChip(
+                    label: preset,
+                    selected: _controller.text.trim() == preset,
+                    accent: AppTheme.primary,
+                    onTap: () => setState(() {
+                      _controller.text = preset;
+                      _controller.selection = TextSelection.fromPosition(
+                        TextPosition(offset: _controller.text.length),
+                      );
+                    }),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _controller,
+              onChanged: (_) => setState(() {}),
+              minLines: 2,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                hintText: 'Add or edit the reason...',
+              ),
+            ),
+          ],
+        ),
       ),
       actionsAlignment: MainAxisAlignment.center,
       actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
@@ -375,9 +432,14 @@ class _AssetActivationDialogState extends State<_AssetActivationDialog> {
                   foregroundColor: AppTheme.darkGreen,
                   side: const BorderSide(color: AppTheme.border, width: 2),
                   minimumSize: const Size(0, 48),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
-                child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.w700)),
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -390,8 +452,13 @@ class _AssetActivationDialogState extends State<_AssetActivationDialog> {
                   backgroundColor: AppTheme.primary,
                   foregroundColor: Colors.white,
                   minimumSize: const Size(0, 48),
-                  textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  textStyle: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
                 child: const Text('Move to active'),
               ),
@@ -428,7 +495,10 @@ class _ReasonChip extends StatelessWidget {
           decoration: BoxDecoration(
             color: selected ? accent.withValues(alpha: 0.12) : Colors.white,
             borderRadius: BorderRadius.circular(30),
-            border: Border.all(color: selected ? accent : AppTheme.border, width: 2),
+            border: Border.all(
+              color: selected ? accent : AppTheme.border,
+              width: 2,
+            ),
           ),
           child: Text(
             label,

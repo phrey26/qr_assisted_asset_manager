@@ -57,7 +57,7 @@ Future<AssetCategory?> showSelectCategoryToDeleteDialog(
           style: TextStyle(color: AppTheme.darkGreen, fontWeight: FontWeight.w800, fontSize: 20),
         ),
         content: SizedBox(
-          width: 360,
+          width: 460,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [

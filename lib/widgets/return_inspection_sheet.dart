@@ -58,7 +58,7 @@ Future<ReturnInspectionInput?> showReturnInspectionSheet(
       builder: (_) => Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560, maxHeight: 700),
+          constraints: const BoxConstraints(maxWidth: 720, maxHeight: 780),
           child: _ReturnInspectionBody(request: request, inDialog: true),
         ),
       ),

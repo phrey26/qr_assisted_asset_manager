@@ -77,7 +77,7 @@ Future<List<AssetAssignment>?> showAssetAssignmentPicker(
       builder: (_) => Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560, maxHeight: 680),
+          constraints: const BoxConstraints(maxWidth: 720, maxHeight: 760),
           child: _AssetAssignmentBody(
             assets: assets,
             request: request,

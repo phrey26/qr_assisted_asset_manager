@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/asset.dart';
 import '../theme/app_theme.dart';
+import '../utils/responsive.dart';
 
 /// The admin's answer from [promptStockPurchase] — one "Add stock" (buying)
 /// entry for a bulk asset.
@@ -24,7 +25,10 @@ class StockPurchaseInput {
 }
 
 /// "Add stock" — records units bought for a bulk asset, with cost/supplier.
-Future<StockPurchaseInput?> promptStockPurchase(BuildContext context, AssetItem asset) {
+Future<StockPurchaseInput?> promptStockPurchase(
+  BuildContext context,
+  AssetItem asset,
+) {
   return showDialog<StockPurchaseInput>(
     context: context,
     builder: (_) => _StockPurchaseDialog(asset: asset),
@@ -109,7 +113,11 @@ class _DialogShell extends StatelessWidget {
           fontSize: 20,
         ),
       ),
-      content: SingleChildScrollView(child: child),
+      content: SizedBox(
+        // Roomier on desktop; full available width on mobile (unchanged).
+        width: Responsive.isDesktop(context) ? 460 : double.maxFinite,
+        child: SingleChildScrollView(child: child),
+      ),
       actionsAlignment: MainAxisAlignment.center,
       actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
       actions: [
@@ -122,9 +130,14 @@ class _DialogShell extends StatelessWidget {
                   foregroundColor: AppTheme.darkGreen,
                   side: const BorderSide(color: AppTheme.border, width: 2),
                   minimumSize: const Size(0, 48),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
-                child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.w700)),
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -135,8 +148,13 @@ class _DialogShell extends StatelessWidget {
                   backgroundColor: confirmColor,
                   foregroundColor: Colors.white,
                   minimumSize: const Size(0, 48),
-                  textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  textStyle: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
                 child: Text(confirmLabel),
               ),
@@ -149,16 +167,16 @@ class _DialogShell extends StatelessWidget {
 }
 
 Widget _fieldLabel(String text) => Padding(
-      padding: const EdgeInsets.only(bottom: 6, top: 12),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: AppTheme.darkGreen,
-          fontSize: 13,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
+  padding: const EdgeInsets.only(bottom: 6, top: 12),
+  child: Text(
+    text,
+    style: const TextStyle(
+      color: AppTheme.darkGreen,
+      fontSize: 13,
+      fontWeight: FontWeight.w800,
+    ),
+  ),
+);
 
 class _StockPurchaseDialog extends StatefulWidget {
   const _StockPurchaseDialog({required this.asset});
@@ -203,8 +221,8 @@ class _StockPurchaseDialogState extends State<_StockPurchaseDialog> {
         purchasedAt: _date == null
             ? null
             : '${_date!.year.toString().padLeft(4, '0')}-'
-                '${_date!.month.toString().padLeft(2, '0')}-'
-                '${_date!.day.toString().padLeft(2, '0')}',
+                  '${_date!.month.toString().padLeft(2, '0')}-'
+                  '${_date!.day.toString().padLeft(2, '0')}',
       ),
     );
   }
@@ -226,7 +244,11 @@ class _StockPurchaseDialogState extends State<_StockPurchaseDialog> {
           Text(
             'Record units bought for "${widget.asset.name}". They\'re added to the '
             'on-hand total right away.',
-            style: const TextStyle(color: AppTheme.muted, fontSize: 13, height: 1.4),
+            style: const TextStyle(
+              color: AppTheme.muted,
+              fontSize: 13,
+              height: 1.4,
+            ),
           ),
           _fieldLabel('How many units?'),
           TextField(
@@ -239,7 +261,10 @@ class _StockPurchaseDialogState extends State<_StockPurchaseDialog> {
           TextField(
             controller: _unitCost,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(hintText: 'e.g. 120.00', prefixText: '₱ '),
+            decoration: const InputDecoration(
+              hintText: 'e.g. 120.00',
+              prefixText: '₱ ',
+            ),
           ),
           _fieldLabel('Supplier (optional)'),
           TextField(
@@ -278,7 +303,9 @@ class _StockPurchaseDialogState extends State<_StockPurchaseDialog> {
             controller: _note,
             minLines: 1,
             maxLines: 3,
-            decoration: const InputDecoration(hintText: 'PO number, remarks...'),
+            decoration: const InputDecoration(
+              hintText: 'PO number, remarks...',
+            ),
           ),
         ],
       ),
@@ -299,7 +326,13 @@ class _StockDisposalDialogState extends State<_StockDisposalDialog> {
   final _qty = TextEditingController();
   final _reason = TextEditingController();
 
-  static const _presets = ['Broken', 'Used up / consumed', 'Lost', 'Obsolete', 'Expired'];
+  static const _presets = [
+    'Broken',
+    'Used up / consumed',
+    'Lost',
+    'Obsolete',
+    'Expired',
+  ];
 
   @override
   void dispose() {
@@ -325,7 +358,7 @@ class _StockDisposalDialogState extends State<_StockDisposalDialog> {
   Widget build(BuildContext context) {
     final breakdown = _damaged > 0
         ? '$_disposable can be disposed of ($_damaged set aside damaged, '
-            '${widget.asset.quantityAvailable} available). Damaged units go first.'
+              '${widget.asset.quantityAvailable} available). Damaged units go first.'
         : '$_disposable available to dispose of.';
     return _DialogShell(
       icon: Icons.delete_sweep_outlined,
@@ -335,10 +368,10 @@ class _StockDisposalDialogState extends State<_StockDisposalDialog> {
       confirmLabel: 'Dispose',
       confirmColor: Colors.redAccent,
       onConfirm: _valid
-          ? () => Navigator.pop(
-                context,
-                (quantity: _quantity!, reason: _reason.text.trim()),
-              )
+          ? () => Navigator.pop(context, (
+              quantity: _quantity!,
+              reason: _reason.text.trim(),
+            ))
           : null,
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -347,7 +380,11 @@ class _StockDisposalDialogState extends State<_StockDisposalDialog> {
           Text(
             'Write off units of "${widget.asset.name}" that are gone for good. '
             '$breakdown This is kept in the permanent disposal log.',
-            style: const TextStyle(color: AppTheme.muted, fontSize: 13, height: 1.4),
+            style: const TextStyle(
+              color: AppTheme.muted,
+              fontSize: 13,
+              height: 1.4,
+            ),
           ),
           _fieldLabel('How many units?'),
           TextField(
@@ -380,7 +417,9 @@ class _StockDisposalDialogState extends State<_StockDisposalDialog> {
             minLines: 2,
             maxLines: 3,
             onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(hintText: 'Add or edit the reason...'),
+            decoration: const InputDecoration(
+              hintText: 'Add or edit the reason...',
+            ),
           ),
         ],
       ),
@@ -428,13 +467,10 @@ class _StockRestoreDialogState extends State<_StockRestoreDialog> {
       confirmColor: AppTheme.primary,
       onConfirm: _quantity == null
           ? null
-          : () => Navigator.pop(
-                context,
-                (
-                  quantity: _quantity!,
-                  note: _note.text.trim().isEmpty ? null : _note.text.trim(),
-                ),
-              ),
+          : () => Navigator.pop(context, (
+              quantity: _quantity!,
+              note: _note.text.trim().isEmpty ? null : _note.text.trim(),
+            )),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -442,7 +478,11 @@ class _StockRestoreDialogState extends State<_StockRestoreDialog> {
           Text(
             '$_damaged unit(s) of "${widget.asset.name}" are set aside damaged. '
             'Move the repaired ones back into available stock.',
-            style: const TextStyle(color: AppTheme.muted, fontSize: 13, height: 1.4),
+            style: const TextStyle(
+              color: AppTheme.muted,
+              fontSize: 13,
+              height: 1.4,
+            ),
           ),
           _fieldLabel('How many were repaired?'),
           TextField(
@@ -456,7 +496,9 @@ class _StockRestoreDialogState extends State<_StockRestoreDialog> {
             controller: _note,
             minLines: 1,
             maxLines: 3,
-            decoration: const InputDecoration(hintText: 'What was fixed, who did it...'),
+            decoration: const InputDecoration(
+              hintText: 'What was fixed, who did it...',
+            ),
           ),
         ],
       ),
@@ -505,10 +547,10 @@ class _StockAdjustDialogState extends State<_StockAdjustDialog> {
       confirmLabel: 'Save count',
       confirmColor: AppTheme.primary,
       onConfirm: _valid
-          ? () => Navigator.pop(
-                context,
-                (newTotal: _newTotal!, reason: _reason.text.trim()),
-              )
+          ? () => Navigator.pop(context, (
+              newTotal: _newTotal!,
+              reason: _reason.text.trim(),
+            ))
           : null,
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -518,7 +560,11 @@ class _StockAdjustDialogState extends State<_StockAdjustDialog> {
             'Set the on-hand total for "${widget.asset.name}" to a fresh physical '
             'count. Can\'t go below the $_minTotal unit(s) currently on loan or set '
             'aside damaged.',
-            style: const TextStyle(color: AppTheme.muted, fontSize: 13, height: 1.4),
+            style: const TextStyle(
+              color: AppTheme.muted,
+              fontSize: 13,
+              height: 1.4,
+            ),
           ),
           _fieldLabel('Corrected total'),
           TextField(
@@ -544,7 +590,11 @@ class _StockAdjustDialogState extends State<_StockAdjustDialog> {
 }
 
 class _MiniChip extends StatelessWidget {
-  const _MiniChip({required this.label, required this.selected, required this.onTap});
+  const _MiniChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
 
   final String label;
   final bool selected;
@@ -560,7 +610,9 @@ class _MiniChip extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
           decoration: BoxDecoration(
-            color: selected ? Colors.redAccent.withValues(alpha: 0.12) : Colors.white,
+            color: selected
+                ? Colors.redAccent.withValues(alpha: 0.12)
+                : Colors.white,
             borderRadius: BorderRadius.circular(30),
             border: Border.all(
               color: selected ? Colors.redAccent : AppTheme.border,

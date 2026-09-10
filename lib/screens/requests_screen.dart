@@ -1112,7 +1112,7 @@ class _NewRequestFormState extends State<NewRequestForm> {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 460, maxHeight: 680),
+        constraints: const BoxConstraints(maxWidth: 600, maxHeight: 740),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(26, 22, 26, 22),
           child: Column(
