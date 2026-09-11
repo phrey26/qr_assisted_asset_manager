@@ -21,11 +21,18 @@ require __DIR__ . '/db.php';
 //   }
 //
 // `week_start` is the Monday (YYYY-MM-DD) of that ISO week. `direction` is
-// 'in' or 'out', derived from stock_movements.quantity_delta's sign (so it
-// covers purchase/return/positive-adjust vs. lent/damaged/disposed/
-// negative-adjust without hard-coding every `kind`). Only status/department/
-// week combinations that actually occurred are returned — rows with a zero
-// count simply don't appear; the app fills the gaps for a continuous chart.
+// 'in' or 'out', derived from the sign of quantity_delta on 'purchase' /
+// 'disposed' / 'adjusted' rows only — the only three `kind`s that change a
+// bulk asset's owned total (quantity_total). 'lent' / 'returned' / 'damaged'
+// / 'restored' rows are deliberately excluded: they only move units between
+// quantity_out / quantity_damaged / available, so none of them represent
+// stock actually entering or leaving the office, and 'lent'/'returned' in
+// particular carry a delta sign that tracks quantity_out (up while on loan),
+// not physical direction — including them here previously made a loan look
+// like a stock *receipt* and a return look like a stock *removal*. Only
+// status/department/week combinations that actually occurred are returned —
+// rows with a zero count simply don't appear; the app fills the gaps for a
+// continuous chart.
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     fail(405, 'Method not allowed');
@@ -102,12 +109,16 @@ while ($r = $res->fetch_assoc()) {
 }
 
 // --- stock movement summary: units in vs. out, per week --------------------
+// Restricted to the three kinds that actually change quantity_total (see the
+// file-level comment above) — 'lent'/'returned'/'damaged'/'restored' are
+// loan/repair bookkeeping, not stock entering or leaving the office.
 $stockSummary = [];
 $stmt = $mysqli->prepare(
     'SELECT DATE_SUB(DATE(created_at), INTERVAL WEEKDAY(created_at) DAY) AS week_start, ' .
     "IF(quantity_delta >= 0, 'in', 'out') AS direction, " .
     'SUM(ABS(quantity_delta)) AS units ' .
-    'FROM stock_movements WHERE created_at >= ? AND quantity_delta <> 0 ' .
+    "FROM stock_movements WHERE created_at >= ? AND quantity_delta <> 0 " .
+    "AND kind IN ('purchase', 'disposed', 'adjusted') " .
     'GROUP BY week_start, direction ORDER BY week_start'
 );
 $stmt->bind_param('s', $sinceIso);
