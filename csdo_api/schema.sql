@@ -329,6 +329,12 @@ CREATE TABLE IF NOT EXISTS asset_events (
   CONSTRAINT fk_asset_events_asset FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE,
   INDEX idx_asset_events_asset (asset_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- Upgrading a database created before the timeline recorded who did
+-- something, only what/when — the same gap `requests.decided_by_name` /
+-- `request_removals.removed_by_name` never had on the request side.
+-- NULL for any row written before this column existed, and for any write
+-- path that hasn't been updated yet to send it. Safe to re-run.
+ALTER TABLE asset_events ADD COLUMN IF NOT EXISTS performed_by VARCHAR(150) NULL AFTER request_id;
 
 -- A return inspection: recorded when an approved request is marked
 -- 'returned'. Captures the assets' condition, optional notes, and how many
@@ -391,6 +397,10 @@ CREATE TABLE IF NOT EXISTS asset_removals (
   reason VARCHAR(500) NOT NULL,
   removed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- Upgrading a database created before this log recorded who deleted the
+-- asset — matches `request_removals.removed_by_name` on the request side.
+-- Safe to re-run.
+ALTER TABLE asset_removals ADD COLUMN IF NOT EXISTS removed_by_name VARCHAR(150) NULL AFTER reason;
 
 -- Running ledger for a bulk asset — the "Timeline" equivalent for
 -- quantity-tracked items. One row per movement. No FK to `assets` (audit
@@ -406,6 +416,11 @@ CREATE TABLE IF NOT EXISTS stock_movements (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_stock_movements_asset (asset_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- Upgrading a database created before this ledger recorded who made the
+-- movement, only what/when. NULL for any row written before this column
+-- existed, and for any write path that hasn't been updated yet to send
+-- it. Safe to re-run.
+ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS performed_by VARCHAR(150) NULL AFTER request_id;
 
 -- Supplier / date detail for each "Add stock" on a bulk asset. This app
 -- tracks physical assets only, not money, so no cost is recorded here.
@@ -423,6 +438,8 @@ CREATE TABLE IF NOT EXISTS stock_purchases (
 -- drop the now-unused cost columns. Safe to re-run.
 ALTER TABLE stock_purchases DROP COLUMN IF EXISTS unit_cost;
 ALTER TABLE stock_purchases DROP COLUMN IF EXISTS total_cost;
+-- Same "who did this" gap as stock_movements above. Safe to re-run.
+ALTER TABLE stock_purchases ADD COLUMN IF NOT EXISTS performed_by VARCHAR(150) NULL AFTER purchased_at;
 
 -- Permanent audit log of bulk stock disposed of — the bulk counterpart to
 -- asset_removals. No FK to `assets` on purpose. Safe to re-run.
@@ -435,6 +452,10 @@ CREATE TABLE IF NOT EXISTS bulk_disposals (
   reason VARCHAR(500) NOT NULL,
   disposed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- Upgrading a database created before this log recorded who disposed of
+-- the stock — matches `asset_removals.removed_by_name`'s equivalent
+-- upgrade above. Safe to re-run.
+ALTER TABLE bulk_disposals ADD COLUMN IF NOT EXISTS disposed_by_name VARCHAR(150) NULL AFTER reason;
 
 -- No seed rows here on purpose: the app itself seeds the four built-in
 -- categories (IT equipment, Furniture, Vehicles, Tools) into this table

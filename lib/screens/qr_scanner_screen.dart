@@ -132,57 +132,108 @@ class _QrScannerScreenState extends State<QrScannerScreen>
   /// a "mini window" dialog on desktop, or a dedicated full page on mobile
   /// (see [QrScanResultScreen]). Called both from the camera's onDetect and
   /// from manual tag-ID entry.
+  ///
+  /// An exact tag match wins outright. Failing that — a mistyped or
+  /// half-remembered tag, or the admin just typing the asset's name — falls
+  /// back to the same name/tag substring search Inventory's own search box
+  /// uses (see [_fuzzyMatches]): a single match opens straight to its full
+  /// detail (which leads with name, tag ID and photo, so misidentifying it
+  /// is obvious at a glance); more than one shows a short pick list
+  /// ([_openMatches]) instead of guessing which was meant. Only when
+  /// nothing matches at all does this fall through to the plain "No asset
+  /// found" result.
   void _handleTag(String value) {
     final tag = value.trim();
     if (tag.isEmpty || _isShowingResult) return;
 
-    AssetItem? found;
-    for (final asset in widget.assets) {
-      if (asset.tagId.toLowerCase() == tag.toLowerCase()) {
-        found = asset;
-        break;
-      }
+    final exact = _findExact(tag);
+    if (exact != null) {
+      _showResult(tag, exact);
+      return;
     }
 
-    if (Responsive.isDesktop(context)) {
-      _showScanResultDialog(tag, found);
+    final matches = _fuzzyMatches(tag);
+    if (matches.isEmpty) {
+      _showResult(tag, null);
+    } else if (matches.length == 1) {
+      _showResult(tag, matches.single);
     } else {
-      _openScanResultPage(tag, found);
+      _openMatches(tag, matches);
     }
   }
 
-  /// Desktop: pops the "mini window" over the scan screen. Closing it (the
-  /// X button, tapping outside, or Esc) returns straight back to a
-  /// scanning-ready state.
-  Future<void> _showScanResultDialog(String tag, AssetItem? asset) async {
-    setState(() => _isShowingResult = true);
-    await showDialog<void>(
-      context: context,
-      builder: (_) => _ScanResultDialog(
-        tag: tag,
-        asset: asset,
-        onSighting: widget.onSighting,
-      ),
-    );
-    if (!mounted) return;
-    setState(() => _isShowingResult = false);
+  AssetItem? _findExact(String tag) {
+    for (final asset in widget.assets) {
+      if (asset.tagId.toLowerCase() == tag.toLowerCase()) return asset;
+    }
+    return null;
   }
 
-  /// Mobile: pushes a full page with the asset's details. Coming back
-  /// (the app-bar back arrow or the "Back to scanner" button) returns to a
-  /// scanning-ready state.
-  Future<void> _openScanResultPage(String tag, AssetItem? asset) async {
+  /// Assets whose name or tag ID contains [query] (see
+  /// [AssetItem.matchesSearch] — the same substring rule Inventory's own
+  /// search box uses), so a scan that can't find an exact tag still finds
+  /// what a text search would.
+  List<AssetItem> _fuzzyMatches(String query) =>
+      widget.assets.where((a) => a.matchesSearch(query)).toList();
+
+  /// Shows a short pick list for an ambiguous fuzzy match — a "mini window"
+  /// dialog on desktop, a full page on mobile, same split as [_showResult].
+  /// Picking one shows its result immediately after (staying in the
+  /// "showing a result" state the whole way through, so the camera preview
+  /// doesn't flash back on between the two); backing out with nothing
+  /// picked returns straight to a scanning-ready state.
+  Future<void> _openMatches(String tag, List<AssetItem> matches) async {
     setState(() => _isShowingResult = true);
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => QrScanResultScreen(
+    final chosen = Responsive.isDesktop(context)
+        ? await showDialog<AssetItem>(
+            context: context,
+            builder: (_) => _ScanMatchesDialog(tag: tag, matches: matches),
+          )
+        : await Navigator.push<AssetItem>(
+            context,
+            MaterialPageRoute(
+              builder: (_) => _ScanMatchesScreen(tag: tag, matches: matches),
+            ),
+          );
+    if (!mounted) return;
+    if (chosen != null) {
+      await _showResult(tag, chosen);
+    } else {
+      setState(() => _isShowingResult = false);
+    }
+  }
+
+  /// Shows the asset's full result — a "mini window" dialog on desktop, a
+  /// dedicated full page on mobile (see [QrScanResultScreen]). Closing it
+  /// (the X button / back arrow / "Back to scanner") returns to a
+  /// scanning-ready state. [asset] null renders the "No asset found" panel.
+  Future<void> _showResult(String tag, AssetItem? asset) async {
+    // Already true when called from [_openMatches] — re-setting it there
+    // would just be an extra no-op frame between two "showing a result"
+    // states, so only flip it here for the direct (exact-match / no-match)
+    // path.
+    if (!_isShowingResult) setState(() => _isShowingResult = true);
+    if (Responsive.isDesktop(context)) {
+      await showDialog<void>(
+        context: context,
+        builder: (_) => _ScanResultDialog(
           tag: tag,
           asset: asset,
           onSighting: widget.onSighting,
         ),
-      ),
-    );
+      );
+    } else {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => QrScanResultScreen(
+            tag: tag,
+            asset: asset,
+            onSighting: widget.onSighting,
+          ),
+        ),
+      );
+    }
     if (!mounted) return;
     setState(() => _isShowingResult = false);
   }
@@ -287,11 +338,22 @@ class _QrScannerScreenState extends State<QrScannerScreen>
         Row(
           children: const [
             Expanded(child: Divider(color: AppTheme.border, thickness: 2)),
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 14),
-              child: Text(
-                'or enter tag ID manually',
-                style: TextStyle(color: AppTheme.muted, fontSize: 15),
+            // Flexible (must sit directly under the Row, not nested inside
+            // the Padding, or Flexible throws — it only means anything as
+            // a direct Flex child): at narrower widths this label had no
+            // give at all — only the two dividers beside it were Expanded
+            // — so it could force the whole Row wider than the screen
+            // instead of just shrinking its own text. maxLines/ellipsis
+            // keeps it a single line if it still can't fully fit.
+            Flexible(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 14),
+                child: Text(
+                  'or enter tag ID manually',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: AppTheme.muted, fontSize: 15),
+                ),
               ),
             ),
             Expanded(child: Divider(color: AppTheme.border, thickness: 2)),
@@ -755,6 +817,136 @@ class _ScanResultDialogState extends State<_ScanResultDialog> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The shared "pick which one you meant" body for an ambiguous fuzzy match
+/// — a list of candidates the admin taps to pick one. Wrapped by
+/// [_ScanMatchesDialog] (desktop) and [_ScanMatchesScreen] (mobile), the
+/// same split [QrScanResultScreen] / [_ScanResultDialog] use for the result
+/// itself. Pops the tapped [AssetItem] back to [_QrScannerScreenState.
+/// _openMatches].
+class _ScanMatchesBody extends StatelessWidget {
+  const _ScanMatchesBody({
+    required this.tag,
+    required this.matches,
+    this.inDialog = false,
+  });
+
+  final String tag;
+  final List<AssetItem> matches;
+  final bool inDialog;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (inDialog)
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Multiple matches',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                ),
+              ),
+              IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close),
+                tooltip: 'Close',
+              ),
+            ],
+          ),
+        Padding(
+          padding: EdgeInsets.only(top: inDialog ? 4 : 0, bottom: 8),
+          child: Text(
+            'No asset tag matches "$tag" exactly. ${matches.length} possible '
+            'match${matches.length == 1 ? '' : 'es'} by name or tag ID — tap '
+            'the right one.',
+            style: const TextStyle(color: AppTheme.muted, fontSize: 13, height: 1.4),
+          ),
+        ),
+        Flexible(
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: matches.length,
+            separatorBuilder: (_, __) => const Divider(height: 1, color: AppTheme.border),
+            itemBuilder: (context, i) {
+              final asset = matches[i];
+              return ListTile(
+                contentPadding: EdgeInsets.zero,
+                onTap: () => Navigator.pop(context, asset),
+                title: Text(
+                  asset.name,
+                  style: const TextStyle(fontWeight: FontWeight.w700, color: AppTheme.darkGreen),
+                ),
+                subtitle: Text(
+                  '${asset.tagId} · ${asset.category}',
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: AppTheme.muted),
+                ),
+                trailing: asset.isBulk
+                    ? Text(
+                        asset.stockLabel,
+                        style: const TextStyle(fontWeight: FontWeight.w800, color: AppTheme.primary),
+                      )
+                    : StatusChip(status: asset.status),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Desktop "mini window" for [_ScanMatchesBody], matching [_ScanResultDialog].
+class _ScanMatchesDialog extends StatelessWidget {
+  const _ScanMatchesDialog({required this.tag, required this.matches});
+
+  final String tag;
+  final List<AssetItem> matches;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480, maxHeight: 560),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: _ScanMatchesBody(tag: tag, matches: matches, inDialog: true),
+        ),
+      ),
+    );
+  }
+}
+
+/// Mobile full page for [_ScanMatchesBody], matching [QrScanResultScreen].
+class _ScanMatchesScreen extends StatelessWidget {
+  const _ScanMatchesScreen({required this.tag, required this.matches});
+
+  final String tag;
+  final List<AssetItem> matches;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text('Possible matches'),
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+          child: _ScanMatchesBody(tag: tag, matches: matches),
+        ),
       ),
     );
   }

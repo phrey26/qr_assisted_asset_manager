@@ -238,6 +238,19 @@ class AssetItem {
     return DateTime.now().isAfter(limit);
   }
 
+  /// Whether this asset matches a free-text search [query] — name or tag
+  /// ID. Case-insensitive substring match: the one rule every asset search
+  /// box in the app shares (Inventory's search field, the request-approval
+  /// asset picker, and the QR scanner's fuzzy fallback when a scanned/typed
+  /// tag doesn't match anything exactly). An empty (or all-whitespace)
+  /// [query] matches everything, so callers can pass a search box's raw
+  /// text straight through without an empty-check of their own.
+  bool matchesSearch(String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return true;
+    return name.toLowerCase().contains(q) || tagId.toLowerCase().contains(q);
+  }
+
   /// Builds an [AssetItem] from an `assets` row returned by
   /// `csdo_api/assets.php` (GET) — `category` is filled in from the joined
   /// `category_value` field so it matches an [AssetCategory.value] exactly.

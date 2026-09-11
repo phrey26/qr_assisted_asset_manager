@@ -141,6 +141,11 @@ class RequestsScreenState extends State<RequestsScreen> {
   bool _loading = true;
   String? _loadError;
 
+  /// Free-text search box, matching the same pattern already used on
+  /// Inventory/Categories/Stock items/Removed assets — this was the one
+  /// list screen in the app without one. See [_matchesQuery].
+  final searchController = TextEditingController();
+
   /// Jumps straight to [value] (one of [_filterOptions]), replacing
   /// whatever filter was previously selected — the same way
   /// [InventoryScreenState.setFilter] jumps the Inventory tab to a given
@@ -154,6 +159,7 @@ class RequestsScreenState extends State<RequestsScreen> {
   @override
   void initState() {
     super.initState();
+    searchController.addListener(() => setState(() {}));
     // Deferred to the next frame for the same reason [AppShell] does this
     // in main.dart: _loadRequests calls setState before its first `await`,
     // and calling that synchronously from initState (itself invoked while
@@ -162,6 +168,12 @@ class RequestsScreenState extends State<RequestsScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _loadRequests();
     });
+  }
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadRequests() async {
@@ -186,11 +198,13 @@ class RequestsScreenState extends State<RequestsScreen> {
   }
 
   List<AssetRequest> get filtered {
-    final base = switch (filter) {
+    final statusFiltered = switch (filter) {
       'All' => requests,
       'Overdue' => requests.where((r) => r.isOverdue).toList(),
       _ => requests.where((r) => r.status.label == filter).toList(),
     };
+    final query = searchController.text;
+    final base = statusFiltered.where((r) => r.matchesSearch(query)).toList();
     // Overdue loans float to the top; the rest keep the server order
     // (newest first). Using two passes keeps it stable.
     return [
@@ -914,7 +928,23 @@ class RequestsScreenState extends State<RequestsScreen> {
             child: Center(
               child: ConstrainedBox(
                 constraints: BoxConstraints(maxWidth: maxWidth),
-                child: _filters(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: isDesktop ? 360 : double.infinity),
+                      child: TextField(
+                        controller: searchController,
+                        decoration: const InputDecoration(
+                          hintText: 'Search by title, requester, or department',
+                          prefixIcon: Icon(Icons.search),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _filters(),
+                  ],
+                ),
               ),
             ),
           ),

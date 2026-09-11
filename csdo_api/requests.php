@@ -663,7 +663,7 @@ if ($method === 'PUT') {
             // share an asset are serialised — the second blocks here until
             // the first commits, then sees its committed quantity.
             $stmt = $mysqli->prepare(
-                'SELECT id, tag_id, name, tracking, quantity_total, quantity_out, quantity_damaged ' .
+                'SELECT id, tag_id, name, status, tracking, quantity_total, quantity_out, quantity_damaged ' .
                 "FROM assets WHERE tag_id IN ($ph) FOR UPDATE"
             );
             $stmt->bind_param($ty, ...$tagList);
@@ -676,6 +676,26 @@ if ($method === 'PUT') {
             $stmt->close();
             if (count($found) !== count($tagList)) {
                 throw new Exception('One or more of the selected assets no longer exists.');
+            }
+
+            // Maintenance / in-stock assets are filed out of the active,
+            // borrowable pool and can never be reserved. The asset picker
+            // (lib/widgets/asset_assignment_sheet.dart) already keeps them
+            // off the list it offers, but that's only a UI convenience —
+            // this endpoint is the actual authority on what can be
+            // reserved, so it has to enforce the same rule itself rather
+            // than trust the client sent a sane selection. Mirrors the
+            // guard the hand-out step below already has (`status =
+            // 'available'` in its UPDATE).
+            foreach ($found as $tag => $asset) {
+                $isBulk = ($asset['tracking'] ?? 'individual') === 'bulk';
+                if (!$isBulk && !in_array($asset['status'], ['available', 'in_use'], true)) {
+                    $statusLabel = $asset['status'] === 'maintenance' ? 'Maintenance' : 'In stock';
+                    throw new Exception(
+                        "\"{$asset['name']}\" is $statusLabel — not part of the active pool, "
+                        . "so it can't be reserved."
+                    );
+                }
             }
 
             // Double-booking guard: reject if any picked asset is already

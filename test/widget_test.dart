@@ -531,4 +531,58 @@ void main() {
     expect(unit.windowFree, 0);
     expect(report.forTag('missing'), isNull);
   });
+
+  test('AssetItem.matchesSearch is a case-insensitive substring match on '
+      'name or tag ID, and an empty query matches everything', () {
+    final projector = AssetItem(
+      name: 'Epson projector',
+      tagId: 'CSDO-IT-0231',
+      category: 'IT Equipment',
+      description: '',
+      status: AssetStatus.available,
+      purchaseDate: DateTime(2024, 1, 1),
+    );
+
+    expect(projector.matchesSearch('epson'), isTrue);
+    expect(projector.matchesSearch('PROJECTOR'), isTrue);
+    expect(projector.matchesSearch('csdo-it-0231'), isTrue);
+    expect(projector.matchesSearch('0231'), isTrue);
+    expect(projector.matchesSearch('  '), isTrue);
+    expect(projector.matchesSearch(''), isTrue);
+    expect(projector.matchesSearch('laptop'), isFalse);
+
+    // The exact bug this backs: a scanned/typed tag that doesn't match
+    // anything exactly should still find the asset by name.
+    expect(projector.matchesSearch('Epson'), isTrue);
+  });
+
+  test('AssetRequest.matchesSearch is a case-insensitive substring match on '
+      'title, requester, department, or venue', () {
+    final request = AssetRequest(
+      title: 'ICT week seminar',
+      requester: 'Juan Dela Cruz',
+      department: 'CICS',
+      venue: 'CICS Function Hall',
+      borrowDate: 'Sep 15, 2026',
+      returnDate: 'Sep 16, 2026',
+    );
+
+    expect(request.matchesSearch('ict week'), isTrue);
+    expect(request.matchesSearch('juan'), isTrue);
+    expect(request.matchesSearch('CICS'), isTrue);
+    expect(request.matchesSearch('function hall'), isTrue);
+    expect(request.matchesSearch(''), isTrue);
+    expect(request.matchesSearch('gymnasium'), isFalse);
+
+    // No venue set: matching against it must not throw.
+    final noVenue = AssetRequest(
+      title: 'Community outreach',
+      requester: 'Pedro Reyes',
+      department: 'Org',
+      borrowDate: 'Jul 10, 2026',
+      returnDate: 'Jul 10, 2026',
+    );
+    expect(noVenue.matchesSearch('pedro'), isTrue);
+    expect(noVenue.matchesSearch('gymnasium'), isFalse);
+  });
 }

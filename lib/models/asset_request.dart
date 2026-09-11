@@ -539,6 +539,21 @@ class AssetRequest {
     return parts.join(' · ');
   }
 
+  /// Whether this request matches a free-text search [query] — title,
+  /// requester, department, or venue. Case-insensitive substring match, the
+  /// same rule the search box already uses on Inventory/Categories/Stock
+  /// items/Removed assets (see [AssetItem.matchesSearch]). An empty (or
+  /// all-whitespace) [query] matches everything, so callers can pass a
+  /// search box's raw text straight through without an empty-check.
+  bool matchesSearch(String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return true;
+    return title.toLowerCase().contains(q) ||
+        requester.toLowerCase().contains(q) ||
+        department.toLowerCase().contains(q) ||
+        (venue?.toLowerCase().contains(q) ?? false);
+  }
+
   /// Parses a backend `borrow_on` / `return_on` value ('YYYY-MM-DD', or
   /// null) to a local [DateTime], or null when absent/unparseable.
   static DateTime? _parseIsoDate(Object? value) {
