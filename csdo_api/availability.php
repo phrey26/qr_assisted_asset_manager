@@ -36,7 +36,7 @@ $commitments = overlapping_asset_commitments($mysqli, $fromIso, $toIso, $exclude
 
 $result = $mysqli->query(
     'SELECT a.id, a.tag_id, a.name, a.status, a.tracking, ' .
-    'a.quantity_total, a.quantity_out, a.quantity_damaged ' .
+    'a.quantity_total, a.quantity_out, a.quantity_damaged, a.quantity_backup ' .
     'FROM assets a ORDER BY a.id DESC'
 );
 
@@ -50,11 +50,14 @@ while ($row = $result->fetch_assoc()) {
     if ($isBulk) {
         $owned = (int) $row['quantity_total'];
         $damaged = (int) $row['quantity_damaged'];
-        // Free for the window: what's owned, less what's set aside damaged,
-        // less what's committed to other approved requests that overlap it.
-        $windowFree = max(0, $owned - $damaged - $committed);
+        $backup = (int) $row['quantity_backup'];
+        // Free for the window: what's owned, less what's set aside damaged
+        // or as backup (see stock.php's stock_summary() for the same
+        // formula), less what's committed to other approved requests that
+        // overlap it.
+        $windowFree = max(0, $owned - $damaged - $backup - $committed);
         // Free right now: the point-in-time figure the current flow uses.
-        $availableNow = max(0, $owned - $damaged - (int) $row['quantity_out']);
+        $availableNow = max(0, $owned - $damaged - $backup - (int) $row['quantity_out']);
     } else {
         // An individual asset is either wholly free for the window or not.
         // It must be part of the borrowable pool ('available' or 'in_use';

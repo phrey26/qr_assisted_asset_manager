@@ -11,6 +11,8 @@ enum StockMovementKind {
   returned,
   damaged,
   restored,
+  backup,
+  reactivated,
   disposed,
   adjusted,
   other,
@@ -29,6 +31,10 @@ extension StockMovementKindX on StockMovementKind {
         return StockMovementKind.damaged;
       case 'restored':
         return StockMovementKind.restored;
+      case 'backup':
+        return StockMovementKind.backup;
+      case 'reactivated':
+        return StockMovementKind.reactivated;
       case 'disposed':
         return StockMovementKind.disposed;
       case 'adjusted':
@@ -50,6 +56,10 @@ extension StockMovementKindX on StockMovementKind {
         return 'Set aside damaged';
       case StockMovementKind.restored:
         return 'Repaired — back in stock';
+      case StockMovementKind.backup:
+        return 'Moved to backup';
+      case StockMovementKind.reactivated:
+        return 'Moved to active';
       case StockMovementKind.disposed:
         return 'Disposed';
       case StockMovementKind.adjusted:
@@ -71,6 +81,10 @@ extension StockMovementKindX on StockMovementKind {
         return Icons.report_gmailerrorred_outlined;
       case StockMovementKind.restored:
         return Icons.healing_outlined;
+      case StockMovementKind.backup:
+        return Icons.archive_outlined;
+      case StockMovementKind.reactivated:
+        return Icons.unarchive_outlined;
       case StockMovementKind.disposed:
         return Icons.delete_sweep_outlined;
       case StockMovementKind.adjusted:
@@ -89,10 +103,13 @@ extension StockMovementKindX on StockMovementKind {
         return (AppTheme.cream, const Color(0xFF9A6512));
       case StockMovementKind.returned:
       case StockMovementKind.restored:
+      case StockMovementKind.reactivated:
         return (AppTheme.mint, AppTheme.primary);
       case StockMovementKind.damaged:
       case StockMovementKind.disposed:
         return (AppTheme.redTint, const Color(0xFFC84040));
+      case StockMovementKind.backup:
+        return (AppTheme.slateTint, AppTheme.muted);
       case StockMovementKind.adjusted:
       case StockMovementKind.other:
         return (AppTheme.slateTint, AppTheme.muted);
@@ -197,12 +214,17 @@ class StockSummary {
     required this.available,
     required this.lowStock,
     this.damaged = 0,
+    this.backup = 0,
     this.reorderPoint,
   });
 
   final int total;
   final int out;
   final int damaged;
+
+  /// Units set aside as backup — see [AssetItem.quantityBackup]. Managed
+  /// (reactivated / disposed) from the Backup Items screen, not here.
+  final int backup;
   final int available;
   final bool lowStock;
   final int? reorderPoint;
@@ -211,6 +233,7 @@ class StockSummary {
     total: (json['total'] as num?)?.toInt() ?? 0,
     out: (json['out'] as num?)?.toInt() ?? 0,
     damaged: (json['damaged'] as num?)?.toInt() ?? 0,
+    backup: (json['backup'] as num?)?.toInt() ?? 0,
     available: (json['available'] as num?)?.toInt() ?? 0,
     lowStock: json['low_stock'] == true,
     reorderPoint: (json['reorder_point'] as num?)?.toInt(),

@@ -95,6 +95,15 @@ CREATE TABLE IF NOT EXISTS assets (
   quantity_total INT NULL,                              -- units owned (bulk)
   quantity_out INT NOT NULL DEFAULT 0,                  -- units on loan now (bulk)
   quantity_damaged INT NOT NULL DEFAULT 0,              -- units back from loan damaged, set aside pending repair/disposal (bulk)
+  -- Units manually set aside as backup by the admin (e.g. obsolete, unused,
+  -- headed for disposal) — the bulk counterpart to an individual asset's
+  -- "Backup" status. Distinct from quantity_damaged, which is only ever set
+  -- automatically from a loan return. Units land here via the 'backup'
+  -- stock.php action ("Move to backup" on the asset detail screen) and only
+  -- leave via 'reactivate' (back to available) or 'dispose' (permanent,
+  -- logged to bulk_disposals) — both reachable only from the Backup Items
+  -- screen. Still owned (counts toward quantity_total) while here.
+  quantity_backup INT NOT NULL DEFAULT 0,               -- units set aside as backup, pending reactivation or disposal (bulk)
   reorder_point INT NULL,                               -- low-stock threshold (bulk)
   -- Where the asset normally lives / who is responsible for it. Free text,
   -- both optional, editable from the asset's Edit form. This is the static
@@ -115,6 +124,7 @@ ALTER TABLE assets
   ADD COLUMN IF NOT EXISTS quantity_total   INT NULL,
   ADD COLUMN IF NOT EXISTS quantity_out     INT NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS quantity_damaged INT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS quantity_backup  INT NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS reorder_point    INT NULL,
   ADD COLUMN IF NOT EXISTS home_location    VARCHAR(150) NULL,
   ADD COLUMN IF NOT EXISTS custodian        VARCHAR(150) NULL,

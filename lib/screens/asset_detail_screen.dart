@@ -153,27 +153,15 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     }
   }
 
-  Future<void> _addStock() async {
-    final input = await promptStockPurchase(context, widget.asset);
+  /// "Move to backup" — the only bulk-stock action left on this page. Adding
+  /// more of a bulk pool now only happens via the Add Asset screen's restock
+  /// path, and disposing/reactivating backed-up units only happens from the
+  /// Backup Items screen.
+  Future<void> _moveToBackupStock() async {
+    final input = await promptStockBackup(context, widget.asset);
     if (input == null) return;
     await _runStockAction(() async {
-      final s = await ApiService.addStock(
-        tagId: widget.asset.tagId,
-        quantity: input.quantity,
-        supplier: input.supplier,
-        note: input.note,
-        purchasedAt: input.purchasedAt,
-        performedBy: widget.adminName,
-      );
-      return StockSummary.fromJson(s);
-    });
-  }
-
-  Future<void> _disposeStock() async {
-    final input = await promptStockDisposal(context, widget.asset);
-    if (input == null) return;
-    await _runStockAction(() async {
-      final s = await ApiService.disposeStock(
+      final s = await ApiService.moveStockToBackup(
         tagId: widget.asset.tagId,
         quantity: input.quantity,
         reason: input.reason,
@@ -191,20 +179,6 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         tagId: widget.asset.tagId,
         quantity: input.quantity,
         note: input.note,
-        performedBy: widget.adminName,
-      );
-      return StockSummary.fromJson(s);
-    });
-  }
-
-  Future<void> _adjustStock() async {
-    final input = await promptStockAdjust(context, widget.asset);
-    if (input == null) return;
-    await _runStockAction(() async {
-      final s = await ApiService.adjustStock(
-        tagId: widget.asset.tagId,
-        newTotal: input.newTotal,
-        reason: input.reason,
         performedBy: widget.adminName,
       );
       return StockSummary.fromJson(s);
@@ -622,8 +596,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                 const SizedBox(height: 4),
                 const Text(
                   'These came back from a loan damaged and aren\'t lendable. In the '
-                  'Stock card below, use "Repair" to return the fixed ones to stock, '
-                  'or "Dispose" to write them off.',
+                  'Stock card below, use "Repair" to return the fixed ones to stock.',
                   style: TextStyle(color: Color(0xFFC84040), fontSize: 13),
                 ),
               ],
@@ -665,7 +638,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                 Text(
                   'Only ${asset.quantityAvailable} available'
                   '${asset.reorderPoint == null ? '' : ', at or below the reorder point of ${asset.reorderPoint}'}'
-                  '. Use "Add stock" once more has been bought.',
+                  '. Buy more from the Add Asset screen\'s "top up an existing bulk item" option.',
                   style: const TextStyle(color: Color(0xFFC84040), fontSize: 13),
                 ),
               ],
@@ -676,14 +649,18 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     );
   }
 
-  /// The bulk counterpart to [_usageCard]: current levels, the buy / dispose
-  /// / correct actions, and a link to the permanent disposal log.
+  /// The bulk counterpart to [_usageCard]: current levels, "Move to backup",
+  /// "Repair" (for damaged units), and a link to the permanent disposal log.
+  /// Adding stock now only happens via the Add Asset screen's restock path;
+  /// reactivating/disposing backed-up units only happens from the Backup
+  /// Items screen.
   Widget _stockCard({bool desktop = false}) {
     final asset = widget.asset;
     final summary = _stock?.summary;
     final total = summary?.total ?? asset.quantityTotal ?? 0;
     final out = summary?.out ?? asset.quantityOut;
     final damaged = summary?.damaged ?? asset.quantityDamaged;
+    final backup = summary?.backup ?? asset.quantityBackup;
     final available = summary?.available ?? asset.quantityAvailable;
 
     Widget stat(String label, String value, Color color) => Expanded(
@@ -739,10 +716,19 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                 stat('Owned', '$total', AppTheme.darkGreen),
                 stat('On loan', '$out', const Color(0xFF9A6512)),
                 if (damaged > 0) stat('Damaged', '$damaged', const Color(0xFFC84040)),
+                if (backup > 0) stat('Backup', '$backup', AppTheme.muted),
                 stat('Available', '$available',
                     asset.isLowStock ? const Color(0xFFC84040) : AppTheme.primary),
               ],
             ),
+          if (backup > 0) ...[
+            const SizedBox(height: 10),
+            Text(
+              '$backup unit(s) set aside as backup — reactivate or dispose of them '
+              'from the Backup Items screen.',
+              style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+            ),
+          ],
           if (asset.reorderPoint != null) ...[
             const SizedBox(height: 10),
             Text(
@@ -755,12 +741,6 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
             spacing: 10,
             runSpacing: 10,
             children: [
-              ElevatedButton.icon(
-                onPressed: _stockBusy ? null : _addStock,
-                icon: const Icon(Icons.add_shopping_cart_outlined, size: 18),
-                label: const Text('Add stock'),
-                style: ElevatedButton.styleFrom(minimumSize: const Size(0, 44)),
-              ),
               if (damaged > 0)
                 OutlinedButton.icon(
                   onPressed: _stockBusy ? null : _repairStock,
@@ -769,21 +749,9 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                   style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),
                 ),
               OutlinedButton.icon(
-                onPressed: _stockBusy || (available <= 0 && damaged <= 0)
-                    ? null
-                    : _disposeStock,
-                icon: const Icon(Icons.delete_sweep_outlined, size: 18),
-                label: const Text('Dispose'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFFC84040),
-                  side: const BorderSide(color: Color(0xFFC84040), width: 2),
-                  minimumSize: const Size(0, 44),
-                ),
-              ),
-              OutlinedButton.icon(
-                onPressed: _stockBusy ? null : _adjustStock,
-                icon: const Icon(Icons.tune_outlined, size: 18),
-                label: const Text('Correct count'),
+                onPressed: _stockBusy || available <= 0 ? null : _moveToBackupStock,
+                icon: const Icon(Icons.archive_outlined, size: 18),
+                label: const Text('Move to backup'),
                 style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),
               ),
               TextButton.icon(

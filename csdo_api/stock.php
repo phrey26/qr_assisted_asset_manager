@@ -5,13 +5,35 @@ require __DIR__ . '/db.php';
 //
 //   GET  /stock.php?tag_id=CSDO-...   -> { summary, movements[], purchases[] }
 //   POST /stock.php   body { tag_id, action, ... }
-//     action = 'purchase' : { quantity, supplier?, note?, purchased_at? }
-//                           -> adds to quantity_total, records the purchase.
-//     action = 'dispose'  : { quantity, reason }
-//                           -> removes from quantity_total (available only),
-//                              logs to bulk_disposals (permanent).
-//     action = 'adjust'   : { new_total, reason }
-//                           -> sets quantity_total to a corrected count.
+//     action = 'purchase'   : { quantity, supplier?, note?, purchased_at? }
+//                             -> adds to quantity_total, records the purchase.
+//                             Only reached from the Add Asset screen's
+//                             "restock an existing bulk item" path now — the
+//                             asset detail screen no longer offers this
+//                             directly (creating an asset there already lets
+//                             the admin pick an existing pool to top up).
+//     action = 'backup'     : { quantity, reason }
+//                             -> moves units from available into
+//                                quantity_backup. Doesn't touch
+//                                quantity_total. The only bulk-stock action
+//                                still on the asset detail screen.
+//     action = 'reactivate' : { quantity, reason }
+//                             -> moves units from quantity_backup back into
+//                                available. Only reachable from the Backup
+//                                Items screen.
+//     action = 'dispose'    : { quantity, reason }
+//                             -> permanently removes units from
+//                                quantity_total AND quantity_backup, logs to
+//                                bulk_disposals. Can only draw from
+//                                quantity_backup — units must be moved to
+//                                backup first. Only reachable from the
+//                                Backup Items screen.
+//     action = 'restore'    : { quantity, note? }
+//                             -> moves units from quantity_damaged (loan
+//                                returned damaged) back into available.
+//                                Unrelated to the backup bucket above.
+//     action = 'adjust'     : { new_total, reason }
+//                             -> sets quantity_total to a corrected count.
 
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -19,7 +41,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 function load_bulk_asset(mysqli $mysqli, string $tagId): array {
     $stmt = $mysqli->prepare(
         'SELECT a.id, a.tag_id, a.name, a.tracking, a.quantity_total, a.quantity_out, ' .
-        'a.quantity_damaged, a.reorder_point, c.value AS category ' .
+        'a.quantity_damaged, a.quantity_backup, a.reorder_point, c.value AS category ' .
         'FROM assets a JOIN categories c ON c.id = a.category_id WHERE a.tag_id = ?'
     );
     $stmt->bind_param('s', $tagId);
@@ -34,22 +56,26 @@ function load_bulk_asset(mysqli $mysqli, string $tagId): array {
     $row['quantity_total'] = (int) $row['quantity_total'];
     $row['quantity_out'] = (int) $row['quantity_out'];
     $row['quantity_damaged'] = (int) $row['quantity_damaged'];
+    $row['quantity_backup'] = (int) $row['quantity_backup'];
     $row['reorder_point'] = $row['reorder_point'] === null ? null : (int) $row['reorder_point'];
     return $row;
 }
 
 /**
  * Builds the stock summary. `available` is what can be lent right now:
- * owned, minus what's on loan, minus what's set aside damaged.
+ * owned, minus what's on loan, minus what's set aside damaged, minus what's
+ * set aside as backup.
  */
 function stock_summary(array $asset): array {
     $damaged = $asset['quantity_damaged'] ?? 0;
-    $available = $asset['quantity_total'] - $asset['quantity_out'] - $damaged;
+    $backup = $asset['quantity_backup'] ?? 0;
+    $available = $asset['quantity_total'] - $asset['quantity_out'] - $damaged - $backup;
     $reorder = $asset['reorder_point'];
     return [
         'total' => $asset['quantity_total'],
         'out' => $asset['quantity_out'],
         'damaged' => $damaged,
+        'backup' => $backup,
         'available' => $available,
         'reorder_point' => $reorder,
         'low_stock' => $reorder !== null && $available <= $reorder,
@@ -117,8 +143,8 @@ if ($method === 'POST') {
     $tagId = trim($body['tag_id'] ?? '');
     $action = trim($body['action'] ?? '');
     if ($tagId === '') fail(400, 'tag_id is required.');
-    if (!in_array($action, ['purchase', 'dispose', 'restore', 'adjust'], true)) {
-        fail(400, "action must be 'purchase', 'dispose', 'restore' or 'adjust'.");
+    if (!in_array($action, ['purchase', 'backup', 'reactivate', 'dispose', 'restore', 'adjust'], true)) {
+        fail(400, "action must be 'purchase', 'backup', 'reactivate', 'dispose', 'restore' or 'adjust'.");
     }
 
     $asset = load_bulk_asset($mysqli, $tagId);
@@ -165,25 +191,89 @@ if ($method === 'POST') {
             exit;
         }
 
+        if ($action === 'backup') {
+            // "Move to backup" — the bulk counterpart to an individual
+            // asset's "Move to backup" flow. Draws only from what's
+            // currently available (not damaged, not already backed up).
+            // Doesn't touch quantity_total: this is a reclassification, not
+            // a disposal.
+            $quantity = (int) ($body['quantity'] ?? 0);
+            $reason = trim((string) ($body['reason'] ?? ''));
+            if ($quantity <= 0) throw new Exception('Enter how many units to move to backup.');
+            if ($reason === '') throw new Exception('A reason is required.');
+            $available = $asset['quantity_total'] - $asset['quantity_out']
+                - $asset['quantity_damaged'] - $asset['quantity_backup'];
+            if ($quantity > $available) {
+                throw new Exception("Only $available unit(s) are available to move to backup.");
+            }
+            $newBackup = $asset['quantity_backup'] + $quantity;
+
+            $upd = $mysqli->prepare('UPDATE assets SET quantity_backup = ? WHERE id = ?');
+            $upd->bind_param('ii', $newBackup, $asset['id']);
+            $upd->execute();
+            $upd->close();
+
+            log_stock_movement(
+                $mysqli, $asset['id'], 'backup', $quantity, null, $reason, null, $performedBy
+            );
+
+            $mysqli->commit();
+            echo json_encode(['message' => 'Moved to backup.', 'summary' => stock_summary(
+                array_merge($asset, ['quantity_backup' => $newBackup])
+            )]);
+            exit;
+        }
+
+        if ($action === 'reactivate') {
+            // "Move to active" for backed-up units — only reachable from the
+            // Backup Items screen. The individual-asset equivalent
+            // (promptAssetActivation) also requires a reason, so this does
+            // too, for the same "why is it going back into service" record.
+            $quantity = (int) ($body['quantity'] ?? 0);
+            $reason = trim((string) ($body['reason'] ?? ''));
+            if ($quantity <= 0) throw new Exception('Enter how many units to move back to active.');
+            if ($reason === '') throw new Exception('A reason is required.');
+            if ($quantity > $asset['quantity_backup']) {
+                throw new Exception("Only {$asset['quantity_backup']} unit(s) are set aside as backup.");
+            }
+            $newBackup = $asset['quantity_backup'] - $quantity;
+
+            $upd = $mysqli->prepare('UPDATE assets SET quantity_backup = ? WHERE id = ?');
+            $upd->bind_param('ii', $newBackup, $asset['id']);
+            $upd->execute();
+            $upd->close();
+
+            log_stock_movement(
+                $mysqli, $asset['id'], 'reactivated', $quantity, null, $reason, null, $performedBy
+            );
+
+            $mysqli->commit();
+            echo json_encode(['message' => 'Moved back to active.', 'summary' => stock_summary(
+                array_merge($asset, ['quantity_backup' => $newBackup])
+            )]);
+            exit;
+        }
+
         if ($action === 'dispose') {
+            // Permanent — only reachable from the Backup Items screen, and
+            // only ever draws from quantity_backup. Units must be moved to
+            // backup first (action 'backup') before they can be disposed;
+            // this no longer touches available or damaged stock directly.
             $quantity = (int) ($body['quantity'] ?? 0);
             $reason = trim((string) ($body['reason'] ?? ''));
             if ($quantity <= 0) throw new Exception('Enter how many units to dispose of.');
             if ($reason === '') throw new Exception('A reason for the disposal is required.');
-            // Units on loan can't be disposed; everything else that's owned
-            // (available + set-aside damaged) can. Damaged units go first.
-            $disposable = $asset['quantity_total'] - $asset['quantity_out'];
+            $disposable = $asset['quantity_backup'];
             if ($quantity > $disposable) {
-                throw new Exception("Only $disposable can be disposed of ({$asset['quantity_out']} are out on loan).");
+                throw new Exception("Only $disposable unit(s) in backup can be disposed of.");
             }
-            $fromDamaged = min($quantity, $asset['quantity_damaged']);
-            $newDamaged = $asset['quantity_damaged'] - $fromDamaged;
+            $newBackup = $asset['quantity_backup'] - $quantity;
             $newTotal = $asset['quantity_total'] - $quantity;
 
             $upd = $mysqli->prepare(
-                'UPDATE assets SET quantity_total = ?, quantity_damaged = ? WHERE id = ?'
+                'UPDATE assets SET quantity_total = ?, quantity_backup = ? WHERE id = ?'
             );
-            $upd->bind_param('iii', $newTotal, $newDamaged, $asset['id']);
+            $upd->bind_param('iii', $newTotal, $newBackup, $asset['id']);
             $upd->execute();
             $upd->close();
 
@@ -203,7 +293,7 @@ if ($method === 'POST') {
 
             $mysqli->commit();
             echo json_encode(['message' => 'Stock disposed.', 'summary' => stock_summary(
-                array_merge($asset, ['quantity_total' => $newTotal, 'quantity_damaged' => $newDamaged])
+                array_merge($asset, ['quantity_total' => $newTotal, 'quantity_backup' => $newBackup])
             )]);
             exit;
         }
@@ -236,9 +326,12 @@ if ($method === 'POST') {
         $reason = trim((string) ($body['reason'] ?? ''));
         if ($newTotal < 0) throw new Exception('Enter the corrected total (0 or more).');
         if ($reason === '') throw new Exception('A reason for the correction is required.');
-        $committed = $asset['quantity_out'] + $asset['quantity_damaged'];
+        $committed = $asset['quantity_out'] + $asset['quantity_damaged'] + $asset['quantity_backup'];
         if ($newTotal < $committed) {
-            throw new Exception("Can't set the total below the $committed unit(s) currently on loan or set aside damaged.");
+            throw new Exception(
+                "Can't set the total below the $committed unit(s) currently on loan, set aside "
+                . 'damaged, or set aside as backup.'
+            );
         }
         $delta = $newTotal - $asset['quantity_total'];
         $upd = $mysqli->prepare('UPDATE assets SET quantity_total = ? WHERE id = ?');

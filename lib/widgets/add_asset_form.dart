@@ -26,8 +26,17 @@ class NewAssetResult extends AddAssetResult {
 /// category, description, purchase date, photo, home location, person
 /// responsible, and — bulk only — reorder point) overwritten.
 class EditAssetResult extends AddAssetResult {
-  const EditAssetResult(this.asset);
+  const EditAssetResult(this.asset, {this.correctedTotal, this.countReason});
   final AssetItem asset;
+
+  /// Bulk only: set when the admin corrected the on-hand total via the
+  /// "On-hand total" field (the old "Correct count" stock action, now part
+  /// of editing). When non-null, [countReason] is also non-null (required)
+  /// and the caller must additionally call `ApiService.adjustStock` — this
+  /// is separate from the regular field edit because it's audited on the
+  /// stock ledger, not the asset timeline.
+  final int? correctedTotal;
+  final String? countReason;
 }
 
 /// "We bought more" — add units to an existing bulk item, with the same
@@ -100,6 +109,7 @@ class _AddAssetFormState extends State<AddAssetForm> {
   final descriptionController = TextEditingController();
   final quantityController = TextEditingController();
   final reorderController = TextEditingController();
+  final countReasonController = TextEditingController();
   final supplierController = TextEditingController();
   final homeLocationController = TextEditingController();
   final custodianController = TextEditingController();
@@ -141,6 +151,7 @@ class _AddAssetFormState extends State<AddAssetForm> {
       homeLocationController.text = initial.homeLocation ?? '';
       custodianController.text = initial.custodian ?? '';
       reorderController.text = initial.reorderPoint?.toString() ?? '';
+      quantityController.text = initial.quantityTotal?.toString() ?? '';
       category = widget.categories.any((c) => c.value == initial.category)
           ? initial.category
           : widget.categories.first.value;
@@ -184,6 +195,7 @@ class _AddAssetFormState extends State<AddAssetForm> {
     descriptionController.dispose();
     quantityController.dispose();
     reorderController.dispose();
+    countReasonController.dispose();
     supplierController.dispose();
     homeLocationController.dispose();
     custodianController.dispose();
@@ -269,14 +281,39 @@ class _AddAssetFormState extends State<AddAssetForm> {
     }
     int? quantity;
     int? reorder;
+    int? correctedTotal;
+    String? countReason;
     if (_isBulk) {
-      // In edit mode the quantity-on-hand field isn't shown (the count is
-      // ledger-driven via the stock actions), so only validate it on create.
       if (!_isEdit) {
         quantity = int.tryParse(quantityController.text.trim());
         if (quantity == null || quantity < 0) {
           _toast('Enter the quantity on hand (0 or more).');
           return;
+        }
+      } else {
+        // The old "Correct count" stock action, now folded into editing.
+        // Only sent along (as correctedTotal/countReason) when the admin
+        // actually changed the number — otherwise this is a no-op, same as
+        // any other untouched field.
+        final initial = widget.initial!;
+        final entered = int.tryParse(quantityController.text.trim());
+        final minTotal =
+            initial.quantityOut + initial.quantityDamaged + initial.quantityBackup;
+        if (entered == null || entered < minTotal) {
+          _toast(
+            "The on-hand total can't go below the $minTotal unit(s) currently on "
+            'loan, set aside damaged, or set aside as backup.',
+          );
+          return;
+        }
+        if (entered != (initial.quantityTotal ?? 0)) {
+          final reason = countReasonController.text.trim();
+          if (reason.isEmpty) {
+            _toast('Enter a reason for the count correction.');
+            return;
+          }
+          correctedTotal = entered;
+          countReason = reason;
         }
       }
       final rawReorder = reorderController.text.trim();
@@ -303,9 +340,10 @@ class _AddAssetFormState extends State<AddAssetForm> {
             imageBytes: imageBytes,
             lastConditionRaw: initial.lastConditionRaw,
             tracking: initial.tracking,
-            quantityTotal: initial.quantityTotal,
+            quantityTotal: correctedTotal ?? initial.quantityTotal,
             quantityOut: initial.quantityOut,
             quantityDamaged: initial.quantityDamaged,
+            quantityBackup: initial.quantityBackup,
             reorderPoint: initial.isBulk ? reorder : initial.reorderPoint,
             lifespanYears: initial.lifespanYears,
             homeLocation: _nullable(homeLocationController),
@@ -316,6 +354,8 @@ class _AddAssetFormState extends State<AddAssetForm> {
             currentHolderDepartment: initial.currentHolderDepartment,
             dueBack: initial.dueBack,
           ),
+          correctedTotal: correctedTotal,
+          countReason: countReason,
         ),
       );
       return;
@@ -519,15 +559,31 @@ class _AddAssetFormState extends State<AddAssetForm> {
       ),
       SizedBox(height: gap),
       if (_isBulk) ...[
-        if (!_isEdit) ...[
-          _label('Quantity on hand'),
-          TextField(
-            controller: quantityController,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(hintText: 'e.g. 50'),
+        _label(_isEdit ? 'On-hand total' : 'Quantity on hand'),
+        TextField(
+          controller: quantityController,
+          keyboardType: TextInputType.number,
+          onChanged: _isEdit ? (_) => setState(() {}) : null,
+          decoration: InputDecoration(
+            hintText: _isEdit ? 'Counted units' : 'e.g. 50',
           ),
+        ),
+        if (_isEdit &&
+            int.tryParse(quantityController.text.trim()) !=
+                (widget.initial!.quantityTotal ?? 0)) ...[
           SizedBox(height: gap),
+          _label('Reason for the correction'),
+          TextField(
+            controller: countReasonController,
+            minLines: 2,
+            maxLines: 3,
+            onChanged: (_) => setState(() {}),
+            decoration: const InputDecoration(
+              hintText: 'Stock-take correction, found extras, ...',
+            ),
+          ),
         ],
+        SizedBox(height: gap),
         _label('Reorder point (optional)'),
         TextField(
           controller: reorderController,

@@ -677,7 +677,8 @@ if ($method === 'PUT') {
             // share an asset are serialised — the second blocks here until
             // the first commits, then sees its committed quantity.
             $stmt = $mysqli->prepare(
-                'SELECT id, tag_id, name, status, tracking, quantity_total, quantity_out, quantity_damaged ' .
+                'SELECT id, tag_id, name, status, tracking, quantity_total, quantity_out, ' .
+                'quantity_damaged, quantity_backup ' .
                 "FROM assets WHERE tag_id IN ($ph) FOR UPDATE"
             );
             $stmt->bind_param($ty, ...$tagList);
@@ -730,7 +731,8 @@ if ($method === 'PUT') {
                     $clashLabel = conflict_summary($entry['conflicts']);
                     if (($asset['tracking'] ?? 'individual') === 'bulk') {
                         $windowFree = (int) $asset['quantity_total']
-                            - (int) $asset['quantity_damaged'] - $committed;
+                            - (int) $asset['quantity_damaged'] - (int) $asset['quantity_backup']
+                            - $committed;
                         if ($assignments[$tag] > $windowFree) {
                             throw new Exception(
                                 "Not enough \"{$asset['name']}\" for $winFrom to $winTo — asked for "
@@ -777,7 +779,7 @@ if ($method === 'PUT') {
             }
             $q = $mysqli->prepare(
                 'SELECT a.id, a.name, a.tracking, a.status, a.quantity_total, a.quantity_out, ' .
-                'ra.quantity ' .
+                'a.quantity_damaged, a.quantity_backup, ra.quantity ' .
                 'FROM request_assets ra JOIN assets a ON a.id = ra.asset_id ' .
                 'WHERE ra.request_id = ? FOR UPDATE'
             );
@@ -796,9 +798,16 @@ if ($method === 'PUT') {
             $markIndividual = $mysqli->prepare(
                 "UPDATE assets SET status = 'in_use' WHERE id = ? AND status = 'available'"
             );
+            // quantity_total - quantity_out - quantity_damaged - quantity_backup
+            // is the same "available" formula stock.php's stock_summary()
+            // uses — units set aside damaged or as backup were already
+            // excluded when this request was reserved (see the windowFree
+            // check above), but re-checking here guards against something
+            // having been set aside in the meantime, between reservation and
+            // hand-out.
             $takeBulk = $mysqli->prepare(
                 'UPDATE assets SET quantity_out = quantity_out + ? ' .
-                'WHERE id = ? AND quantity_total - quantity_out >= ?'
+                'WHERE id = ? AND quantity_total - quantity_out - quantity_damaged - quantity_backup >= ?'
             );
             foreach ($lines as $line) {
                 $assetId = (int) $line['id'];
@@ -807,9 +816,11 @@ if ($method === 'PUT') {
                     $takeBulk->bind_param('iii', $qty, $assetId, $qty);
                     $takeBulk->execute();
                     if ($takeBulk->affected_rows < 1) {
-                        $free = (int) $line['quantity_total'] - (int) $line['quantity_out'];
+                        $free = (int) $line['quantity_total'] - (int) $line['quantity_out']
+                            - (int) $line['quantity_damaged'] - (int) $line['quantity_backup'];
                         throw new Exception(
-                            "Not enough \"{$line['name']}\" in stock to hand out — asked for $qty, $free available."
+                            "Not enough \"{$line['name']}\" in stock to hand out — asked for $qty, "
+                            . max(0, $free) . ' available.'
                         );
                     }
                     log_stock_movement(
@@ -867,8 +878,8 @@ if ($method === 'PUT') {
 
                 foreach ($bulkReturns as $tag => $dmg) {
                     $q = $mysqli->prepare(
-                        "SELECT id, quantity_total, quantity_out, quantity_damaged FROM assets " .
-                        "WHERE tag_id = ? AND tracking = 'bulk'"
+                        "SELECT id, quantity_total, quantity_out, quantity_damaged, quantity_backup " .
+                        "FROM assets WHERE tag_id = ? AND tracking = 'bulk'"
                     );
                     $q->bind_param('s', $tag);
                     $q->execute();
@@ -876,7 +887,8 @@ if ($method === 'PUT') {
                     $q->close();
                     if (!$ba) continue;
                     // Can't set aside more than is actually available now.
-                    $freeNow = (int) $ba['quantity_total'] - (int) $ba['quantity_out'] - (int) $ba['quantity_damaged'];
+                    $freeNow = (int) $ba['quantity_total'] - (int) $ba['quantity_out']
+                        - (int) $ba['quantity_damaged'] - (int) $ba['quantity_backup'];
                     $dmg = min($dmg, max(0, $freeNow));
                     if ($dmg <= 0) continue;
                     $newDamaged = (int) $ba['quantity_damaged'] + $dmg;

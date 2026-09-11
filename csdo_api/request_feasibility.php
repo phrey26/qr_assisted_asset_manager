@@ -41,7 +41,7 @@ if ($fromIso > $toIso) {
 $commitments = overlapping_asset_commitments($mysqli, $fromIso, $toIso, 0);
 
 $stmt = $mysqli->prepare(
-    'SELECT a.id, a.tracking, a.status, a.quantity_total, a.quantity_damaged ' .
+    'SELECT a.id, a.tracking, a.status, a.quantity_total, a.quantity_damaged, a.quantity_backup ' .
     'FROM assets a JOIN categories c ON c.id = a.category_id ' .
     'WHERE LOWER(c.value) = LOWER(?)'
 );
@@ -56,7 +56,8 @@ while ($row = $res->fetch_assoc()) {
     $id = (int) $row['id'];
     $committed = (int) ($commitments[$id]['committed'] ?? 0);
     if (($row['tracking'] ?? 'individual') === 'bulk') {
-        $free = (int) $row['quantity_total'] - (int) $row['quantity_damaged'] - $committed;
+        $free = (int) $row['quantity_total'] - (int) $row['quantity_damaged']
+            - (int) $row['quantity_backup'] - $committed;
         if ($free > 0) $available += $free;
     } else {
         $lendable = in_array($row['status'], ['available', 'in_use'], true);

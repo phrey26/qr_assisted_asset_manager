@@ -181,7 +181,8 @@ class InventoryScreenState extends State<InventoryScreen> {
 
   /// Opens the "backup items" list. Forwards the activate and delete
   /// handlers so an item can be moved back into the main inventory or
-  /// removed straight from there.
+  /// removed straight from there, and [InventoryScreen.onBulkStockChanged]
+  /// so bulk pools' reactivate/dispose actions there stay in sync too.
   Future<void> _openStockItems(BuildContext context) async {
     await Navigator.push(
       context,
@@ -191,6 +192,7 @@ class InventoryScreenState extends State<InventoryScreen> {
           adminName: widget.adminName,
           onDeleteAsset: widget.onDeleteAsset,
           onActivateAsset: widget.onActivateAsset,
+          onBulkStockChanged: widget.onBulkStockChanged,
         ),
       ),
     );

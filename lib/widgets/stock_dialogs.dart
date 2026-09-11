@@ -33,8 +33,10 @@ Future<StockPurchaseInput?> promptStockPurchase(
   );
 }
 
-/// "Dispose" — writes off units of a bulk asset. Returns `(quantity, reason)`
-/// or null. Reason is required.
+/// "Dispose" — permanently writes off units of a bulk asset that are
+/// currently set aside as backup. Returns `(quantity, reason)` or null.
+/// Reason is required. Only offered from the Backup Items screen — units
+/// must be moved to backup first (see [promptStockBackup]).
 Future<({int quantity, String reason})?> promptStockDisposal(
   BuildContext context,
   AssetItem asset,
@@ -57,15 +59,33 @@ Future<({int quantity, String? note})?> promptStockRestore(
   );
 }
 
-/// "Correct count" — sets a bulk asset's on-hand total to a physical count.
-/// Returns `(newTotal, reason)` or null. Reason is required.
-Future<({int newTotal, String reason})?> promptStockAdjust(
+/// "Move to backup" — sets aside units of a bulk asset as backup, the bulk
+/// counterpart to an individual asset's "Move to backup". Returns
+/// `(quantity, reason)` or null. Reason is required. Shown on the asset
+/// detail screen; reactivating or disposing of the backed-up units happens
+/// from the Backup Items screen instead (see [promptStockReactivate] /
+/// [promptStockDisposal]).
+Future<({int quantity, String reason})?> promptStockBackup(
   BuildContext context,
   AssetItem asset,
 ) {
-  return showDialog<({int newTotal, String reason})>(
+  return showDialog<({int quantity, String reason})>(
     context: context,
-    builder: (_) => _StockAdjustDialog(asset: asset),
+    builder: (_) => _StockBackupDialog(asset: asset),
+  );
+}
+
+/// "Move to active" — moves backed-up units of a bulk asset back into
+/// available stock. Returns `(quantity, reason)` or null. Reason is
+/// required, mirroring the individual-asset "Move to active" flow. Only
+/// offered from the Backup Items screen.
+Future<({int quantity, String reason})?> promptStockReactivate(
+  BuildContext context,
+  AssetItem asset,
+) {
+  return showDialog<({int quantity, String reason})>(
+    context: context,
+    builder: (_) => _StockReactivateDialog(asset: asset),
   );
 }
 
@@ -327,11 +347,10 @@ class _StockDisposalDialogState extends State<_StockDisposalDialog> {
     super.dispose();
   }
 
-  /// Everything owned that isn't out on loan can be disposed — available
-  /// stock plus units set aside damaged (damaged ones go first).
-  int get _disposable =>
-      (widget.asset.quantityTotal ?? 0) - widget.asset.quantityOut;
-  int get _damaged => widget.asset.quantityDamaged;
+  /// Only units already set aside as backup can be disposed — dispose is
+  /// only reachable from the Backup Items screen, and backup units get
+  /// there via "Move to backup" on the asset detail screen first.
+  int get _disposable => widget.asset.quantityBackup;
 
   int? get _quantity {
     final q = int.tryParse(_qty.text.trim());
@@ -342,10 +361,6 @@ class _StockDisposalDialogState extends State<_StockDisposalDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final breakdown = _damaged > 0
-        ? '$_disposable can be disposed of ($_damaged set aside damaged, '
-              '${widget.asset.quantityAvailable} available). Damaged units go first.'
-        : '$_disposable available to dispose of.';
     return _DialogShell(
       icon: Icons.delete_sweep_outlined,
       iconBg: AppTheme.redTint,
@@ -364,8 +379,8 @@ class _StockDisposalDialogState extends State<_StockDisposalDialog> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Write off units of "${widget.asset.name}" that are gone for good. '
-            '$breakdown This is kept in the permanent disposal log.',
+            'Write off backed-up units of "${widget.asset.name}" that are gone for good. '
+            '$_disposable in backup can be disposed of. This is kept in the permanent disposal log.',
             style: const TextStyle(
               color: AppTheme.muted,
               fontSize: 13,
@@ -492,49 +507,54 @@ class _StockRestoreDialogState extends State<_StockRestoreDialog> {
   }
 }
 
-class _StockAdjustDialog extends StatefulWidget {
-  const _StockAdjustDialog({required this.asset});
+class _StockBackupDialog extends StatefulWidget {
+  const _StockBackupDialog({required this.asset});
 
   final AssetItem asset;
 
   @override
-  State<_StockAdjustDialog> createState() => _StockAdjustDialogState();
+  State<_StockBackupDialog> createState() => _StockBackupDialogState();
 }
 
-class _StockAdjustDialogState extends State<_StockAdjustDialog> {
-  late final _total = TextEditingController(
-    text: (widget.asset.quantityTotal ?? 0).toString(),
-  );
+class _StockBackupDialogState extends State<_StockBackupDialog> {
+  final _qty = TextEditingController();
   final _reason = TextEditingController();
+
+  static const _presets = [
+    'Obsolete',
+    'Unused',
+    'Set aside for review',
+    'Pending disposal',
+  ];
 
   @override
   void dispose() {
-    _total.dispose();
+    _qty.dispose();
     _reason.dispose();
     super.dispose();
   }
 
-  int get _minTotal => widget.asset.quantityOut + widget.asset.quantityDamaged;
+  int get _available => widget.asset.quantityAvailable;
 
-  int? get _newTotal {
-    final t = int.tryParse(_total.text.trim());
-    return (t != null && t >= _minTotal) ? t : null;
+  int? get _quantity {
+    final q = int.tryParse(_qty.text.trim());
+    return (q != null && q > 0 && q <= _available) ? q : null;
   }
 
-  bool get _valid => _newTotal != null && _reason.text.trim().isNotEmpty;
+  bool get _valid => _quantity != null && _reason.text.trim().isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
     return _DialogShell(
-      icon: Icons.tune_outlined,
+      icon: Icons.archive_outlined,
       iconBg: AppTheme.slateTint,
       iconColor: AppTheme.muted,
-      title: 'Correct the count',
-      confirmLabel: 'Save count',
+      title: 'Move to backup',
+      confirmLabel: 'Move to backup',
       confirmColor: AppTheme.primary,
       onConfirm: _valid
           ? () => Navigator.pop(context, (
-              newTotal: _newTotal!,
+              quantity: _quantity!,
               reason: _reason.text.trim(),
             ))
           : null,
@@ -543,30 +563,130 @@ class _StockAdjustDialogState extends State<_StockAdjustDialog> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Set the on-hand total for "${widget.asset.name}" to a fresh physical '
-            'count. Can\'t go below the $_minTotal unit(s) currently on loan or set '
-            'aside damaged.',
+            'Set aside units of "${widget.asset.name}" as backup — kept out of the '
+            'lendable pool but still owned. $_available available. Reactivate or '
+            'dispose of them from the Backup Items screen.',
             style: const TextStyle(
               color: AppTheme.muted,
               fontSize: 13,
               height: 1.4,
             ),
           ),
-          _fieldLabel('Corrected total'),
+          _fieldLabel('How many units?'),
           TextField(
-            controller: _total,
+            controller: _qty,
             keyboardType: TextInputType.number,
             onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(hintText: 'Counted units'),
+            decoration: InputDecoration(hintText: 'Up to $_available'),
           ),
           _fieldLabel('Reason'),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final p in _presets)
+                _MiniChip(
+                  label: p,
+                  selected: _reason.text.trim() == p,
+                  onTap: () => setState(() {
+                    _reason.text = p;
+                    _reason.selection = TextSelection.fromPosition(
+                      TextPosition(offset: _reason.text.length),
+                    );
+                  }),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
           TextField(
             controller: _reason,
             minLines: 2,
             maxLines: 3,
             onChanged: (_) => setState(() {}),
             decoration: const InputDecoration(
-              hintText: 'Stock-take correction, found extras, ...',
+              hintText: 'Add or edit the reason...',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StockReactivateDialog extends StatefulWidget {
+  const _StockReactivateDialog({required this.asset});
+
+  final AssetItem asset;
+
+  @override
+  State<_StockReactivateDialog> createState() => _StockReactivateDialogState();
+}
+
+class _StockReactivateDialogState extends State<_StockReactivateDialog> {
+  late final _qty = TextEditingController(
+    text: widget.asset.quantityBackup.toString(),
+  );
+  final _reason = TextEditingController();
+
+  @override
+  void dispose() {
+    _qty.dispose();
+    _reason.dispose();
+    super.dispose();
+  }
+
+  int get _backup => widget.asset.quantityBackup;
+
+  int? get _quantity {
+    final q = int.tryParse(_qty.text.trim());
+    return (q != null && q > 0 && q <= _backup) ? q : null;
+  }
+
+  bool get _valid => _quantity != null && _reason.text.trim().isNotEmpty;
+
+  @override
+  Widget build(BuildContext context) {
+    return _DialogShell(
+      icon: Icons.unarchive_outlined,
+      iconBg: AppTheme.mint,
+      iconColor: AppTheme.primary,
+      title: 'Move to active',
+      confirmLabel: 'Move to active',
+      confirmColor: AppTheme.primary,
+      onConfirm: _valid
+          ? () => Navigator.pop(context, (
+              quantity: _quantity!,
+              reason: _reason.text.trim(),
+            ))
+          : null,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$_backup unit(s) of "${widget.asset.name}" are set aside as backup. Move '
+            'some back into available stock.',
+            style: const TextStyle(
+              color: AppTheme.muted,
+              fontSize: 13,
+              height: 1.4,
+            ),
+          ),
+          _fieldLabel('How many units?'),
+          TextField(
+            controller: _qty,
+            keyboardType: TextInputType.number,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(hintText: 'Up to $_backup'),
+          ),
+          _fieldLabel('Why is it going back into service?'),
+          TextField(
+            controller: _reason,
+            minLines: 2,
+            maxLines: 3,
+            onChanged: (_) => setState(() {}),
+            decoration: const InputDecoration(
+              hintText: 'Needed for use, no longer obsolete...',
             ),
           ),
         ],

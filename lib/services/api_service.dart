@@ -509,8 +509,10 @@ class ApiService {
     });
   }
 
-  /// Disposes of [quantity] units of a bulk asset (broken / used up / lost).
+  /// Disposes of [quantity] units of a bulk asset that are currently set
+  /// aside as backup (must be moved there first via [moveStockToBackup]).
   /// [reason] is required and kept in the permanent `bulk_disposals` log.
+  /// Only offered from the Backup Items screen.
   static Future<Map<String, dynamic>> disposeStock({
     required String tagId,
     required int quantity,
@@ -520,6 +522,42 @@ class ApiService {
     return _postStock({
       'tag_id': tagId,
       'action': 'dispose',
+      'quantity': quantity,
+      'reason': reason,
+      if (performedBy != null && performedBy.isNotEmpty) 'performed_by': performedBy,
+    });
+  }
+
+  /// "Move to backup" — sets aside [quantity] currently-available units of a
+  /// bulk asset as backup (the bulk counterpart to an individual asset's
+  /// "Move to backup"). Doesn't touch the owned total. [reason] is required.
+  static Future<Map<String, dynamic>> moveStockToBackup({
+    required String tagId,
+    required int quantity,
+    required String reason,
+    String? performedBy,
+  }) {
+    return _postStock({
+      'tag_id': tagId,
+      'action': 'backup',
+      'quantity': quantity,
+      'reason': reason,
+      if (performedBy != null && performedBy.isNotEmpty) 'performed_by': performedBy,
+    });
+  }
+
+  /// Moves [quantity] units of a bulk asset back from the backup bucket into
+  /// available stock. [reason] is required, same as the individual-asset
+  /// "Move to active" flow. Only offered from the Backup Items screen.
+  static Future<Map<String, dynamic>> reactivateStock({
+    required String tagId,
+    required int quantity,
+    required String reason,
+    String? performedBy,
+  }) {
+    return _postStock({
+      'tag_id': tagId,
+      'action': 'reactivate',
       'quantity': quantity,
       'reason': reason,
       if (performedBy != null && performedBy.isNotEmpty) 'performed_by': performedBy,

@@ -58,7 +58,7 @@ if ($method === 'GET') {
         'c.default_tracking AS category_default_tracking, ' .
         'c.lifespan_years AS category_lifespan_years, ' .
         'a.description, a.status, a.purchase_date, a.image_base64, ' .
-        'a.tracking, a.quantity_total, a.quantity_out, a.quantity_damaged, ' .
+        'a.tracking, a.quantity_total, a.quantity_out, a.quantity_damaged, a.quantity_backup, ' .
         'a.reorder_point, a.home_location, a.custodian, ' .
         'a.last_location, a.last_scanned_at, ' .
         '(SELECT r.asset_condition FROM asset_returns r ' .
@@ -85,6 +85,7 @@ if ($method === 'GET') {
         $row['quantity_total'] = $row['quantity_total'] === null ? null : (int) $row['quantity_total'];
         $row['quantity_out'] = (int) $row['quantity_out'];
         $row['quantity_damaged'] = (int) $row['quantity_damaged'];
+        $row['quantity_backup'] = (int) $row['quantity_backup'];
         $row['reorder_point'] = $row['reorder_point'] === null ? null : (int) $row['reorder_point'];
         $row['overdue_days'] = $row['overdue_days'] === null ? 0 : (int) $row['overdue_days'];
         $rows[] = $row;
@@ -397,7 +398,7 @@ if ($method === 'DELETE') {
     // (no FK to assets, so it outlives this row) before the delete.
     $stmt = $mysqli->prepare(
         'SELECT a.id, a.tag_id, a.name, a.status, a.tracking, a.quantity_total, a.quantity_out, ' .
-        'a.quantity_damaged, c.value AS category ' .
+        'a.quantity_damaged, a.quantity_backup, c.value AS category ' .
         'FROM assets a JOIN categories c ON c.id = a.category_id WHERE a.tag_id = ?'
     );
     $stmt->bind_param('s', $tagId);
@@ -408,7 +409,8 @@ if ($method === 'DELETE') {
     if (($row['tracking'] ?? 'individual') === 'bulk') {
         if ((int) $row['quantity_total'] > 0
             || (int) $row['quantity_out'] > 0
-            || (int) $row['quantity_damaged'] > 0) {
+            || (int) $row['quantity_damaged'] > 0
+            || (int) $row['quantity_backup'] > 0) {
             fail(409, 'Dispose of all remaining stock before removing this bulk item.');
         }
     } elseif (!in_array($row['status'], ['backup', 'maintenance'], true)) {

@@ -378,8 +378,10 @@ class _AppShellState extends State<AppShell> {
     });
   }
 
-  /// Applies the authoritative [StockSummary] from a stock action (Add
-  /// stock / Dispose / Repair / Correct count) to the matching local asset.
+  /// Applies the authoritative [StockSummary] from a stock action (Move to
+  /// backup / Reactivate / Dispose / Repair / Correct count — the last of
+  /// which now runs from the Edit form, see [_editAsset]) to the matching
+  /// local asset.
   void _applyBulkSummary(AssetItem asset, StockSummary summary) {
     final idx = _assets.indexWhere((a) => a.tagId == asset.tagId);
     if (idx < 0) return;
@@ -387,6 +389,7 @@ class _AppShellState extends State<AppShell> {
       final a = _assets[idx];
       a.quantityOut = summary.out;
       a.quantityDamaged = summary.damaged;
+      a.quantityBackup = summary.backup;
       _assets[idx] = _withQuantityTotal(a, summary.total);
     });
   }
@@ -405,6 +408,7 @@ class _AppShellState extends State<AppShell> {
         quantityTotal: total,
         quantityOut: a.quantityOut,
         quantityDamaged: a.quantityDamaged,
+        quantityBackup: a.quantityBackup,
         reorderPoint: a.reorderPoint,
       );
 
@@ -479,13 +483,18 @@ class _AppShellState extends State<AppShell> {
         ),
       );
     }
-    if (result is EditAssetResult) _editAsset(result.asset);
+    if (result is EditAssetResult) _editAsset(result);
   }
 
   /// Persists an edit made through [_openEditAsset], then swaps the updated
   /// asset into the local inventory. The backend records what changed on
-  /// the asset's timeline.
-  Future<void> _editAsset(AssetItem edited) async {
+  /// the asset's timeline. When [result] carries a bulk count correction
+  /// (the old "Correct count" stock action, now part of editing — see
+  /// [EditAssetResult.correctedTotal]), that's saved as a second call to the
+  /// stock ledger's `adjust` action, same as the rest of the app's stock
+  /// actions, so it stays audited there rather than on the asset timeline.
+  Future<void> _editAsset(EditAssetResult result) async {
+    final edited = result.asset;
     final categoryId = _categoryIds[edited.category];
     if (categoryId == null) {
       _showSyncError('Unknown category "${edited.category}" — could not save the asset.');
@@ -501,6 +510,16 @@ class _AppShellState extends State<AppShell> {
         final i = _assets.indexWhere((a) => a.tagId == edited.tagId);
         if (i >= 0) _assets[i] = edited;
       });
+      if (result.correctedTotal != null) {
+        final summary = await ApiService.adjustStock(
+          tagId: edited.tagId,
+          newTotal: result.correctedTotal!,
+          reason: result.countReason!,
+          performedBy: _adminName,
+        );
+        if (!mounted) return;
+        _applyBulkSummary(edited, StockSummary.fromJson(summary));
+      }
     } catch (e) {
       _showSyncError('Could not save the asset: $e');
     }

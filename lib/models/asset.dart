@@ -93,6 +93,7 @@ class AssetItem {
     this.quantityTotal,
     this.quantityOut = 0,
     this.quantityDamaged = 0,
+    this.quantityBackup = 0,
     this.reorderPoint,
     this.lifespanYears,
     this.homeLocation,
@@ -180,6 +181,15 @@ class AssetItem {
   /// reason as [quantityOut].
   int quantityDamaged;
 
+  /// Bulk only: units manually set aside as backup — the bulk counterpart to
+  /// an individual asset's "Backup" status. Distinct from [quantityDamaged]
+  /// (which is only ever set automatically from a loan return). Still owned
+  /// (counts toward [quantityTotal]) while here; only leaves via
+  /// reactivation (back to available) or permanent disposal, both only
+  /// offered from the Backup Items screen. Mutable for the same local-mirror
+  /// reason as [quantityOut].
+  int quantityBackup;
+
   /// Bulk only: low-stock threshold. When available stock falls to or below
   /// this, the asset shows a "Low stock" warning. Null = no threshold set.
   final int? reorderPoint;
@@ -187,11 +197,17 @@ class AssetItem {
   bool get isBulk => tracking == AssetTracking.bulk;
 
   /// Bulk only: units available to borrow right now — owned, minus what's
-  /// on loan, minus what's set aside damaged.
-  int get quantityAvailable => (quantityTotal ?? 0) - quantityOut - quantityDamaged;
+  /// on loan, minus what's set aside damaged, minus what's set aside as
+  /// backup.
+  int get quantityAvailable =>
+      (quantityTotal ?? 0) - quantityOut - quantityDamaged - quantityBackup;
 
   /// Bulk only: whether any units are currently set aside damaged.
   bool get hasDamagedStock => isBulk && quantityDamaged > 0;
+
+  /// Bulk only: whether any units are currently set aside as backup —
+  /// manageable (reactivate / dispose) from the Backup Items screen.
+  bool get hasBackupStock => isBulk && quantityBackup > 0;
 
   /// Bulk only: whether available stock has fallen to or below
   /// [reorderPoint].
@@ -272,6 +288,7 @@ class AssetItem {
         quantityTotal: (json['quantity_total'] as num?)?.toInt(),
         quantityOut: (json['quantity_out'] as num?)?.toInt() ?? 0,
         quantityDamaged: (json['quantity_damaged'] as num?)?.toInt() ?? 0,
+        quantityBackup: (json['quantity_backup'] as num?)?.toInt() ?? 0,
         reorderPoint: (json['reorder_point'] as num?)?.toInt(),
         lifespanYears: (json['category_lifespan_years'] as num?)?.toInt(),
         homeLocation: _str(json['home_location']),
