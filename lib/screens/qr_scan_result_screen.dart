@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/asset.dart';
 import '../theme/app_theme.dart';
+import '../widgets/asset_condition_summary.dart';
 import '../widgets/status_chip.dart';
 
 /// Full-page scan result shown on mobile after a QR code is scanned or a
@@ -212,6 +213,7 @@ class _QrScanResultScreenState extends State<QrScanResultScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              _conditionRow(asset),
               _detailRow('Asset tag ID', asset.tagId, mono: true),
               _detailRow('Category', asset.category),
               _detailRow('Date of purchase', asset.formattedPurchaseDate),
@@ -308,6 +310,32 @@ class _QrScanResultScreenState extends State<QrScanResultScreen> {
               label: Text(_saved ? 'Recorded' : 'Record sighting'),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  /// The "what state is it in" row — the first thing shown in the detail
+  /// card, above even the tag ID, since checking condition without having
+  /// to physically open the box is the point of scanning. See
+  /// [AssetConditionSummary].
+  Widget _conditionRow(AssetItem asset) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Condition',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.darkGreen,
+              letterSpacing: 0.3,
+            ),
+          ),
+          const SizedBox(height: 6),
+          AssetConditionSummary(asset: asset),
         ],
       ),
     );
