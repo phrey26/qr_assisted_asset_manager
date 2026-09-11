@@ -7,6 +7,7 @@ import '../utils/responsive.dart';
 import '../widgets/add_category_dialog.dart';
 import '../widgets/dashboard_overview.dart';
 import '../widgets/page_header.dart';
+import '../widgets/reports_section.dart';
 import '../widgets/select_category_to_delete_dialog.dart';
 import 'add_category_screen.dart';
 import 'select_category_to_delete_screen.dart';
@@ -236,6 +237,17 @@ class CategoriesScreenState extends State<CategoriesScreen> {
                   onOpenInventory: widget.onOpenInventory,
                   onOpenRequests: widget.onOpenRequests,
                 ),
+              ),
+            ),
+          ),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(28, 30, 28, 0),
+          sliver: SliverToBoxAdapter(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxWidth),
+                child: const ReportsSection(),
               ),
             ),
           ),

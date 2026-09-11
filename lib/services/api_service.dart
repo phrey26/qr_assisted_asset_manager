@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 
 import '../models/asset_request.dart';
 import '../models/availability.dart';
+import '../models/report_data.dart';
 
 /// Thrown by [ApiService.login] when the account exists and the password is
 /// correct but the email address hasn't been verified yet. Carries the
@@ -448,6 +449,23 @@ class ApiService {
     }
     final body = jsonDecode(response.body);
     throw Exception(body['error'] ?? 'Failed to load the removal log');
+  }
+
+  /// Fetches the aggregated analytics behind the dashboard's charts
+  /// (`reports.php`) — weekly request/stock trends, current asset status
+  /// breakdown, top borrowed assets, and department demand, all pre-grouped
+  /// server-side (nothing here is computed by walking raw rows in Dart).
+  /// [weeks] bounds how far back the two weekly trends look (default 12).
+  static Future<ReportsBundle> fetchReports({int weeks = 12}) async {
+    final response = await http
+        .get(Uri.parse('$baseUrl/reports.php?weeks=$weeks'))
+        .timeout(_timeout, onTimeout: _timeoutError);
+
+    if (response.statusCode == 200) {
+      return ReportsBundle.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    }
+    final body = jsonDecode(response.body);
+    throw Exception(body['error'] ?? 'Failed to load reports');
   }
 
   /// Fetches a bulk asset's stock state and history from `stock.php` — a
