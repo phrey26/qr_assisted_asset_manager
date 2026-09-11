@@ -189,6 +189,11 @@ class _AssetAssignmentBodyState extends State<_AssetAssignmentBody> {
   bool _isLocked(AssetItem asset) {
     if (widget.preselectedTagIds.contains(asset.tagId)) return false;
     if (asset.isBulk) return _bulkCap(asset) <= 0;
+    // Maintenance / in-stock — filed out of the active, borrowable pool
+    // (see AssetItem.isActiveInventory) and never lendable, regardless of
+    // the loan window. Checked before the window-conflict lookup below so
+    // it can never be reported as "booked"/"already borrowed" instead.
+    if (!asset.isActiveInventory) return true;
     if (asset.status == AssetStatus.inUse) return true;
     // Free right now, but already claimed by another approved request whose
     // dates overlap this one.
@@ -219,6 +224,20 @@ class _AssetAssignmentBodyState extends State<_AssetAssignmentBody> {
   List<AssetItem> get _visible {
     final query = _searchController.text.toLowerCase();
     final list = widget.assets.where((a) {
+      // Maintenance / in-stock assets are filed out of the active,
+      // borrowable pool and can never be lent — they don't belong in a
+      // "pick what to hand out" list at all. Without this they showed up
+      // here locked with "Already borrowed", which was simply false:
+      // nobody has them, they're a backup or awaiting repair. The
+      // preselected exception mirrors [_isLocked]'s own — it can't
+      // actually trigger today (an assigned individual asset is always
+      // 'in_use', never maintenance/in-stock) but keeps this in lockstep
+      // with that method instead of assuming it never will.
+      if (!a.isBulk &&
+          !a.isActiveInventory &&
+          !widget.preselectedTagIds.contains(a.tagId)) {
+        return false;
+      }
       return a.name.toLowerCase().contains(query) ||
           a.tagId.toLowerCase().contains(query) ||
           a.category.toLowerCase().contains(query);
@@ -455,6 +474,9 @@ class _AssetRow extends StatelessWidget {
             '${_conflictNames(avail.conflicts)}';
       }
       return 'Out of stock — nothing available to lend';
+    }
+    if (!asset.isActiveInventory) {
+      return '${asset.status.label} — not part of the active pool, so it can\'t be lent';
     }
     if (avail != null && avail.conflicts.isNotEmpty) {
       return 'Booked for an overlapping period by ${_conflictNames(avail.conflicts)}';
