@@ -142,7 +142,7 @@ class RequestsScreenState extends State<RequestsScreen> {
   String? _loadError;
 
   /// Free-text search box, matching the same pattern already used on
-  /// Inventory/Categories/Stock items/Removed assets — this was the one
+  /// Inventory/Categories/Backup items/Removed assets — this was the one
   /// list screen in the app without one. See [_matchesQuery].
   final searchController = TextEditingController();
 

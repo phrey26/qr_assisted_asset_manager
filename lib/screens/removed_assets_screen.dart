@@ -176,7 +176,7 @@ class _RemovedAssetsScreenState extends State<RemovedAssetsScreen> {
         padding: EdgeInsets.symmetric(vertical: 48),
         child: Center(
           child: Text(
-            'Nothing here.\nAssets you delete from Stock Items are logged here with their reason.',
+            'Nothing here.\nAssets you delete from Backup Items are logged here with their reason.',
             textAlign: TextAlign.center,
             style: TextStyle(color: AppTheme.muted, fontSize: 15, height: 1.5),
           ),

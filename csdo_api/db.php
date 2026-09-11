@@ -34,7 +34,7 @@ $mysqli->set_charset('utf8mb4');
 /**
  * Appends a row to an asset's timeline (see the `asset_events` table and
  * lib/models/asset_event.dart). $eventType is a short slug the app knows how
- * to render: 'added', 'available', 'maintenance', 'in_stock', 'borrowed',
+ * to render: 'added', 'available', 'maintenance', 'backup', 'borrowed',
  * 'returned', 'released'. $detail is optional context (e.g. a request
  * title); $requestId is informational; $performedBy is the acting admin's
  * name (there's no server-side session — every caller sends whatever name

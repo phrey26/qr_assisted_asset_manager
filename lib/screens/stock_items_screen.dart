@@ -13,7 +13,7 @@ import 'removed_assets_screen.dart';
 /// backups kept on hand as spares ([AssetStatus.inStock]) and anything
 /// moved out because it needs repair ([AssetStatus.maintenance]). They're
 /// filed here instead of the main [InventoryScreen] when an asset is added
-/// with the "Stock item" destination, or later via "Move to stock".
+/// with the "Backup item" destination, or later via "Move to backup".
 ///
 /// The screen shares [InventoryScreen]'s asset list (owned by `AppShell`)
 /// and its activate / delete handlers, so an item can be moved back into
@@ -133,7 +133,7 @@ class _StockItemsScreenState extends State<StockItemsScreen> {
           icon: const Icon(Icons.arrow_back),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text('Stock items'),
+        title: const Text('Backup items'),
         actions: [
           IconButton(
             icon: const Icon(Icons.receipt_long_outlined),
@@ -155,7 +155,7 @@ class _StockItemsScreenState extends State<StockItemsScreen> {
                   child: ConstrainedBox(
                     constraints: BoxConstraints(maxWidth: maxWidth),
                     child: PageHeader(
-                      title: 'Stock items',
+                      title: 'Backup items',
                       subtitle: '$totalStock '
                           '${totalStock == 1 ? 'item' : 'items'} held out of active '
                           'inventory — not available to borrow',
@@ -201,9 +201,9 @@ class _StockItemsScreenState extends State<StockItemsScreen> {
                   child: Center(
                     child: Text(
                       totalStock == 0
-                          ? 'Nothing here yet.\nAdd an asset as a "Stock item", or use "Move to stock" '
+                          ? 'Nothing here yet.\nAdd an asset as a "Backup item", or use "Move to backup" '
                               'on an asset in the inventory, to file it here.'
-                          : 'No stock items match your search.',
+                          : 'No backup items match your search.',
                       textAlign: TextAlign.center,
                       style: const TextStyle(color: AppTheme.muted, fontSize: 15),
                     ),

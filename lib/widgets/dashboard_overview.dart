@@ -59,8 +59,8 @@ class DashboardOverview extends StatelessWidget {
   int get _inUseCount =>
       _individualActive.where((a) => a.status == AssetStatus.inUse).length;
 
-  /// Off the active, borrowable pool — Maintenance + In stock — the same
-  /// set [InventoryScreenState._stockCount] shows on the "Stock items"
+  /// Off the active, borrowable pool — Maintenance + Backup — the same
+  /// set [InventoryScreenState._stockCount] shows on the "Backup items"
   /// button.
   int get _offActiveCount => assets.length - _active.length;
 
@@ -122,7 +122,7 @@ class DashboardOverview extends StatelessWidget {
         background: AppTheme.slateTint,
         foreground: AppTheme.muted,
         value: '$_offActiveCount',
-        label: 'Stock / maintenance',
+        label: 'Backup / maintenance',
         onTap: onOpenInventory,
       ),
       _StatTileData(

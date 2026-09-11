@@ -31,7 +31,7 @@ ReportsBundle _sampleBundle() => ReportsBundle.fromJson({
     {'status': 'available', 'count': 12},
     {'status': 'in_use', 'count': 6},
     {'status': 'maintenance', 'count': 2},
-    {'status': 'in_stock', 'count': 4},
+    {'status': 'backup', 'count': 4},
   ],
   'top_assets': [
     {

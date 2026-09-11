@@ -58,7 +58,7 @@ while ($row = $result->fetch_assoc()) {
     } else {
         // An individual asset is either wholly free for the window or not.
         // It must be part of the borrowable pool ('available' or 'in_use';
-        // 'maintenance' / 'in_stock' are filed out) and unclaimed by any
+        // 'maintenance' / 'backup' are filed out) and unclaimed by any
         // overlapping approved request.
         $lendable = in_array($row['status'], ['available', 'in_use'], true);
         $windowFree = ($lendable && $committed === 0) ? 1 : 0;

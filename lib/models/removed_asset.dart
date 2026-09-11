@@ -1,7 +1,7 @@
 import '../models/asset.dart';
 
 /// One entry in the permanent-removal audit log — an asset that was
-/// deleted for good from the Stock Items screen, with the reason the admin
+/// deleted for good from the Backup Items screen, with the reason the admin
 /// gave. Returned by `GET csdo_api/asset_removals.php`.
 class RemovedAsset {
   RemovedAsset({

@@ -8,14 +8,14 @@ import '../utils/responsive.dart';
 /// admin for a reason that gets recorded.
 enum AssetRemovalMode {
   /// From the active inventory: the asset isn't deleted, just moved to the
-  /// "Stock items" list. Recorded on the asset's timeline. If the admin
+  /// "Backup items" list. Recorded on the asset's timeline. If the admin
   /// says it needs repair, it's filed under "Maintenance" instead of plain
-  /// "In stock" (see [AssetRemovalChoice.needsMaintenance]).
+  /// "Backup" (see [AssetRemovalChoice.needsMaintenance]).
   retireToStock,
 
-  /// From the "Stock items" list: the asset row is permanently deleted.
+  /// From the "Backup items" list: the asset row is permanently deleted.
   /// Recorded in the `asset_removals` audit log. Only possible once the
-  /// asset has already been moved to stock.
+  /// asset has already been moved to backup.
   delete,
 }
 
@@ -31,7 +31,8 @@ class AssetRemovalChoice {
 
   /// [AssetRemovalMode.retireToStock] only: the admin ticked "needs
   /// repair", so the asset should be filed under [AssetStatus.maintenance]
-  /// rather than [AssetStatus.inStock]. Always false for a delete.
+  /// rather than [AssetStatus.inStock] ("Backup"). Always false for a
+  /// delete.
   final bool needsMaintenance;
 }
 
@@ -39,7 +40,7 @@ class AssetRemovalChoice {
 /// Returns the choice on confirm, or null if they cancelled.
 ///
 /// [mode] chooses the copy and styling: [AssetRemovalMode.retireToStock] is
-/// a neutral "move to stock", [AssetRemovalMode.delete] is a red,
+/// a neutral "move to backup", [AssetRemovalMode.delete] is a red,
 /// irreversible "delete permanently".
 Future<AssetRemovalChoice?> promptAssetRemoval(
   BuildContext context,
@@ -53,9 +54,9 @@ Future<AssetRemovalChoice?> promptAssetRemoval(
 }
 
 /// Prompts the admin for the reason an asset is being put back into the
-/// active, borrowable inventory from "Stock items". Returns the trimmed
+/// active, borrowable inventory from "Backup items". Returns the trimmed
 /// reason on confirm, or null if they cancelled. Mirrors [promptAssetRemoval]
-/// so moving an asset in and out of stock feels symmetric.
+/// so moving an asset in and out of backup feels symmetric.
 Future<String?> promptAssetActivation(BuildContext context, AssetItem asset) {
   return showDialog<String>(
     context: context,
@@ -76,14 +77,14 @@ class _AssetRemovalDialog extends StatefulWidget {
 class _AssetRemovalDialogState extends State<_AssetRemovalDialog> {
   final _controller = TextEditingController();
 
-  /// retire-to-stock only: whether to file the asset under "Maintenance"
-  /// rather than plain "In stock". Ticked automatically by the "Needs
+  /// retire-to-backup only: whether to file the asset under "Maintenance"
+  /// rather than plain "Backup". Ticked automatically by the "Needs
   /// repair" preset, but the admin can toggle it by hand too.
   bool _needsMaintenance = false;
 
   bool get _isDelete => widget.mode == AssetRemovalMode.delete;
 
-  /// The preset that, when chosen, means the asset is going to stock
+  /// The preset that, when chosen, means the asset is going to backup
   /// because it needs fixing — so it should land in "Maintenance".
   static const _repairPreset = 'Needs repair';
 
@@ -144,7 +145,7 @@ class _AssetRemovalDialogState extends State<_AssetRemovalDialog> {
       title: Text(
         _isDelete
             ? 'Delete this asset permanently?'
-            : 'Move this asset to stock?',
+            : 'Move this asset to backup?',
         textAlign: TextAlign.center,
         style: const TextStyle(
           color: AppTheme.darkGreen,
@@ -165,7 +166,7 @@ class _AssetRemovalDialogState extends State<_AssetRemovalDialog> {
                   ? '"${asset.name}" (${asset.tagId}) will be permanently removed. '
                         'This can\'t be undone — the reason below is kept in the removal log.'
                   : '"${asset.name}" (${asset.tagId}) will be taken out of the active '
-                        'inventory and kept in "Stock items". To delete it for good, remove '
+                        'inventory and kept in "Backup items". To delete it for good, remove '
                         'it from there afterwards.',
               style: const TextStyle(
                 color: AppTheme.muted,
@@ -297,7 +298,7 @@ class _AssetRemovalDialogState extends State<_AssetRemovalDialog> {
                       ? 'Delete'
                       : (!_isDelete && _needsMaintenance)
                       ? 'Move to maintenance'
-                      : 'Move to stock',
+                      : 'Move to backup',
                 ),
               ),
             ),

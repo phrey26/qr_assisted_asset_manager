@@ -391,7 +391,7 @@ class ApiService {
   }
 
   /// Permanently deletes an asset. The backend only allows this once the
-  /// asset is a stock item, and requires [reason] — it's written to the
+  /// asset is a backup item, and requires [reason] — it's written to the
   /// `asset_removals` audit log before the row is removed.
   static Future<void> deleteAsset(
     String tagId, {

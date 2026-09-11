@@ -74,14 +74,18 @@ CREATE TABLE IF NOT EXISTS assets (
   name VARCHAR(150) NOT NULL,
   category_id INT NOT NULL,
   description TEXT,
-  -- One of: 'available', 'in_use', 'maintenance', 'in_stock'. Status is
+  -- One of: 'available', 'in_use', 'maintenance', 'backup'. Status is
   -- never hand-picked; it's driven by flows. 'available' <-> 'in_use' is
-  -- the borrow/return cycle. 'in_stock' and 'maintenance' both mean the
-  -- asset has been moved off the borrowable pool via "Move to stock"
+  -- the borrow/return cycle. 'backup' and 'maintenance' both mean the
+  -- asset has been moved off the borrowable pool via "Move to backup"
   -- ('maintenance' when the admin flagged it as needing repair); the app
-  -- lists both on a separate "Stock items" screen, and "Move to active"
+  -- lists both on a separate "Backup items" screen, and "Move to active"
   -- sends them back to 'available'. Plain VARCHAR (no ENUM/CHECK) so the
-  -- app can evolve this set without a migration.
+  -- app can evolve this set without a migration. (Was 'in_stock' — renamed
+  -- to 'backup' so the stored value matches the UI label; the word "stock"
+  -- is reserved for a bulk asset's on-hand quantity, an unrelated concept;
+  -- see stock_movements/stock_purchases below. The backfill for an older
+  -- database is a few lines down, right after this table is created.)
   status VARCHAR(20) NOT NULL DEFAULT 'available',
   purchase_date DATE NOT NULL,
   image_base64 LONGTEXT NULL,
@@ -117,6 +121,10 @@ ALTER TABLE assets
   ADD COLUMN IF NOT EXISTS last_location    VARCHAR(150) NULL,
   ADD COLUMN IF NOT EXISTS last_scanned_at  DATETIME NULL;
 ALTER TABLE assets DROP COLUMN IF EXISTS unit_label;
+-- Renaming the backup status's stored value from 'in_stock' to 'backup' so
+-- it matches the UI label (see the doc comment on `status` above). Safe to
+-- re-run — a second pass finds no 'in_stock' rows left and does nothing.
+UPDATE assets SET status = 'backup' WHERE status = 'in_stock';
 
 CREATE TABLE IF NOT EXISTS requests (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -311,7 +319,7 @@ ALTER TABLE request_assets ADD COLUMN IF NOT EXISTS quantity INT NOT NULL DEFAUL
 
 -- Per-asset timeline / audit log. One row per notable thing that happened
 -- to an asset: 'added', a flow-driven status move ('available' from "Move
--- to active", 'maintenance' / 'in_stock' from "Move to stock"), a
+-- to active", 'maintenance' / 'backup' from "Move to backup"), a
 -- request-driven change ('borrowed', 'returned', 'released' when a loan is
 -- cancelled), an 'edited' (admin changed the asset's details), or a
 -- 'scanned' (an admin scanned it and recorded where they found it —
@@ -335,6 +343,12 @@ CREATE TABLE IF NOT EXISTS asset_events (
 -- NULL for any row written before this column existed, and for any write
 -- path that hasn't been updated yet to send it. Safe to re-run.
 ALTER TABLE asset_events ADD COLUMN IF NOT EXISTS performed_by VARCHAR(150) NULL AFTER request_id;
+-- Same 'in_stock' -> 'backup' rename as `assets.status` above — this table
+-- reuses the status string as its event_type when an asset is moved to
+-- backup (see log_asset_event() in db.php), so existing timeline rows need
+-- the same update or they'll stop matching AssetEventType.inStock in
+-- lib/models/asset_event.dart. Safe to re-run.
+UPDATE asset_events SET event_type = 'backup' WHERE event_type = 'in_stock';
 
 -- A return inspection: recorded when an approved request is marked
 -- 'returned'. Captures the assets' condition, optional notes, and how many
@@ -387,7 +401,7 @@ CREATE TABLE IF NOT EXISTS asset_return_photos (
 -- Audit trail of assets permanently deleted from the system. Deliberately
 -- has NO foreign key to `assets` — the whole point is that this row
 -- outlives the asset it describes. An asset can only be deleted once it's a
--- stock item, and the admin must give a reason; both are captured here.
+-- backup item, and the admin must give a reason; both are captured here.
 -- Safe to re-run.
 CREATE TABLE IF NOT EXISTS asset_removals (
   id INT AUTO_INCREMENT PRIMARY KEY,

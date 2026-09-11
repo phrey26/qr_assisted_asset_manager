@@ -704,7 +704,9 @@ if ($method === 'PUT') {
             foreach ($found as $tag => $asset) {
                 $isBulk = ($asset['tracking'] ?? 'individual') === 'bulk';
                 if (!$isBulk && !in_array($asset['status'], ['available', 'in_use'], true)) {
-                    $statusLabel = $asset['status'] === 'maintenance' ? 'Maintenance' : 'In stock';
+                    // ('backup' is the stored value for the app's "Backup" status —
+                    // see AssetStatus.apiValue in lib/models/asset.dart.)
+                    $statusLabel = $asset['status'] === 'maintenance' ? 'Maintenance' : 'Backup';
                     throw new Exception(
                         "\"{$asset['name']}\" is $statusLabel — not part of the active pool, "
                         . "so it can't be reserved."

@@ -118,8 +118,8 @@ class _AddAssetFormState extends State<AddAssetForm> {
       : widget.existingBulk.first.tagId;
 
   /// Where this asset goes once saved. `false` -> an active asset that can
-  /// be borrowed (status `available`); `true` -> a backup "stock item"
-  /// that's kept off the borrowable pool (status `in_stock`). Defaults to
+  /// be borrowed (status `available`); `true` -> a "backup item" that's
+  /// kept off the borrowable pool (status `backup`). Defaults to
   /// an active asset. Not used for bulk assets.
   bool toStock = false;
 
@@ -650,9 +650,9 @@ class _AddAssetFormState extends State<AddAssetForm> {
   );
 
   /// Two-way selector letting the admin file a new asset either as an
-  /// active, borrowable asset or as a backup "stock item" that stays off
-  /// the borrowable pool. Persisted to the backend via the asset's
-  /// `status` (`available` vs `in_stock`).
+  /// active, borrowable asset or as a "backup item" that stays off the
+  /// borrowable pool. Persisted to the backend via the asset's `status`
+  /// (`available` vs `backup`).
   Widget _destinationSelector() {
     return Row(
       children: [
@@ -670,7 +670,7 @@ class _AddAssetFormState extends State<AddAssetForm> {
           child: _destinationOption(
             selected: toStock,
             icon: Icons.archive_outlined,
-            title: 'Stock item',
+            title: 'Backup item',
             subtitle: 'Backup, not borrowable',
             onTap: () => setState(() => toStock = true),
           ),

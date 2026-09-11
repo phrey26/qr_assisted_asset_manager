@@ -40,7 +40,7 @@ class AssetDetailScreen extends StatefulWidget {
 
   final AssetItem asset;
 
-  /// The signed-in admin's name, sent with the four stock actions below
+  /// The signed-in admin's name, sent with the four bulk-stock actions below
   /// (Add stock / Dispose / Repair / Correct count) for the "who did this"
   /// attribution on the stock ledger — those call `stock.php` directly
   /// from this page rather than through an [AppShell] callback, unlike
@@ -56,21 +56,21 @@ class AssetDetailScreen extends StatefulWidget {
   /// inventory list can be updated without a reload.
   final void Function(StockSummary summary)? onStockChanged;
 
-  /// Invoked with the admin's reason (and, for a retire-to-stock, whether
+  /// Invoked with the admin's reason (and, for a retire-to-backup, whether
   /// it needs maintenance) once the removal dialog is confirmed. What it
-  /// does depends on [removalMode] — retire to stock, or delete
+  /// does depends on [removalMode] — retire to backup, or delete
   /// permanently. When null, no remove action is shown.
   final void Function(String reason, bool needsMaintenance)? onDelete;
 
-  /// Invoked with the admin's reason to move a stock / maintenance asset
+  /// Invoked with the admin's reason to move a backup / maintenance asset
   /// back into the active, borrowable inventory. Wired up only when this
-  /// page is opened from the stock-items list. When null, no "move to
+  /// page is opened from the backup-items list. When null, no "move to
   /// active" action is shown.
   final void Function(String reason)? onActivate;
 
-  /// Whether the remove action on this page retires the asset to stock
+  /// Whether the remove action on this page retires the asset to backup
   /// (opened from the inventory) or permanently deletes it (opened from the
-  /// stock-items list).
+  /// backup-items list).
   final AssetRemovalMode removalMode;
 
   @override
@@ -416,7 +416,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                   _isDeleteMode ? Icons.delete_outline : Icons.archive_outlined,
                   size: 18,
                 ),
-                label: Text(_isDeleteMode ? 'Delete asset' : 'Move to stock'),
+                label: Text(_isDeleteMode ? 'Delete asset' : 'Move to backup'),
                 style: OutlinedButton.styleFrom(
                   foregroundColor:
                       _isDeleteMode ? const Color(0xFFC84040) : AppTheme.primary,
@@ -873,9 +873,9 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     );
   }
 
-  /// Full-width remove button for mobile. In stock-items ("delete") mode it
+  /// Full-width remove button for mobile. In backup-items ("delete") mode it
   /// carries the app's danger styling (red outline, "can't be undone"
-  /// caption); from the inventory it's the calmer "move to stock" action.
+  /// caption); from the inventory it's the calmer "move to backup" action.
   Widget _deleteButton() {
     final danger = _isDeleteMode;
     final color = danger ? const Color(0xFFC84040) : AppTheme.primary;
@@ -887,7 +887,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
           child: OutlinedButton.icon(
             onPressed: _removeAsset,
             icon: Icon(danger ? Icons.delete_outline : Icons.archive_outlined, size: 20),
-            label: Text(danger ? 'Delete asset' : 'Move to stock'),
+            label: Text(danger ? 'Delete asset' : 'Move to backup'),
             style: OutlinedButton.styleFrom(
               foregroundColor: color,
               side: BorderSide(color: color, width: 2),
@@ -900,7 +900,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         Text(
           danger
               ? 'This permanently removes the asset and can\'t be undone.'
-              : 'This moves the asset out of active inventory into stock. '
+              : 'This moves the asset out of active inventory into backup. '
                   'You\'ll be asked why.',
           textAlign: TextAlign.center,
           style: const TextStyle(color: AppTheme.muted, fontSize: 13),
@@ -910,7 +910,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
   }
 
   /// Full-width "move to active" button for mobile — the counterpart to
-  /// [_deleteButton], shown only when this page was opened from the stock
+  /// [_deleteButton], shown only when this page was opened from the backup
   /// list for an asset that isn't in the active inventory.
   Widget _activateButton() {
     return Column(
@@ -1543,7 +1543,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
   }
 
   /// The asset's history — every recorded change (added, borrowed,
-  /// returned, maintenance, moved to stock, …) with its date. Loaded from
+  /// returned, maintenance, moved to backup, …) with its date. Loaded from
   /// `asset_events.php` when the page opens; can be pulled again with the
   /// refresh button in the header.
   Widget _timelineCard({bool desktop = false}) {

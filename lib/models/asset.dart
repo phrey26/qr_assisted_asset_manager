@@ -3,13 +3,14 @@ import 'dart:typed_data';
 
 /// The lifecycle state of an asset.
 ///
-/// Status is driven entirely by the borrow / return / stock flows — it's
+/// Status is driven entirely by the borrow / return / backup flows — it's
 /// never hand-picked from a menu. [available] ⟷ [inUse] is the borrow and
 /// return cycle; [inStock] and [maintenance] both mean the asset has been
-/// moved off the active, borrowable pool (via "Move to stock", with
+/// moved off the active, borrowable pool (via "Move to backup", with
 /// [maintenance] used when the reason was that it needs repair). Both are
-/// listed on the "Stock items" screen and are put back into service with
-/// "Move to active".
+/// listed on the "Backup items" screen and are put back into service with
+/// "Move to active". (Not called "stock" in the UI — that word is reserved
+/// for a bulk asset's on-hand quantity, an unrelated concept.)
 enum AssetStatus { available, inUse, maintenance, inStock }
 
 /// How an asset is tracked.
@@ -42,7 +43,7 @@ extension AssetStatusX on AssetStatus {
       case AssetStatus.maintenance:
         return 'Maintenance';
       case AssetStatus.inStock:
-        return 'In stock';
+        return 'Backup';
     }
   }
 
@@ -57,7 +58,7 @@ extension AssetStatusX on AssetStatus {
       case AssetStatus.maintenance:
         return 'maintenance';
       case AssetStatus.inStock:
-        return 'in_stock';
+        return 'backup';
     }
   }
 
@@ -70,7 +71,7 @@ extension AssetStatusX on AssetStatus {
         return AssetStatus.inUse;
       case 'maintenance':
         return AssetStatus.maintenance;
-      case 'in_stock':
+      case 'backup':
         return AssetStatus.inStock;
       default:
         return AssetStatus.available;
@@ -210,14 +211,14 @@ class AssetItem {
   /// an "Overdue" warning badge alongside [isDamaged] / [isPastLifespan].
   bool get isLoanOverdue => overdueDays > 0;
 
-  /// Whether this asset is a backup ("stock") item — kept off the main
-  /// inventory and not available to be borrowed until it's activated.
+  /// Whether this asset is a backup item — kept off the main inventory and
+  /// not available to be borrowed until it's activated.
   bool get isInStock => status.isStock;
 
   /// Whether this asset is part of the active, borrowable inventory —
   /// either [AssetStatus.available] or currently [AssetStatus.inUse].
   /// Everything else ([AssetStatus.inStock] and [AssetStatus.maintenance])
-  /// has been filed out onto the "Stock items" screen. Bulk pools are
+  /// has been filed out onto the "Backup items" screen. Bulk pools are
   /// always active — they carry a level, not a status.
   bool get isActiveInventory =>
       isBulk ||

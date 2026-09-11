@@ -273,7 +273,7 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
-  /// Retires an asset from the active inventory into "Stock items", with the
+  /// Retires an asset from the active inventory into "Backup items", with the
   /// admin's [reason] (recorded on the asset's timeline). This is what the
   /// "remove" affordance on [InventoryScreen] / [AssetDetailScreen] now
   /// does — assets are never deleted straight from the active list. When
@@ -300,7 +300,7 @@ class _AppShellState extends State<AppShell> {
       );
     } catch (e) {
       setState(() => match.status = previousStatus);
-      _showSyncError('Could not move the asset to stock: $e');
+      _showSyncError('Could not move the asset to backup: $e');
     }
   }
 
@@ -326,7 +326,7 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
-  /// Permanently deletes a stock item, with the admin's [reason] (kept in
+  /// Permanently deletes a backup item, with the admin's [reason] (kept in
   /// the backend `asset_removals` log). Only reachable from
   /// [StockItemsScreen] — the backend rejects deleting a non-stock asset.
   Future<void> _deleteAsset(AssetItem asset, String reason) async {

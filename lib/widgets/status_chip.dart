@@ -7,7 +7,7 @@ import '../utils/responsive.dart';
 /// Read-only pill showing an asset's [AssetStatus].
 ///
 /// Status isn't hand-picked anywhere any more — it's driven entirely by the
-/// borrow / return / "Move to stock" / "Move to active" flows — so this is
+/// borrow / return / "Move to backup" / "Move to active" flows — so this is
 /// always just a label.
 class StatusChip extends StatelessWidget {
   const StatusChip({super.key, required this.status});

@@ -188,7 +188,7 @@ if ($method === 'POST') {
             $mysqli,
             (int) $newId,
             'added',
-            $status === 'in_stock' ? 'Added as a stock item' : 'Added to active inventory',
+            $status === 'backup' ? 'Added as a backup item' : 'Added to active inventory',
             null,
             $performedBy
         );
@@ -367,8 +367,8 @@ if ($method === 'PUT') {
     $stmt->close();
 
     // Timeline entry for the change. This endpoint handles the flow-driven
-    // status moves that aren't borrowing: 'in_stock' / 'maintenance' (from
-    // "Move to stock") and 'available' (from "Move to active"). 'in_use' is
+    // status moves that aren't borrowing: 'backup' / 'maintenance' (from
+    // "Move to backup") and 'available' (from "Move to active"). 'in_use' is
     // driven through requests.php instead. The reason, when given, becomes
     // the timeline line's detail.
     $performedBy = trim((string) ($body['performed_by'] ?? '')) ?: null;
@@ -391,7 +391,7 @@ if ($method === 'DELETE') {
     if ($reason === '') fail(400, 'A reason for removal is required.');
 
     // An individual asset can only be permanently deleted once it's been
-    // moved off the active inventory (status 'in_stock' or 'maintenance').
+    // moved off the active inventory (status 'backup' or 'maintenance').
     // A bulk pool can be deleted only once it's been run down to zero
     // (nothing owned, nothing out). The reason is written to asset_removals
     // (no FK to assets, so it outlives this row) before the delete.
@@ -411,8 +411,8 @@ if ($method === 'DELETE') {
             || (int) $row['quantity_damaged'] > 0) {
             fail(409, 'Dispose of all remaining stock before removing this bulk item.');
         }
-    } elseif (!in_array($row['status'], ['in_stock', 'maintenance'], true)) {
-        fail(409, 'Only stock items can be permanently deleted. Move the asset to stock first.');
+    } elseif (!in_array($row['status'], ['backup', 'maintenance'], true)) {
+        fail(409, 'Only backup items can be permanently deleted. Move the asset to backup first.');
     }
 
     $mysqli->begin_transaction();

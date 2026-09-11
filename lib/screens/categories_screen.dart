@@ -332,9 +332,9 @@ class CategoriesScreenState extends State<CategoriesScreen> {
     );
   }
 
-  /// Count of *active* assets in [category]. Backup "stock items" are
-  /// excluded so this matches what the Inventory tab shows when the card
-  /// is tapped (stock items live on their own screen).
+  /// Count of *active* assets in [category]. Backup items are excluded
+  /// so this matches what the Inventory tab shows when the card
+  /// is tapped (backup items live on their own screen).
   int _countFor(String category) {
     return widget.assets
         .where((a) =>
@@ -342,7 +342,7 @@ class CategoriesScreenState extends State<CategoriesScreen> {
         .length;
   }
 
-  /// Count of *all* assets in [category], stock items included. Used by the
+  /// Count of *all* assets in [category], backup items included. Used by the
   /// "delete category" guard, since a category still can't be removed while
   /// any asset (active or backup) references it.
   int _totalCountFor(String category) {

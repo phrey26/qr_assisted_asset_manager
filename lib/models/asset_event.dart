@@ -61,7 +61,7 @@ class AssetEvent {
         return AssetEventType.available;
       case 'maintenance':
         return AssetEventType.maintenance;
-      case 'in_stock':
+      case 'backup':
         return AssetEventType.inStock;
       case 'edited':
         return AssetEventType.edited;
@@ -103,7 +103,7 @@ class AssetEvent {
       case AssetEventType.maintenance:
         return 'Put under maintenance';
       case AssetEventType.inStock:
-        return 'Moved to stock';
+        return 'Moved to backup';
       case AssetEventType.edited:
         return 'Details edited';
       case AssetEventType.scanned:

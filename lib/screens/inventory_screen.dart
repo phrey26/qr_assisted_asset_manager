@@ -35,7 +35,7 @@ extension InventorySortOptionX on InventorySortOption {
 /// Pushes [AssetDetailScreen] for the given asset. Shared by both the
 /// mobile card list and the desktop table so tapping an asset behaves the
 /// same way regardless of layout. [onRetireAsset] is forwarded so the admin
-/// can also retire the asset (to stock, with a reason) from the detail
+/// can also retire the asset (to backup, with a reason) from the detail
 /// page.
 void _openAssetDetail(
   BuildContext context,
@@ -54,7 +54,7 @@ void _openAssetDetail(
         adminName: adminName,
         onEdit: onEditAsset == null ? null : () => onEditAsset(asset),
         // A bulk pool is deleted (once run down to zero), never retired to
-        // stock; an individual asset is retired to stock.
+        // backup; an individual asset is retired to backup.
         removalMode:
             asset.isBulk ? AssetRemovalMode.delete : AssetRemovalMode.retireToStock,
         onDelete: asset.isBulk
@@ -71,7 +71,7 @@ void _openAssetDetail(
   );
 }
 
-/// Asks the admin why the asset is being moved to stock, and only invokes
+/// Asks the admin why the asset is being moved to backup, and only invokes
 /// [onRetireAsset] (with that reason, and whether it needs maintenance) if
 /// they confirm. Shared by the mobile card list and the desktop table.
 Future<void> _confirmAndRetire(
@@ -123,14 +123,14 @@ class InventoryScreen extends StatefulWidget {
   final void Function(AssetItem asset)? onEditAsset;
 
   /// Invoked (with the admin's reason, and whether the asset needs repair —
-  /// which files it under "Maintenance" rather than plain "In stock") to
-  /// retire an asset from the active inventory into "Stock items". This is
+  /// which files it under "Maintenance" rather than plain "Backup") to
+  /// retire an asset from the active inventory into "Backup items". This is
   /// the only "remove" action on this page — assets are never deleted
   /// straight from here. When null, no retire affordance is shown.
   final void Function(AssetItem asset, String reason, bool needsMaintenance)? onRetireAsset;
 
   /// Permanent-delete handler, forwarded to [StockItemsScreen] for
-  /// individual assets (deletable once they're stock items), and used here
+  /// individual assets (deletable once they're backup items), and used here
   /// for bulk pools (deletable once run down to zero).
   final void Function(AssetItem asset, String reason)? onDeleteAsset;
 
@@ -139,7 +139,7 @@ class InventoryScreen extends StatefulWidget {
   /// readouts stay right without a reload.
   final void Function(AssetItem asset, StockSummary summary)? onBulkStockChanged;
 
-  /// Invoked (with the admin's reason) to move a stock / maintenance asset
+  /// Invoked (with the admin's reason) to move a backup / maintenance asset
   /// back into the active, borrowable inventory. Forwarded to
   /// [StockItemsScreen]. Not used directly on this page.
   final void Function(AssetItem asset, String reason)? onActivateAsset;
@@ -179,7 +179,7 @@ class InventoryScreenState extends State<InventoryScreen> {
     searchController.addListener(() => setState(() {}));
   }
 
-  /// Opens the backup "stock items" list. Forwards the activate and delete
+  /// Opens the "backup items" list. Forwards the activate and delete
   /// handlers so an item can be moved back into the main inventory or
   /// removed straight from there.
   Future<void> _openStockItems(BuildContext context) async {
@@ -217,7 +217,7 @@ class InventoryScreenState extends State<InventoryScreen> {
     super.dispose();
   }
 
-  /// Only the active, borrowable assets. "Stock items" — backups, plus
+  /// Only the active, borrowable assets. "Backup items" — backups, plus
   /// anything moved out needing repair (Maintenance) — are kept out of the
   /// main inventory and shown on their own screen instead, see
   /// [StockItemsScreen].
@@ -281,8 +281,8 @@ class InventoryScreenState extends State<InventoryScreen> {
                         icon: const Icon(Icons.archive_outlined, size: 20),
                         label: Text(
                           isDesktop
-                              ? 'Stock items ($_stockCount)'
-                              : 'Stock ($_stockCount)',
+                              ? 'Backup items ($_stockCount)'
+                              : 'Backup ($_stockCount)',
                         ),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: AppTheme.primary,
@@ -381,7 +381,7 @@ class InventoryScreenState extends State<InventoryScreen> {
                 return AssetCard(
                   asset: asset,
                   removeIcon: Icons.archive_outlined,
-                  removeTooltip: 'Move to stock',
+                  removeTooltip: 'Move to backup',
                   removeColor: AppTheme.primary,
                   onTap: () => _openAssetDetail(
                     context,
@@ -392,9 +392,9 @@ class InventoryScreenState extends State<InventoryScreen> {
                     onDeleteAsset: widget.onDeleteAsset,
                     onBulkStockChanged: widget.onBulkStockChanged,
                   ),
-                  // Bulk pools aren't retired to stock — they're managed
+                  // Bulk pools aren't retired to backup — they're managed
                   // from the detail screen. Only individual assets get the
-                  // inline "move to stock" button.
+                  // inline "move to backup" button.
                   onDelete: (asset.isBulk || widget.onRetireAsset == null)
                       ? null
                       : () => _confirmAndRetire(context, asset, widget.onRetireAsset!),
@@ -586,7 +586,7 @@ class _InventoryTable extends StatelessWidget {
                                     _confirmAndRetire(context, asset, onRetireAsset!),
                                 icon: const Icon(Icons.archive_outlined),
                                 color: AppTheme.primary,
-                                tooltip: 'Move to stock',
+                                tooltip: 'Move to backup',
                               ),
                       ),
                   ],

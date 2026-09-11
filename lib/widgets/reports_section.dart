@@ -251,7 +251,7 @@ class _NoDataNote extends StatelessWidget {
 //
 // Covers both request statuses (pending/approved/checked_out/returned/
 // rejected/withdrawn) and asset statuses (available/in_use/maintenance/
-// in_stock) — the two sets don't overlap, so one map serves both charts.
+// backup) — the two sets don't overlap, so one map serves both charts.
 // Both `requests.status` and `assets.status` are plain VARCHAR (no ENUM),
 // so an unrecognized value falls back to a title-cased label and a neutral
 // color instead of throwing.
@@ -276,8 +276,8 @@ String _statusLabel(String raw) {
       return 'In use';
     case 'maintenance':
       return 'Maintenance';
-    case 'in_stock':
-      return 'In stock';
+    case 'backup':
+      return 'Backup';
     default:
       if (raw.isEmpty) return raw;
       return raw[0].toUpperCase() + raw.substring(1).replaceAll('_', ' ');
@@ -304,7 +304,7 @@ Color _statusColor(String raw) {
       return const Color(0xFF9A6512);
     case 'maintenance':
       return const Color(0xFFC84040);
-    case 'in_stock':
+    case 'backup':
       return AppTheme.muted;
     default:
       return AppTheme.primary;
@@ -626,7 +626,7 @@ class _StatusBreakdownCard extends StatelessWidget {
 
   final List<NamedCount> entries;
 
-  static const _order = ['available', 'in_use', 'maintenance', 'in_stock'];
+  static const _order = ['available', 'in_use', 'maintenance', 'backup'];
 
   @override
   Widget build(BuildContext context) {
