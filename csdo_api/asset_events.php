@@ -3,7 +3,7 @@ require __DIR__ . '/db.php';
 
 // The per-asset timeline. GET only: /asset_events.php?tag_id=CSDO-IT-0231
 // Returns the asset's events newest-first, each:
-//   { id, event_type, detail, request_id, created_at }
+//   { id, event_type, detail, request_id, performed_by, created_at }
 // See lib/models/asset_event.dart for how the app renders each event_type.
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
@@ -23,7 +23,7 @@ if (!$asset) fail(404, 'No asset with that tag_id.');
 $assetId = (int) $asset['id'];
 
 $stmt = $mysqli->prepare(
-    'SELECT id, event_type, detail, request_id, created_at ' .
+    'SELECT id, event_type, detail, request_id, performed_by, created_at ' .
     'FROM asset_events WHERE asset_id = ? ORDER BY id DESC'
 );
 $stmt->bind_param('i', $assetId);
@@ -43,12 +43,15 @@ $stmt->close();
 // Assets created before this feature existed have no 'added' row — synthesise
 // one from the asset's created_at (falling back to its purchase date) so the
 // timeline always has a starting point. Appended last since it's the oldest.
+// No performed_by — predates that column entirely, so there's nothing to
+// attribute it to.
 if (!$hasAdded) {
     $events[] = [
         'id' => 0,
         'event_type' => 'added',
         'detail' => null,
         'request_id' => null,
+        'performed_by' => null,
         'created_at' => $asset['created_at'] ?? $asset['purchase_date'],
     ];
 }

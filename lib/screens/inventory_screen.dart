@@ -40,6 +40,7 @@ extension InventorySortOptionX on InventorySortOption {
 void _openAssetDetail(
   BuildContext context,
   AssetItem asset, {
+  String? adminName,
   void Function(AssetItem asset)? onEditAsset,
   void Function(AssetItem asset, String reason, bool needsMaintenance)? onRetireAsset,
   void Function(AssetItem asset, String reason)? onDeleteAsset,
@@ -50,6 +51,7 @@ void _openAssetDetail(
     MaterialPageRoute(
       builder: (_) => AssetDetailScreen(
         asset: asset,
+        adminName: adminName,
         onEdit: onEditAsset == null ? null : () => onEditAsset(asset),
         // A bulk pool is deleted (once run down to zero), never retired to
         // stock; an individual asset is retired to stock.
@@ -86,6 +88,7 @@ class InventoryScreen extends StatefulWidget {
     super.key,
     required this.assets,
     required this.categories,
+    this.adminName,
     this.onAddAsset,
     this.onEditAsset,
     this.onRetireAsset,
@@ -100,6 +103,13 @@ class InventoryScreen extends StatefulWidget {
   /// by [AppShell] and shared with the Categories tab and Add Asset
   /// dropdown, so a category added there immediately shows up here too.
   final List<AssetCategory> categories;
+
+  /// The signed-in admin's name, threaded down to [AssetDetailScreen] (via
+  /// [StockItemsScreen] too) for the "who did this" attribution on stock
+  /// actions taken directly from the detail page. Edit/retire/delete/
+  /// activate go through [AppShell]'s own callbacks instead, which already
+  /// apply this centrally — see `_adminName` in `main.dart`.
+  final String? adminName;
 
   /// Invoked when the user wants to add a new asset. On mobile this is
   /// triggered by the FAB in [AppShell]; on desktop it's also wired to the
@@ -178,6 +188,7 @@ class InventoryScreenState extends State<InventoryScreen> {
       MaterialPageRoute(
         builder: (_) => StockItemsScreen(
           assets: widget.assets,
+          adminName: widget.adminName,
           onDeleteAsset: widget.onDeleteAsset,
           onActivateAsset: widget.onActivateAsset,
         ),
@@ -350,6 +361,7 @@ class InventoryScreenState extends State<InventoryScreen> {
                   constraints: BoxConstraints(maxWidth: maxWidth),
                   child: _InventoryTable(
                     assets: filtered,
+                    adminName: widget.adminName,
                     onEditAsset: widget.onEditAsset,
                     onRetireAsset: widget.onRetireAsset,
                     onDeleteAsset: widget.onDeleteAsset,
@@ -374,6 +386,7 @@ class InventoryScreenState extends State<InventoryScreen> {
                   onTap: () => _openAssetDetail(
                     context,
                     asset,
+                    adminName: widget.adminName,
                     onEditAsset: widget.onEditAsset,
                     onRetireAsset: widget.onRetireAsset,
                     onDeleteAsset: widget.onDeleteAsset,
@@ -450,6 +463,7 @@ class InventoryScreenState extends State<InventoryScreen> {
 class _InventoryTable extends StatelessWidget {
   const _InventoryTable({
     required this.assets,
+    this.adminName,
     this.onEditAsset,
     this.onRetireAsset,
     this.onDeleteAsset,
@@ -457,6 +471,7 @@ class _InventoryTable extends StatelessWidget {
   });
 
   final List<AssetItem> assets;
+  final String? adminName;
   final void Function(AssetItem asset)? onEditAsset;
   final void Function(AssetItem asset, String reason, bool needsMaintenance)? onRetireAsset;
   final void Function(AssetItem asset, String reason)? onDeleteAsset;
@@ -507,6 +522,7 @@ class _InventoryTable extends StatelessWidget {
                   onSelectChanged: (_) => _openAssetDetail(
                     context,
                     asset,
+                    adminName: adminName,
                     onEditAsset: onEditAsset,
                     onRetireAsset: onRetireAsset,
                     onDeleteAsset: onDeleteAsset,

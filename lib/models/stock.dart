@@ -109,6 +109,7 @@ class StockMovement {
     this.balanceAfter,
     this.note,
     this.requestId,
+    this.performedBy,
   });
 
   final int id;
@@ -118,6 +119,10 @@ class StockMovement {
   final String? note;
   final int? requestId;
   final DateTime timestamp;
+
+  /// The admin who made this movement, when known. Null for a row recorded
+  /// before `stock_movements.performed_by` existed.
+  final String? performedBy;
 
   /// "+12" / "−3" for display.
   String get deltaLabel =>
@@ -132,6 +137,9 @@ class StockMovement {
         ? null
         : (json['note'] as String).trim(),
     requestId: (json['request_id'] as num?)?.toInt(),
+    performedBy: (json['performed_by'] as String?)?.trim().isEmpty ?? true
+        ? null
+        : (json['performed_by'] as String).trim(),
     timestamp:
         DateTime.tryParse(json['created_at'] as String? ?? '')?.toLocal() ??
         DateTime.now(),
@@ -146,6 +154,7 @@ class StockPurchase {
     this.supplier,
     this.note,
     this.purchasedAt,
+    this.performedBy,
   });
 
   final int id;
@@ -154,6 +163,10 @@ class StockPurchase {
   final String? note;
   final DateTime? purchasedAt;
   final DateTime createdAt;
+
+  /// The admin who logged this purchase, when known. Null for a row
+  /// recorded before `stock_purchases.performed_by` existed.
+  final String? performedBy;
 
   DateTime get whenObtained => purchasedAt ?? createdAt;
   String get formattedDate => AssetItem.formatDate(whenObtained);
@@ -168,6 +181,9 @@ class StockPurchase {
         ? null
         : (json['note'] as String).trim(),
     purchasedAt: DateTime.tryParse(json['purchased_at'] as String? ?? ''),
+    performedBy: (json['performed_by'] as String?)?.trim().isEmpty ?? true
+        ? null
+        : (json['performed_by'] as String).trim(),
     createdAt:
         DateTime.tryParse(json['created_at'] as String? ?? '')?.toLocal() ??
         DateTime.now(),

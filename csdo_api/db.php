@@ -36,15 +36,26 @@ $mysqli->set_charset('utf8mb4');
  * lib/models/asset_event.dart). $eventType is a short slug the app knows how
  * to render: 'added', 'available', 'maintenance', 'in_stock', 'borrowed',
  * 'returned', 'released'. $detail is optional context (e.g. a request
- * title); $requestId is informational. Best-effort — a logging failure is
- * swallowed so it never breaks the caller.
+ * title); $requestId is informational; $performedBy is the acting admin's
+ * name (there's no server-side session — every caller sends whatever name
+ * the client had, same as `requests.decided_by_name`), null for a caller
+ * that hasn't been updated to send one yet. Best-effort — a logging
+ * failure is swallowed so it never breaks the caller.
  */
-function log_asset_event(mysqli $mysqli, int $assetId, string $eventType, ?string $detail = null, ?int $requestId = null): void {
+function log_asset_event(
+    mysqli $mysqli,
+    int $assetId,
+    string $eventType,
+    ?string $detail = null,
+    ?int $requestId = null,
+    ?string $performedBy = null
+): void {
     $stmt = $mysqli->prepare(
-        'INSERT INTO asset_events (asset_id, event_type, detail, request_id) VALUES (?, ?, ?, ?)'
+        'INSERT INTO asset_events (asset_id, event_type, detail, request_id, performed_by) ' .
+        'VALUES (?, ?, ?, ?, ?)'
     );
     if ($stmt === false) return;
-    $stmt->bind_param('issi', $assetId, $eventType, $detail, $requestId);
+    $stmt->bind_param('issis', $assetId, $eventType, $detail, $requestId, $performedBy);
     @$stmt->execute();
     $stmt->close();
 }
@@ -53,9 +64,10 @@ function log_asset_event(mysqli $mysqli, int $assetId, string $eventType, ?strin
  * Appends a row to a BULK asset's stock ledger (see `stock_movements` and
  * lib/models/stock.dart). $kind is one of: 'purchase', 'lent', 'returned',
  * 'damaged', 'disposed', 'adjusted'. $delta is signed; $balanceAfter is the
- * new quantity_total when this row changed the total (else null). Unlike
- * log_asset_event this is called inside the caller's transaction, so a
- * failure is surfaced, not swallowed.
+ * new quantity_total when this row changed the total (else null);
+ * $performedBy is the acting admin's name, same convention as
+ * log_asset_event's. Unlike log_asset_event this is called inside the
+ * caller's transaction, so a failure is surfaced, not swallowed.
  */
 function log_stock_movement(
     mysqli $mysqli,
@@ -64,14 +76,16 @@ function log_stock_movement(
     int $delta,
     ?int $balanceAfter = null,
     ?string $note = null,
-    ?int $requestId = null
+    ?int $requestId = null,
+    ?string $performedBy = null
 ): void {
     $stmt = $mysqli->prepare(
-        'INSERT INTO stock_movements (asset_id, kind, quantity_delta, balance_after, note, request_id) ' .
-        'VALUES (?, ?, ?, ?, ?, ?)'
+        'INSERT INTO stock_movements ' .
+        '(asset_id, kind, quantity_delta, balance_after, note, request_id, performed_by) ' .
+        'VALUES (?, ?, ?, ?, ?, ?, ?)'
     );
     if ($stmt === false) return;
-    $stmt->bind_param('isiisi', $assetId, $kind, $delta, $balanceAfter, $note, $requestId);
+    $stmt->bind_param('isiisis', $assetId, $kind, $delta, $balanceAfter, $note, $requestId, $performedBy);
     $stmt->execute();
     $stmt->close();
 }

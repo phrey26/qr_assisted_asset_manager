@@ -27,6 +27,7 @@ class AssetEvent {
     this.detail,
     this.rawType,
     this.requestId,
+    this.performedBy,
   });
 
   final AssetEventType type;
@@ -40,6 +41,11 @@ class AssetEvent {
   final String? rawType;
 
   final int? requestId;
+
+  /// The admin who did this, when known. Null for anything recorded before
+  /// `asset_events.performed_by` existed, or from a write path that hasn't
+  /// been updated to send one.
+  final String? performedBy;
 
   static AssetEventType _parseType(String value) {
     switch (value) {
@@ -76,6 +82,7 @@ class AssetEvent {
         rawType: json['event_type'] as String?,
         detail: _cleanDetail(json['detail']),
         requestId: (json['request_id'] as num?)?.toInt(),
+        performedBy: _cleanDetail(json['performed_by']),
         timestamp: DateTime.tryParse(json['created_at'] as String? ?? '')?.toLocal() ??
             DateTime.now(),
       );

@@ -14,8 +14,8 @@ require __DIR__ . '/db.php';
 // at once. `since` restricts to events on or after that date.
 //
 // Returns, newest first:
-//   [ { id, event_type, detail, request_id, created_at, tag_id,
-//       asset_name }, ... ]
+//   [ { id, event_type, detail, request_id, performed_by, created_at,
+//       tag_id, asset_name }, ... ]
 //
 // An asset that's since been permanently deleted drops out of this feed
 // (the join excludes it) — its own history lives in asset_removals.php /
@@ -36,7 +36,7 @@ if ($since !== '') {
     if ($sinceIso === null) fail(400, 'since must be a valid date (YYYY-MM-DD).');
 }
 
-$sql = 'SELECT e.id, e.event_type, e.detail, e.request_id, e.created_at, ' .
+$sql = 'SELECT e.id, e.event_type, e.detail, e.request_id, e.performed_by, e.created_at, ' .
     'a.tag_id, a.name AS asset_name ' .
     'FROM asset_events e JOIN assets a ON a.id = e.asset_id ';
 if ($sinceIso !== null) {

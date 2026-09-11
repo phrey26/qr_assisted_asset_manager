@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qr_assisted_asset_management/main.dart';
 import 'package:qr_assisted_asset_management/models/asset.dart';
+import 'package:qr_assisted_asset_management/models/asset_event.dart';
 import 'package:qr_assisted_asset_management/models/asset_request.dart';
 import 'package:qr_assisted_asset_management/models/asset_return.dart';
 import 'package:qr_assisted_asset_management/models/availability.dart';
+import 'package:qr_assisted_asset_management/models/bulk_disposal.dart';
+import 'package:qr_assisted_asset_management/models/removed_asset.dart';
+import 'package:qr_assisted_asset_management/models/stock.dart';
 import 'package:qr_assisted_asset_management/screens/edit_profile_screen.dart';
 import 'package:qr_assisted_asset_management/screens/login_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -584,5 +588,109 @@ void main() {
     );
     expect(noVenue.matchesSearch('pedro'), isTrue);
     expect(noVenue.matchesSearch('gymnasium'), isFalse);
+  });
+
+  test('AssetEvent, RemovedAsset, BulkDisposal, StockMovement and '
+      'StockPurchase all parse the "who did this" attribution field '
+      "the backend added, and it's null when absent (a legacy row, or a "
+      "write path that hasn't been updated to send one)", () {
+    final withAttribution = AssetEvent.fromJson({
+      'event_type': 'borrowed',
+      'detail': 'ICT week seminar',
+      'request_id': 3,
+      'performed_by': 'Maria Santos',
+      'created_at': '2026-09-15T10:00:00',
+    });
+    expect(withAttribution.performedBy, 'Maria Santos');
+
+    final withoutAttribution = AssetEvent.fromJson({
+      'event_type': 'added',
+      'created_at': '2024-01-01T00:00:00',
+    });
+    expect(withoutAttribution.performedBy, isNull);
+
+    expect(
+      RemovedAsset.fromJson({
+        'id': 1,
+        'tag_id': 'CSDO-IT-0001',
+        'name': 'Old printer',
+        'reason': 'Beyond repair',
+        'removed_by_name': 'Juan Dela Cruz',
+        'removed_at': '2026-01-01T00:00:00',
+      }).removedByName,
+      'Juan Dela Cruz',
+    );
+    expect(
+      RemovedAsset.fromJson({
+        'id': 2,
+        'tag_id': 'CSDO-IT-0002',
+        'name': 'Broken chair',
+        'reason': 'Broken',
+        'removed_at': '2026-01-01T00:00:00',
+      }).removedByName,
+      isNull,
+    );
+
+    expect(
+      BulkDisposal.fromJson({
+        'id': 1,
+        'tag_id': 'CSDO-FN-0001',
+        'name': 'Foldable chairs',
+        'quantity': 5,
+        'reason': 'Water damage',
+        'disposed_by_name': 'Pedro Reyes',
+        'disposed_at': '2026-01-01T00:00:00',
+      }).disposedByName,
+      'Pedro Reyes',
+    );
+    expect(
+      BulkDisposal.fromJson({
+        'id': 2,
+        'tag_id': 'CSDO-FN-0002',
+        'name': 'Markers',
+        'quantity': 3,
+        'reason': 'Used up',
+        'disposed_at': '2026-01-01T00:00:00',
+      }).disposedByName,
+      isNull,
+    );
+
+    expect(
+      StockMovement.fromJson({
+        'id': 1,
+        'kind': 'purchase',
+        'quantity_delta': 20,
+        'performed_by': 'Maria Santos',
+        'created_at': '2026-01-01T00:00:00',
+      }).performedBy,
+      'Maria Santos',
+    );
+    expect(
+      StockMovement.fromJson({
+        'id': 2,
+        'kind': 'lent',
+        'quantity_delta': -5,
+        'created_at': '2026-01-01T00:00:00',
+      }).performedBy,
+      isNull,
+    );
+
+    expect(
+      StockPurchase.fromJson({
+        'id': 1,
+        'quantity': 20,
+        'performed_by': 'Maria Santos',
+        'created_at': '2026-01-01T00:00:00',
+      }).performedBy,
+      'Maria Santos',
+    );
+    expect(
+      StockPurchase.fromJson({
+        'id': 2,
+        'quantity': 10,
+        'created_at': '2026-01-01T00:00:00',
+      }).performedBy,
+      isNull,
+    );
   });
 }

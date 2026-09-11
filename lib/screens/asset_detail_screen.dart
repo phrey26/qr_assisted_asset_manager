@@ -30,6 +30,7 @@ class AssetDetailScreen extends StatefulWidget {
   const AssetDetailScreen({
     super.key,
     required this.asset,
+    this.adminName,
     this.onEdit,
     this.onDelete,
     this.onActivate,
@@ -38,6 +39,13 @@ class AssetDetailScreen extends StatefulWidget {
   });
 
   final AssetItem asset;
+
+  /// The signed-in admin's name, sent with the four stock actions below
+  /// (Add stock / Dispose / Repair / Correct count) for the "who did this"
+  /// attribution on the stock ledger — those call `stock.php` directly
+  /// from this page rather than through an [AppShell] callback, unlike
+  /// edit/retire/delete/activate, so it has to be threaded down explicitly.
+  final String? adminName;
 
   /// Invoked when the admin taps "Edit" — opens the prefilled Add Asset
   /// form in edit mode. When null, no Edit action is shown.
@@ -155,6 +163,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         supplier: input.supplier,
         note: input.note,
         purchasedAt: input.purchasedAt,
+        performedBy: widget.adminName,
       );
       return StockSummary.fromJson(s);
     });
@@ -168,6 +177,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         tagId: widget.asset.tagId,
         quantity: input.quantity,
         reason: input.reason,
+        performedBy: widget.adminName,
       );
       return StockSummary.fromJson(s);
     });
@@ -181,6 +191,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         tagId: widget.asset.tagId,
         quantity: input.quantity,
         note: input.note,
+        performedBy: widget.adminName,
       );
       return StockSummary.fromJson(s);
     });
@@ -194,6 +205,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         tagId: widget.asset.tagId,
         newTotal: input.newTotal,
         reason: input.reason,
+        performedBy: widget.adminName,
       );
       return StockSummary.fromJson(s);
     });
@@ -1766,7 +1778,8 @@ class _LedgerRow extends StatelessWidget {
                   _formatTimestamp(movement.timestamp) +
                       (movement.balanceAfter == null
                           ? ''
-                          : '  ·  ${movement.balanceAfter} on hand'),
+                          : '  ·  ${movement.balanceAfter} on hand') +
+                      (movement.performedBy == null ? '' : '  ·  ${movement.performedBy}'),
                   style: const TextStyle(color: AppTheme.muted, fontSize: 11.5),
                 ),
                 if (movement.note != null && movement.note!.isNotEmpty) ...[

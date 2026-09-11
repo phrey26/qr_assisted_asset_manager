@@ -23,6 +23,7 @@ class StockItemsScreen extends StatefulWidget {
   const StockItemsScreen({
     super.key,
     required this.assets,
+    this.adminName,
     this.onDeleteAsset,
     this.onActivateAsset,
   });
@@ -31,6 +32,11 @@ class StockItemsScreen extends StatefulWidget {
   /// entries that aren't in the active inventory (see
   /// [AssetItem.isActiveInventory]).
   final List<AssetItem> assets;
+
+  /// The signed-in admin's name, forwarded to [AssetDetailScreen] for the
+  /// "who did this" attribution on stock actions taken directly from the
+  /// detail page. See [InventoryScreen.adminName].
+  final String? adminName;
 
   /// Permanently deletes the asset, given the admin's reason. Only offered
   /// here — an asset can't be deleted straight from the active inventory,
@@ -88,6 +94,7 @@ class _StockItemsScreenState extends State<StockItemsScreen> {
       MaterialPageRoute(
         builder: (_) => AssetDetailScreen(
           asset: asset,
+          adminName: widget.adminName,
           removalMode: AssetRemovalMode.delete,
           onDelete: widget.onDeleteAsset == null
               ? null

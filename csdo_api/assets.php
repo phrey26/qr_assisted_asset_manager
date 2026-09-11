@@ -109,6 +109,10 @@ if ($method === 'POST') {
     $tracking = trim($body['tracking'] ?? 'individual');
     if (!in_array($tracking, ['individual', 'bulk'], true)) $tracking = 'individual';
     $isBulk = $tracking === 'bulk';
+    // The acting admin's name, for the timeline / stock ledger — see
+    // log_asset_event()'s doc comment in db.php. Null when the client
+    // didn't send one.
+    $performedBy = trim((string) ($body['performed_by'] ?? '')) ?: null;
     $quantityTotal = $isBulk ? max(0, (int) ($body['quantity_total'] ?? 0)) : null;
     $reorderPoint = isset($body['reorder_point']) && is_numeric($body['reorder_point'])
         ? max(0, (int) $body['reorder_point'])
@@ -166,7 +170,7 @@ if ($method === 'POST') {
     $stmt->close();
 
     if ($isBulk) {
-        log_asset_event($mysqli, (int) $newId, 'added', 'Added as a bulk item');
+        log_asset_event($mysqli, (int) $newId, 'added', 'Added as a bulk item', null, $performedBy);
         if ($quantityTotal > 0) {
             log_stock_movement(
                 $mysqli,
@@ -174,7 +178,9 @@ if ($method === 'POST') {
                 'adjusted',
                 $quantityTotal,
                 $quantityTotal,
-                'Opening stock'
+                'Opening stock',
+                null,
+                $performedBy
             );
         }
     } else {
@@ -182,7 +188,9 @@ if ($method === 'POST') {
             $mysqli,
             (int) $newId,
             'added',
-            $status === 'in_stock' ? 'Added as a stock item' : 'Added to active inventory'
+            $status === 'in_stock' ? 'Added as a stock item' : 'Added to active inventory',
+            null,
+            $performedBy
         );
     }
 
@@ -268,7 +276,8 @@ if ($method === 'PUT') {
             $changed[] = 'reorder point';
         }
         $detail = $changed ? ('Changed ' . implode(', ', $changed)) : 'Edited (no changes)';
-        log_asset_event($mysqli, (int) $assetRow['id'], 'edited', $detail);
+        $performedBy = trim((string) ($body['performed_by'] ?? '')) ?: null;
+        log_asset_event($mysqli, (int) $assetRow['id'], 'edited', $detail, null, $performedBy);
 
         echo json_encode(['message' => 'Asset updated.']);
         exit;
@@ -304,11 +313,14 @@ if ($method === 'PUT') {
         }
         $stmt->close();
 
+        $performedBy = trim((string) ($body['performed_by'] ?? '')) ?: null;
         log_asset_event(
             $mysqli,
             (int) $assetRow['id'],
             'scanned',
-            $location !== '' ? ('Seen at ' . $location) : 'Scanned — location not recorded'
+            $location !== '' ? ('Seen at ' . $location) : 'Scanned — location not recorded',
+            null,
+            $performedBy
         );
 
         echo json_encode([
@@ -359,7 +371,10 @@ if ($method === 'PUT') {
     // "Move to stock") and 'available' (from "Move to active"). 'in_use' is
     // driven through requests.php instead. The reason, when given, becomes
     // the timeline line's detail.
-    log_asset_event($mysqli, (int) $assetRow['id'], $status, $reason !== '' ? $reason : null);
+    $performedBy = trim((string) ($body['performed_by'] ?? '')) ?: null;
+    log_asset_event(
+        $mysqli, (int) $assetRow['id'], $status, $reason !== '' ? $reason : null, null, $performedBy
+    );
 
     echo json_encode(['message' => 'Asset updated.']);
     exit;
@@ -368,6 +383,10 @@ if ($method === 'PUT') {
 if ($method === 'DELETE') {
     $tagId = trim($_GET['tag_id'] ?? '');
     $reason = trim($_GET['reason'] ?? '');
+    // The acting admin's name for the asset_removals audit log — sent as a
+    // query param like tag_id/reason, since DELETE carries no JSON body
+    // here. Null when the client didn't send one.
+    $removedBy = trim((string) ($_GET['removed_by'] ?? '')) ?: null;
     if ($tagId === '') fail(400, 'tag_id query parameter is required.');
     if ($reason === '') fail(400, 'A reason for removal is required.');
 
@@ -399,9 +418,12 @@ if ($method === 'DELETE') {
     $mysqli->begin_transaction();
     try {
         $log = $mysqli->prepare(
-            'INSERT INTO asset_removals (tag_id, name, category, reason) VALUES (?, ?, ?, ?)'
+            'INSERT INTO asset_removals (tag_id, name, category, reason, removed_by_name) ' .
+            'VALUES (?, ?, ?, ?, ?)'
         );
-        $log->bind_param('ssss', $row['tag_id'], $row['name'], $row['category'], $reason);
+        $log->bind_param(
+            'sssss', $row['tag_id'], $row['name'], $row['category'], $reason, $removedBy
+        );
         $log->execute();
         $log->close();
 

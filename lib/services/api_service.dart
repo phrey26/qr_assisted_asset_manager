@@ -336,6 +336,7 @@ class ApiService {
   static Future<({DateTime? at, String? location})> recordSighting({
     required String tagId,
     String? location,
+    String? performedBy,
   }) async {
     final response = await http
         .put(
@@ -345,6 +346,7 @@ class ApiService {
             'action': 'sighting',
             'tag_id': tagId,
             if (location != null && location.isNotEmpty) 'location': location,
+            if (performedBy != null && performedBy.isNotEmpty) 'performed_by': performedBy,
           }),
         )
         .timeout(_timeout, onTimeout: _timeoutError);
@@ -366,6 +368,7 @@ class ApiService {
     required String tagId,
     required String status,
     String? reason,
+    String? performedBy,
   }) async {
     final response = await http
         .put(
@@ -375,6 +378,7 @@ class ApiService {
             'tag_id': tagId,
             'status': status,
             if (reason != null && reason.isNotEmpty) 'reason': reason,
+            if (performedBy != null && performedBy.isNotEmpty) 'performed_by': performedBy,
           }),
         )
         .timeout(_timeout, onTimeout: _timeoutError);
@@ -391,10 +395,12 @@ class ApiService {
   static Future<void> deleteAsset(
     String tagId, {
     required String reason,
+    String? performedBy,
   }) async {
     final uri = Uri.parse(
       '$baseUrl/assets.php?tag_id=${Uri.encodeQueryComponent(tagId)}'
-      '&reason=${Uri.encodeQueryComponent(reason)}',
+      '&reason=${Uri.encodeQueryComponent(reason)}'
+      '${performedBy != null && performedBy.isNotEmpty ? '&removed_by=${Uri.encodeQueryComponent(performedBy)}' : ''}',
     );
     final response = await http
         .delete(uri)
@@ -471,6 +477,7 @@ class ApiService {
     String? supplier,
     String? note,
     String? purchasedAt,
+    String? performedBy,
   }) {
     return _postStock({
       'tag_id': tagId,
@@ -480,6 +487,7 @@ class ApiService {
       if (note != null && note.isNotEmpty) 'note': note,
       if (purchasedAt != null && purchasedAt.isNotEmpty)
         'purchased_at': purchasedAt,
+      if (performedBy != null && performedBy.isNotEmpty) 'performed_by': performedBy,
     });
   }
 
@@ -489,12 +497,14 @@ class ApiService {
     required String tagId,
     required int quantity,
     required String reason,
+    String? performedBy,
   }) {
     return _postStock({
       'tag_id': tagId,
       'action': 'dispose',
       'quantity': quantity,
       'reason': reason,
+      if (performedBy != null && performedBy.isNotEmpty) 'performed_by': performedBy,
     });
   }
 
@@ -504,12 +514,14 @@ class ApiService {
     required String tagId,
     required int quantity,
     String? note,
+    String? performedBy,
   }) {
     return _postStock({
       'tag_id': tagId,
       'action': 'restore',
       'quantity': quantity,
       if (note != null && note.isNotEmpty) 'note': note,
+      if (performedBy != null && performedBy.isNotEmpty) 'performed_by': performedBy,
     });
   }
 
@@ -519,12 +531,14 @@ class ApiService {
     required String tagId,
     required int newTotal,
     required String reason,
+    String? performedBy,
   }) {
     return _postStock({
       'tag_id': tagId,
       'action': 'adjust',
       'new_total': newTotal,
       'reason': reason,
+      if (performedBy != null && performedBy.isNotEmpty) 'performed_by': performedBy,
     });
   }
 

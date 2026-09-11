@@ -63,7 +63,7 @@ if ($method === 'GET') {
 
     $movements = [];
     $stmt = $mysqli->prepare(
-        'SELECT id, kind, quantity_delta, balance_after, note, request_id, created_at ' .
+        'SELECT id, kind, quantity_delta, balance_after, note, request_id, performed_by, created_at ' .
         'FROM stock_movements WHERE asset_id = ? ORDER BY id DESC'
     );
     $stmt->bind_param('i', $asset['id']);
@@ -77,6 +77,7 @@ if ($method === 'GET') {
             'balance_after' => $r['balance_after'] === null ? null : (int) $r['balance_after'],
             'note' => $r['note'],
             'request_id' => $r['request_id'] === null ? null : (int) $r['request_id'],
+            'performed_by' => $r['performed_by'],
             'created_at' => $r['created_at'],
         ];
     }
@@ -84,7 +85,7 @@ if ($method === 'GET') {
 
     $purchases = [];
     $stmt = $mysqli->prepare(
-        'SELECT id, quantity, supplier, note, purchased_at, created_at ' .
+        'SELECT id, quantity, supplier, note, purchased_at, performed_by, created_at ' .
         'FROM stock_purchases WHERE asset_id = ? ORDER BY id DESC'
     );
     $stmt->bind_param('i', $asset['id']);
@@ -97,6 +98,7 @@ if ($method === 'GET') {
             'supplier' => $r['supplier'],
             'note' => $r['note'],
             'purchased_at' => $r['purchased_at'],
+            'performed_by' => $r['performed_by'],
             'created_at' => $r['created_at'],
         ];
     }
@@ -120,6 +122,10 @@ if ($method === 'POST') {
     }
 
     $asset = load_bulk_asset($mysqli, $tagId);
+    // The acting admin's name, for the stock ledger / purchase and
+    // disposal logs — see log_stock_movement()'s doc comment in db.php.
+    // Null when the client didn't send one.
+    $performedBy = trim((string) ($body['performed_by'] ?? '')) ?: null;
 
     $mysqli->begin_transaction();
     try {
@@ -137,15 +143,20 @@ if ($method === 'POST') {
             $upd->close();
 
             $ins = $mysqli->prepare(
-                'INSERT INTO stock_purchases (asset_id, quantity, supplier, note, purchased_at) ' .
-                'VALUES (?, ?, ?, ?, ?)'
+                'INSERT INTO stock_purchases ' .
+                '(asset_id, quantity, supplier, note, purchased_at, performed_by) ' .
+                'VALUES (?, ?, ?, ?, ?, ?)'
             );
-            $ins->bind_param('iisss', $asset['id'], $quantity, $supplier, $note, $purchasedAt);
+            $ins->bind_param(
+                'iissss', $asset['id'], $quantity, $supplier, $note, $purchasedAt, $performedBy
+            );
             $ins->execute();
             $ins->close();
 
             $movementNote = $supplier !== null ? "From $supplier" : $note;
-            log_stock_movement($mysqli, $asset['id'], 'purchase', $quantity, $newTotal, $movementNote);
+            log_stock_movement(
+                $mysqli, $asset['id'], 'purchase', $quantity, $newTotal, $movementNote, null, $performedBy
+            );
 
             $mysqli->commit();
             echo json_encode(['message' => 'Stock added.', 'summary' => stock_summary(
@@ -177,13 +188,18 @@ if ($method === 'POST') {
             $upd->close();
 
             $ins = $mysqli->prepare(
-                'INSERT INTO bulk_disposals (tag_id, name, category, quantity, reason) VALUES (?, ?, ?, ?, ?)'
+                'INSERT INTO bulk_disposals (tag_id, name, category, quantity, reason, disposed_by_name) ' .
+                'VALUES (?, ?, ?, ?, ?, ?)'
             );
-            $ins->bind_param('sssis', $asset['tag_id'], $asset['name'], $asset['category'], $quantity, $reason);
+            $ins->bind_param(
+                'sssiss', $asset['tag_id'], $asset['name'], $asset['category'], $quantity, $reason, $performedBy
+            );
             $ins->execute();
             $ins->close();
 
-            log_stock_movement($mysqli, $asset['id'], 'disposed', -$quantity, $newTotal, $reason);
+            log_stock_movement(
+                $mysqli, $asset['id'], 'disposed', -$quantity, $newTotal, $reason, null, $performedBy
+            );
 
             $mysqli->commit();
             echo json_encode(['message' => 'Stock disposed.', 'summary' => stock_summary(
@@ -206,7 +222,7 @@ if ($method === 'POST') {
             $upd->execute();
             $upd->close();
 
-            log_stock_movement($mysqli, $asset['id'], 'restored', $quantity, null, $note);
+            log_stock_movement($mysqli, $asset['id'], 'restored', $quantity, null, $note, null, $performedBy);
 
             $mysqli->commit();
             echo json_encode(['message' => 'Stock restored.', 'summary' => stock_summary(
@@ -230,7 +246,7 @@ if ($method === 'POST') {
         $upd->execute();
         $upd->close();
 
-        log_stock_movement($mysqli, $asset['id'], 'adjusted', $delta, $newTotal, $reason);
+        log_stock_movement($mysqli, $asset['id'], 'adjusted', $delta, $newTotal, $reason, null, $performedBy);
 
         $mysqli->commit();
         echo json_encode(['message' => 'Count corrected.', 'summary' => stock_summary(

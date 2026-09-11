@@ -247,9 +247,25 @@ class _DisposalTile extends StatelessWidget {
                   ],
                 ),
               ),
-              Text(
-                entry.formattedDate,
-                style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    entry.formattedDate,
+                    style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+                  ),
+                  if (entry.disposedByName != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      'by ${entry.disposedByName}',
+                      style: const TextStyle(
+                        color: AppTheme.muted,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ],
           ),

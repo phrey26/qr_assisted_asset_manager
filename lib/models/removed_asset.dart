@@ -11,6 +11,7 @@ class RemovedAsset {
     required this.reason,
     required this.removedAt,
     this.category,
+    this.removedByName,
   });
 
   final int id;
@@ -19,6 +20,10 @@ class RemovedAsset {
   final String? category;
   final String reason;
   final DateTime removedAt;
+
+  /// The admin who deleted it, when known. Null for a removal recorded
+  /// before `asset_removals.removed_by_name` existed.
+  final String? removedByName;
 
   /// e.g. "Jun 12, 2024" — reuses the app's shared date formatter.
   String get formattedDate => AssetItem.formatDate(removedAt);
@@ -31,6 +36,9 @@ class RemovedAsset {
             ? null
             : json['category'] as String,
         reason: (json['reason'] as String?) ?? '',
+        removedByName: (json['removed_by_name'] as String?)?.trim().isEmpty ?? true
+            ? null
+            : json['removed_by_name'] as String,
         removedAt: DateTime.tryParse(json['removed_at'] as String? ?? '')?.toLocal() ??
             DateTime.now(),
       );

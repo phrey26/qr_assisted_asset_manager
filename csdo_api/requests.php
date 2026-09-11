@@ -90,7 +90,12 @@ function load_request_assets(mysqli $mysqli, array $requestIds): array {
  * runs for both a completed return and a cancelled/rejected approval. Caller
  * owns the transaction. No-op for a request with no bulk lines.
  */
-function restore_bulk_request_assets(mysqli $mysqli, int $requestId, ?string $note): void {
+function restore_bulk_request_assets(
+    mysqli $mysqli,
+    int $requestId,
+    ?string $note,
+    ?string $performedBy = null
+): void {
     $stmt = $mysqli->prepare(
         'SELECT a.id, ra.quantity FROM request_assets ra ' .
         'JOIN assets a ON a.id = ra.asset_id ' .
@@ -112,17 +117,26 @@ function restore_bulk_request_assets(mysqli $mysqli, int $requestId, ?string $no
     foreach ($lines as $line) {
         $upd->bind_param('ii', $line['qty'], $line['id']);
         $upd->execute();
-        log_stock_movement($mysqli, $line['id'], 'returned', -$line['qty'], null, $note, $requestId);
+        log_stock_movement(
+            $mysqli, $line['id'], 'returned', -$line['qty'], null, $note, $requestId, $performedBy
+        );
     }
     $upd->close();
 }
 
-function release_request_assets(mysqli $mysqli, int $requestId, string $eventType, ?string $extraDetail = null): array {
+function release_request_assets(
+    mysqli $mysqli,
+    int $requestId,
+    string $eventType,
+    ?string $extraDetail = null,
+    ?string $performedBy = null
+): array {
     // Bulk pools: hand their lent units back to available stock.
     restore_bulk_request_assets(
         $mysqli,
         $requestId,
-        $eventType === 'returned' ? 'Returned from loan' : 'Loan cancelled'
+        $eventType === 'returned' ? 'Returned from loan' : 'Loan cancelled',
+        $performedBy
     );
 
     // Which assets are actually being freed (still in_use for this request)?
@@ -156,7 +170,7 @@ function release_request_assets(mysqli $mysqli, int $requestId, string $eventTyp
     $upd->close();
 
     foreach ($assetIds as $assetId) {
-        log_asset_event($mysqli, $assetId, $eventType, $detail, $requestId);
+        log_asset_event($mysqli, $assetId, $eventType, $detail, $requestId, $performedBy);
     }
     return $assetIds;
 }
@@ -796,7 +810,9 @@ if ($method === 'PUT') {
                             "Not enough \"{$line['name']}\" in stock to hand out — asked for $qty, $free available."
                         );
                     }
-                    log_stock_movement($mysqli, $assetId, 'lent', $qty, null, $requestTitle, $id);
+                    log_stock_movement(
+                        $mysqli, $assetId, 'lent', $qty, null, $requestTitle, $id, $decidedByName
+                    );
                 } else {
                     $markIndividual->bind_param('i', $assetId);
                     $markIndividual->execute();
@@ -806,7 +822,7 @@ if ($method === 'PUT') {
                             . "to stock or maintenance, or already handed to another loan."
                         );
                     }
-                    log_asset_event($mysqli, $assetId, 'borrowed', $requestTitle, $id);
+                    log_asset_event($mysqli, $assetId, 'borrowed', $requestTitle, $id, $decidedByName);
                 }
             }
             $markIndividual->close();
@@ -828,7 +844,8 @@ if ($method === 'PUT') {
                 $mysqli,
                 $id,
                 'returned',
-                is_array($returnInspection) ? condition_label($conditionSlug) : null
+                is_array($returnInspection) ? condition_label($conditionSlug) : null,
+                $decidedByName
             );
             record_return_inspection($mysqli, $id, $freedIds, $returnInspection);
             // Bulk lines reported damaged/lost on return: set those units
@@ -874,7 +891,8 @@ if ($method === 'PUT') {
                         -$dmg,
                         null,
                         "Returned damaged — set aside from \"$rTitle\"",
-                        $id
+                        $id,
+                        $decidedByName
                     );
                 }
             }

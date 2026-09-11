@@ -110,7 +110,9 @@ class _TimelineRow extends StatelessWidget {
                   ],
                   const SizedBox(height: 3),
                   Text(
-                    timestampLabel,
+                    event.performedBy == null
+                        ? timestampLabel
+                        : '$timestampLabel · ${event.performedBy}',
                     style: const TextStyle(
                       color: AppTheme.muted,
                       fontSize: 12,

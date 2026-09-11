@@ -12,6 +12,7 @@ class BulkDisposal {
     required this.reason,
     required this.disposedAt,
     this.category,
+    this.disposedByName,
   });
 
   final int id;
@@ -21,6 +22,10 @@ class BulkDisposal {
   final int quantity;
   final String reason;
   final DateTime disposedAt;
+
+  /// The admin who disposed of it, when known. Null for a disposal
+  /// recorded before `bulk_disposals.disposed_by_name` existed.
+  final String? disposedByName;
 
   String get formattedDate => AssetItem.formatDate(disposedAt);
 
@@ -33,6 +38,9 @@ class BulkDisposal {
             : json['category'] as String,
         quantity: (json['quantity'] as num?)?.toInt() ?? 0,
         reason: (json['reason'] as String?) ?? '',
+        disposedByName: (json['disposed_by_name'] as String?)?.trim().isEmpty ?? true
+            ? null
+            : json['disposed_by_name'] as String,
         disposedAt: DateTime.tryParse(json['disposed_at'] as String? ?? '')?.toLocal() ??
             DateTime.now(),
       );

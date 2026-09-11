@@ -102,6 +102,13 @@ class _AppShellState extends State<AppShell> {
   // and new-request prefill both stay current.
   late Map<String, dynamic> _user = widget.user;
 
+  /// The signed-in admin's name, for the "who did this" attribution
+  /// recorded on the asset timeline / stock ledger / removal logs — see
+  /// the `performed_by` / `removed_by_name` / `disposed_by_name` columns.
+  /// Same convention [RequestsScreenState._adminName] already uses for the
+  /// request-side routing.
+  String? get _adminName => _user['full_name'] as String?;
+
   // The list of asset categories, shared by the Categories tab (cards),
   // the Inventory tab (filter chips), and the Add Asset form (dropdown).
   // Loaded from the backend in [_loadInitialData]; the built-in categories
@@ -225,7 +232,9 @@ class _AppShellState extends State<AppShell> {
       return;
     }
     try {
-      final body = asset.toJson()..['category_id'] = categoryId;
+      final body = asset.toJson()
+        ..['category_id'] = categoryId
+        ..['performed_by'] = _adminName;
       final created = await ApiService.addAsset(body);
       if (!mounted) return;
       setState(() => _assets.insert(0, asset.copyWith(tagId: created.tagId)));
@@ -287,6 +296,7 @@ class _AppShellState extends State<AppShell> {
         tagId: asset.tagId,
         status: target.apiValue,
         reason: reason,
+        performedBy: _adminName,
       );
     } catch (e) {
       setState(() => match.status = previousStatus);
@@ -308,6 +318,7 @@ class _AppShellState extends State<AppShell> {
         tagId: asset.tagId,
         status: AssetStatus.available.apiValue,
         reason: reason,
+        performedBy: _adminName,
       );
     } catch (e) {
       setState(() => match.status = previousStatus);
@@ -320,7 +331,7 @@ class _AppShellState extends State<AppShell> {
   /// [StockItemsScreen] — the backend rejects deleting a non-stock asset.
   Future<void> _deleteAsset(AssetItem asset, String reason) async {
     try {
-      await ApiService.deleteAsset(asset.tagId, reason: reason);
+      await ApiService.deleteAsset(asset.tagId, reason: reason, performedBy: _adminName);
       if (!mounted) return;
       setState(() => _assets.removeWhere((item) => item.tagId == asset.tagId));
     } catch (e) {
@@ -481,7 +492,9 @@ class _AppShellState extends State<AppShell> {
       return;
     }
     try {
-      final body = edited.editJson()..['category_id'] = categoryId;
+      final body = edited.editJson()
+        ..['category_id'] = categoryId
+        ..['performed_by'] = _adminName;
       await ApiService.updateAsset(body);
       if (!mounted) return;
       setState(() {
@@ -500,6 +513,7 @@ class _AppShellState extends State<AppShell> {
       final res = await ApiService.recordSighting(
         tagId: asset.tagId,
         location: location,
+        performedBy: _adminName,
       );
       if (!mounted) return;
       setState(() {
@@ -527,6 +541,7 @@ class _AppShellState extends State<AppShell> {
         supplier: r.supplier,
         note: r.note,
         purchasedAt: r.purchasedAt,
+        performedBy: _adminName,
       );
       if (!mounted) return;
       final idx = _assets.indexWhere((a) => a.tagId == r.tagId);
@@ -640,6 +655,7 @@ class _AppShellState extends State<AppShell> {
         key: _inventoryKey,
         assets: _assets,
         categories: _categories,
+        adminName: _adminName,
         onAddAsset: _openAddAsset,
         onEditAsset: _openEditAsset,
         onRetireAsset: _retireAssetToStock,
