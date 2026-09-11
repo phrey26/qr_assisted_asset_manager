@@ -75,6 +75,7 @@ class RequestsScreen extends StatefulWidget {
     required this.onApplyAssetStatuses,
     required this.onApplyAssetCondition,
     required this.onApplyBulkOut,
+    this.onCountsChanged,
   });
 
   /// The signed-in user's row from `user` (as returned by
@@ -112,6 +113,14 @@ class RequestsScreen extends StatefulWidget {
   final void Function(Map<String, int> outDeltas, {Map<String, int>? damagedDeltas})
       onApplyBulkOut;
 
+  /// Mirrors this screen's pending/overdue counts (`pendingCount` /
+  /// `overdueCount` on [RequestsScreenState]) up to `AppShell` after every
+  /// rebuild (initial load, an approval, a rejection, a return, a new
+  /// request — any of them can change these), so the Home dashboard can
+  /// show them without a second `fetchRequests()` call. See the wiring in
+  /// `lib/main.dart`.
+  final void Function(int pending, int overdue)? onCountsChanged;
+
   @override
   State<RequestsScreen> createState() => RequestsScreenState();
 }
@@ -120,10 +129,27 @@ class RequestsScreen extends StatefulWidget {
 /// trigger it from the shared circular FAB, the same way it drives
 /// [InventoryScreen]'s "add asset" flow.
 class RequestsScreenState extends State<RequestsScreen> {
+  /// Every chip [_filters] offers, and the only values [setFilter] accepts.
+  /// Shared between the two so they can't drift apart.
+  static const _filterOptions = [
+    'All', 'Pending', 'Approved', 'Checked out', 'Overdue', 'Returned',
+    'Rejected', 'Withdrawn',
+  ];
+
   List<AssetRequest> requests = [];
   String filter = 'All';
   bool _loading = true;
   String? _loadError;
+
+  /// Jumps straight to [value] (one of [_filterOptions]), replacing
+  /// whatever filter was previously selected — the same way
+  /// [InventoryScreenState.setFilter] jumps the Inventory tab to a given
+  /// category. Used by the Home dashboard's "Pending requests" tile and
+  /// "Overdue loans" row. Falls back to 'All' for anything this page
+  /// doesn't recognize.
+  void setFilter(String value) {
+    setState(() => filter = _filterOptions.contains(value) ? value : 'All');
+  }
 
   @override
   void initState() {
@@ -793,6 +819,24 @@ class RequestsScreenState extends State<RequestsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Push the current pending/overdue counts up to AppShell after this
+    // frame, so the Home dashboard can show them without having to
+    // remember every place `requests` can change (a load, an approval, a
+    // rejection, a hand-out, a return, a withdrawal, a new request — any
+    // rebuild ends up here). Deferred for the same reason every other
+    // cross-widget setState in this app is: triggering it synchronously
+    // mid-build throws "setState() or markNeedsBuild() called during
+    // build". AppShell only actually rebuilds when a count changed, so
+    // this settles after at most one extra frame.
+    final onCountsChanged = widget.onCountsChanged;
+    if (onCountsChanged != null) {
+      final pending = pendingCount;
+      final overdue = overdueCount;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) onCountsChanged(pending, overdue);
+      });
+    }
+
     final isDesktop = Responsive.isDesktop(context);
     // Wider than the mobile/card max-width so the desktop table (which has
     // more columns than the inventory table) has room to breathe without
@@ -921,12 +965,8 @@ class RequestsScreenState extends State<RequestsScreen> {
   }
 
   Widget _filters() {
-    const filters = [
-      'All', 'Pending', 'Approved', 'Checked out', 'Overdue', 'Returned',
-      'Rejected', 'Withdrawn',
-    ];
     return FilterChipRow(
-      options: filters,
+      options: _filterOptions,
       selected: filter,
       onSelected: (item) => setState(() => filter = item),
     );

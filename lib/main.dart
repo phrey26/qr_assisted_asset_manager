@@ -118,6 +118,15 @@ class _AppShellState extends State<AppShell> {
   bool _loading = true;
   String? _loadError;
 
+  // Requests awaiting a CSDO decision, and checked-out loans past their
+  // return date — mirrored from RequestsScreen's own list via
+  // [_handleRequestCountsChanged] since AppShell doesn't load requests
+  // itself (see the comment on [_requestsKey] below). Fed into the Home
+  // dashboard ([CategoriesScreen] -> [DashboardOverview]). Both start at 0
+  // until RequestsScreen's first load reports in.
+  int _pendingRequestsCount = 0;
+  int _overdueRequestsCount = 0;
+
   @override
   void initState() {
     super.initState();
@@ -552,6 +561,33 @@ class _AppShellState extends State<AppShell> {
     _setIndex(kTabInventory);
   }
 
+  /// Switches to the Inventory tab. Wired up to the Home dashboard's stat
+  /// tiles and attention rows (see [DashboardOverview]).
+  void _openInventoryTab() => _setIndex(kTabInventory);
+
+  /// Switches to the Requests tab with [filter] already selected (see
+  /// [RequestsScreenState.setFilter]) — 'Pending' or 'Overdue'. Wired up to
+  /// the Home dashboard's "Pending requests" tile and "Overdue loans" row.
+  void _openRequestsTab(String filter) {
+    _requestsKey.currentState?.setFilter(filter);
+    _setIndex(kTabRequests);
+  }
+
+  /// Mirrors RequestsScreen's pending/overdue counts into AppShell state so
+  /// the Home dashboard can show them — RequestsScreen owns the
+  /// authoritative request list (see the comment on [_requestsKey] above)
+  /// and reports these after every one of its own rebuilds, so this fires
+  /// far more often than the counts actually change; the equality check
+  /// keeps that from rebuilding AppShell (and every tab in the
+  /// [IndexedStack] with it) needlessly.
+  void _handleRequestCountsChanged(int pending, int overdue) {
+    if (pending == _pendingRequestsCount && overdue == _overdueRequestsCount) return;
+    setState(() {
+      _pendingRequestsCount = pending;
+      _overdueRequestsCount = overdue;
+    });
+  }
+
   /// Applies the refreshed user returned by [EditProfileScreen] and
   /// re-persists the "stay logged in" session so the next launch shows the
   /// updated details too.
@@ -592,9 +628,13 @@ class _AppShellState extends State<AppShell> {
         key: _categoriesKey,
         assets: _assets,
         categories: _categories,
+        pendingRequestsCount: _pendingRequestsCount,
+        overdueRequestsCount: _overdueRequestsCount,
         onCategoryTap: _openCategoryInInventory,
         onAddCategory: _addCategory,
         onDeleteCategory: _deleteCategory,
+        onOpenInventory: _openInventoryTab,
+        onOpenRequests: _openRequestsTab,
       ),
       InventoryScreen(
         key: _inventoryKey,
@@ -626,6 +666,7 @@ class _AppShellState extends State<AppShell> {
         onApplyAssetStatuses: _applyAssetStatuses,
         onApplyAssetCondition: _applyAssetCondition,
         onApplyBulkOut: _applyBulkOut,
+        onCountsChanged: _handleRequestCountsChanged,
       ),
       ProfileScreen(user: _user, onProfileUpdated: _handleProfileUpdated),
     ];
@@ -838,7 +879,7 @@ class _DesktopSidebar extends StatelessWidget {
   final ValueChanged<int> onChanged;
 
   static const _navItems = [
-    (Icons.grid_view_outlined, Icons.grid_view, 'Categories', kTabHome),
+    (Icons.home_outlined, Icons.home, 'Home', kTabHome),
     (Icons.inventory_2_outlined, Icons.inventory_2, 'Inventory', kTabInventory),
     (Icons.assignment_outlined, Icons.assignment, 'Requests', kTabRequests),
     (Icons.qr_code_scanner, Icons.qr_code_scanner, 'Scanner', kTabScanner),

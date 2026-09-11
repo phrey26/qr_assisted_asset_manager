@@ -5,6 +5,7 @@ import '../models/category.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/add_category_dialog.dart';
+import '../widgets/dashboard_overview.dart';
 import '../widgets/page_header.dart';
 import '../widgets/select_category_to_delete_dialog.dart';
 import 'add_category_screen.dart';
@@ -15,9 +16,13 @@ class CategoriesScreen extends StatefulWidget {
     super.key,
     required this.assets,
     required this.categories,
+    this.pendingRequestsCount = 0,
+    this.overdueRequestsCount = 0,
     this.onCategoryTap,
     this.onAddCategory,
     this.onDeleteCategory,
+    this.onOpenInventory,
+    this.onOpenRequests,
   });
 
   final List<AssetItem> assets;
@@ -26,6 +31,14 @@ class CategoriesScreen extends StatefulWidget {
   /// the Inventory filter chips and Add Asset dropdown, so a category
   /// added here immediately shows up there too.
   final List<AssetCategory> categories;
+
+  /// Requests awaiting a CSDO decision, and checked-out loans past their
+  /// return date. [AppShell] mirrors these down from `RequestsScreen`
+  /// (which owns the authoritative request list) — see the
+  /// `onCountsChanged` wiring in `lib/main.dart`. Fed straight into
+  /// [DashboardOverview]; 0 until the first count arrives.
+  final int pendingRequestsCount;
+  final int overdueRequestsCount;
 
   /// Invoked with the matching Inventory-page filter label (e.g. 'IT
   /// Equipment') when a category card is tapped. [AppShell] uses this to
@@ -50,6 +63,16 @@ class CategoriesScreen extends StatefulWidget {
   /// explanatory message) otherwise, so this never has to reassign or
   /// orphan any asset's category.
   final void Function(AssetCategory category)? onDeleteCategory;
+
+  /// Switches to the Inventory tab — used by the dashboard's stat tiles
+  /// and attention rows. When null, those aren't tappable.
+  final VoidCallback? onOpenInventory;
+
+  /// Switches to the Requests tab with the given filter chip already
+  /// selected ('Pending' or 'Overdue') — used by the dashboard's
+  /// "Pending requests" tile and "Overdue loans" row. When null, those
+  /// aren't tappable.
+  final void Function(String filter)? onOpenRequests;
 
   @override
   State<CategoriesScreen> createState() => CategoriesScreenState();
@@ -150,8 +173,8 @@ class CategoriesScreenState extends State<CategoriesScreen> {
                   children: [
                     const Expanded(
                       child: PageHeader(
-                        title: 'Categories',
-                        subtitle: 'Browse assets by type',
+                        title: 'Home',
+                        subtitle: 'Overview of your inventory and requests',
                         showMark: false,
                       ),
                     ),
@@ -201,7 +224,45 @@ class CategoriesScreenState extends State<CategoriesScreen> {
           ),
         ),
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(28, 28, 28, 26),
+          padding: const EdgeInsets.fromLTRB(28, 30, 28, 0),
+          sliver: SliverToBoxAdapter(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxWidth),
+                child: DashboardOverview(
+                  assets: widget.assets,
+                  pendingRequestsCount: widget.pendingRequestsCount,
+                  overdueRequestsCount: widget.overdueRequestsCount,
+                  onOpenInventory: widget.onOpenInventory,
+                  onOpenRequests: widget.onOpenRequests,
+                ),
+              ),
+            ),
+          ),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(28, 30, 28, 0),
+          sliver: SliverToBoxAdapter(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxWidth),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Browse by category',
+                    style: TextStyle(
+                      fontSize: 18 * Responsive.fontScale(context),
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.darkGreen,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(28, 14, 28, 26),
           sliver: SliverToBoxAdapter(
             child: Center(
               child: ConstrainedBox(
